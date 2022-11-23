@@ -11,7 +11,6 @@ results = []
 page_size = 5
 
 
-BLENDERS_PATH = '..\\blender_processors'
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 bg_scripts_path = os.path.join(dir_path, 'blender_bg_scripts')
@@ -29,7 +28,7 @@ def version_to_float(version):
 
 def get_blender_binary(asset_data):
   # pick the right blender version for asset processing
-  blenders_path = os.path.join(os.path.dirname(__file__), BLENDERS_PATH)
+  blenders_path = os.path.join(os.path.dirname(__file__), paths.BLENDERS_PATH)
   blenders = []
   for fn in os.listdir(blenders_path):
     blenders.append((version_to_float(fn), fn))
@@ -81,7 +80,7 @@ def send_to_bg(asset_data, file_path='', result_path='', api_key='', script=''):
 
   # exclude hdrs from reading as .blend
   if asset_data['assetType'] == 'hdr':
-    fpath = 'empty.blend'
+    file_path = 'empty.blend'
 
   proc = subprocess.run([
     binary_path,
@@ -152,7 +151,7 @@ def generate_resolution_thread(asset_data, api_key):
 
 
   if asset_data['assetType'] == 'hdr':
-    file_path = 'empty.blend'
+    # file_path = 'empty.blend'
     send_to_bg(asset_data, file_path=file_path, result_path=result_path,
                script='resolutions_bg_blender_hdr.py')
   else:
@@ -193,17 +192,15 @@ dpath = tempfile.gettempdir()
 filepath = os.path.join(dpath, 'assets_for_resolutions.json')
 filepath_filtered = os.path.join(dpath, 'assets_for_resolutions_filtered.json')
 params = {
-  'asset_type': 'hdr',
-  # # 'asset_type': 'material,model,hdr',
-  # # 'author_id': 2995,  # monika
-  # # 'author_id': 2,  # vilem
-  # 'order': '-created',
-  # 'verification_status': 'validated',
+  # 'asset_type': 'hdr',
+  'asset_type': 'material,model,hdr',
+  'order': '-created',
+  'verification_status': 'validated',
   # # 'textureResolutionMax_gte': '1024',
   # 'files_size_gte': '1024000',
   #
   # # 'last_resolution_upload_lte': '2021-01-01'
-  # 'last_resolution_upload': '0001-01-01'
+  'last_resolution_upload': '0001-01-01'
 }
 # +last_resolution_upload:0001-01-01+files_size_gte:5000000
 return_assets = 1

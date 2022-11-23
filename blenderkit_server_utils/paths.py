@@ -28,6 +28,7 @@ except:
 SERVER = os.environ.get('BLENDERKIT_SERVER', 'https://www.blenderkit.com')
 API_KEY = os.environ.get('BLENDERKIT_API_KEY', '')
 BLENDERKIT_API = "/api/v1"
+BLENDERS_PATH = os.environ.get('BLENDERS_PATH','..\\blender_processors')
 
 resolutions = {
   'resolution_0_5K': 512,
