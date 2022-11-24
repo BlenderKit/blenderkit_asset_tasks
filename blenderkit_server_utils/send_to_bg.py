@@ -17,7 +17,7 @@ def version_to_float(version):
 
 def get_blender_binary(asset_data):
   # pick the right blender version for asset processing
-  blenders_path = os.path.join(os.path.dirname(__file__), paths.BLENDERS_PATH)
+  blenders_path = paths.BLENDERS_PATH
   blenders = []
   for fn in os.listdir(blenders_path):
     blenders.append((version_to_float(fn), fn))

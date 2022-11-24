@@ -11,7 +11,7 @@ results = []
 page_size = 5
 MAX_ASSETS = 1
 BLENDERKIT_RESOLUTIONS_SEARCH_ID= os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID',None)
-
+BLENDERKIT_CHECK_NEEDS_RESOLUTION = os.environ.get('BLENDERKIT_CHECK_NEEDS_RESOLUTION',1).lower() in ('true', '1', 't')
 
 def check_needs_resolutions(a):
   if a['assetType'] in ('material', 'model', 'scene', 'hdr'):  # a['verificationStatus'] == 'validated' and
@@ -106,7 +106,7 @@ params = {
 }
 
 if BLENDERKIT_RESOLUTIONS_SEARCH_ID is not None:
-  params.update({'asset_base_id':BLENDERKIT_RESOLUTIONS_SEARCH_ID,})
+  params = {'asset_base_id':BLENDERKIT_RESOLUTIONS_SEARCH_ID,}
 # +last_resolution_upload:0001-01-01+files_size_gte:5000000
 print(params)
 
@@ -129,4 +129,4 @@ print('ASSETS TO BE PROCESSED')
 for i, a in enumerate(assets):
   print(a['name'], a['assetType'])
 
-iterate_for_resolutions(filepath, process_count=1, api_key=paths.API_KEY, do_checks=False)
+iterate_for_resolutions(filepath, process_count=1, api_key=paths.API_KEY, do_checks=BLENDERKIT_CHECK_NEEDS_RESOLUTION)

@@ -28,7 +28,7 @@ except:
 SERVER = os.environ.get('BLENDERKIT_SERVER', 'https://www.blenderkit.com')
 API_KEY = os.environ.get('BLENDERKIT_API_KEY', '')
 BLENDERKIT_API = "/api/v1"
-BLENDERS_PATH = os.environ.get('BLENDERS_PATH','..\\blender_processors')
+BLENDERS_PATH = os.environ.get('BLENDERS_PATH','')
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 parent_path = os.path.join(dir_path, os.path.pardir)
