@@ -104,6 +104,26 @@ def upload_resolutions(files, asset_data, api_key = ''):
         print('upload failed.')
 
 
+def patch_individual_parameter(asset_data, parameter = {}, api_key = ''):
+    # changes individual parameter in the parameters dictionary of the assets
+    # gets the asset data from the /assets endpoint to work on the freshest possible data
+    # this still needs to be resolved.
+    url = f"{paths.get_api_url()}/assets/{asset_data['id']}/"
+    headers = utils.get_headers(api_key)
+    # try:
+    r = requests.get(url, headers=headers)  # files = files,
+    asset_data_from_server = r.json()
+    params = asset_data_from_server['parameters']
+    #insert parameter in to the parameters dict
+    param_complex = utils.dict_to_params(parameter)
+    params.update(param_complex)
+
+    metadata_dict = {"parameters": params}
+    print(metadata_dict)
+    r = requests.patch(url, json=metadata_dict, headers=headers, verify=True)  # files = files,
+    print(r.text)
+    print(r.status_code)
+
 def patch_asset_empty(asset_id, api_key):
     '''
         This function patches the asset for the purpose of it getting a reindex.

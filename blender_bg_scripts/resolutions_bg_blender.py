@@ -31,12 +31,13 @@ def generate_lower_resolutions(data):
   s = bpy.context.scene
 
   print('current resolution of the asset ', actres)
+  files = []
+
   if actres > 0:
     p2res = paths.round_to_closest_resolution(actres)
     orig_res = p2res
     print(p2res)
     finished = False
-    files = []
     # now skip assets that have lowest possible resolution already
     if p2res != [0]:
       original_textures_filesize = 0
@@ -109,9 +110,8 @@ def generate_lower_resolutions(data):
           p2res = paths.rkeys[paths.rkeys.index(p2res) - 1]
       print('uploading resolution files')
       print(files)
-      with open(data['result_filepath'], 'w') as f:
-        json.dump(files, f, ensure_ascii=False, indent=4)
-    return
+  with open(data['result_filepath'], 'w') as f:
+    json.dump(files, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":

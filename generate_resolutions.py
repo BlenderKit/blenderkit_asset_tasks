@@ -8,10 +8,12 @@ import threading
 from blenderkit_server_utils import download, search, paths, upload, send_to_bg
 
 results = []
-page_size = 5
+page_size = 100
 MAX_ASSETS = 1
-BLENDERKIT_RESOLUTIONS_SEARCH_ID= os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID',None)
-BLENDERKIT_CHECK_NEEDS_RESOLUTION = os.environ.get('BLENDERKIT_CHECK_NEEDS_RESOLUTION',1).lower() in ('true', '1', 't')
+BLENDERKIT_RESOLUTIONS_SEARCH_ID = os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID', None)
+BLENDERKIT_CHECK_NEEDS_RESOLUTION = os.environ.get('BLENDERKIT_CHECK_NEEDS_RESOLUTION', '1').lower() in (
+'true', '1', 't')
+
 
 def check_needs_resolutions(a):
   if a['assetType'] in ('material', 'model', 'scene', 'hdr'):  # a['verificationStatus'] == 'validated' and
@@ -28,7 +30,12 @@ def check_needs_resolutions(a):
 
 def generate_resolution_thread(asset_data, api_key):
   '''
-  A thread that downloads file, starts an instance of Blender that generates the resolution
+  A thread that:
+   1.downloads file
+   2.starts an instance of Blender that generates the resolutions
+   3.uploads files that were prepared
+   4.patches asset data with a new parameter.
+
   Parameters
   ----------
   asset_data
@@ -39,9 +46,11 @@ def generate_resolution_thread(asset_data, api_key):
   '''
 
   destination_directory = tempfile.gettempdir()
-  print(destination_directory)
+
+  # Download asset
   file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
+  # Unpack asset
   if file_path and asset_data['assetType'] != 'hdr':
     send_to_bg.send_to_bg(asset_data, file_path=file_path, script='unpack_asset_bg.py')
 
@@ -49,21 +58,42 @@ def generate_resolution_thread(asset_data, api_key):
     # fail message?
     return;
 
+  # Send to background to generate resolutions
   tempdir = tempfile.mkdtemp()
   result_path = os.path.join(tempdir, asset_data['assetBaseId'] + '_resdata.json')
 
   if asset_data['assetType'] == 'hdr':
     # file_path = 'empty.blend'
     send_to_bg.send_to_bg(asset_data, file_path=file_path, result_path=result_path,
-               script='resolutions_bg_blender_hdr.py')
+                          script='resolutions_bg_blender_hdr.py')
   else:
     send_to_bg.send_to_bg(asset_data, file_path=file_path, result_path=result_path,
-               script='resolutions_bg_blender.py')
-  with open(result_path, 'r', encoding='utf-8') as f:
-    files = json.load(f)
+                          script='resolutions_bg_blender.py')
 
-  upload.upload_resolutions(files, asset_data, api_key=api_key)
-  upload.patch_asset_empty(asset_data['id'], api_key=api_key)
+  # TODO add writing of the parameter, we'll skip it by now.
+  upload.patch_asset_empty(asset_data['id'], api_key)
+  return
+
+  files = None
+  try:
+    with open(result_path, 'r', encoding='utf-8') as f:
+      files = json.load(f)
+  except Exception as e:
+    print(e)
+
+  if files == None:
+    # this means error
+    result_state = 'error'
+  elif len(files) > 0:
+    # there are no actual resolutions
+    upload.upload_resolutions(files, asset_data, api_key=api_key)
+    result_state = 'success'
+  else:
+    # zero files, consider skipped
+    result_state = 'skipped'
+  print('changing asset variable')
+  resgen_param = {'resolutionsGenerated': result_state}
+  upload.patch_individual_parameter(asset_data, parameter=resgen_param, api_key=api_key)
 
 
 def iterate_for_resolutions(filepath, process_count=12, api_key='', do_checks=True):
@@ -106,7 +136,7 @@ params = {
 }
 
 if BLENDERKIT_RESOLUTIONS_SEARCH_ID is not None:
-  params = {'asset_base_id':BLENDERKIT_RESOLUTIONS_SEARCH_ID,}
+  params = {'asset_base_id': BLENDERKIT_RESOLUTIONS_SEARCH_ID, }
 # +last_resolution_upload:0001-01-01+files_size_gte:5000000
 print(params)
 
