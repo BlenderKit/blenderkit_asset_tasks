@@ -9,10 +9,11 @@ from blenderkit_server_utils import download, search, paths, upload, send_to_bg
 
 results = []
 page_size = 100
-MAX_ASSETS = 1
+
 BLENDERKIT_RESOLUTIONS_SEARCH_ID = os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID', None)
 BLENDERKIT_CHECK_NEEDS_RESOLUTION = os.environ.get('BLENDERKIT_CHECK_NEEDS_RESOLUTION', '1').lower() in (
-'true', '1', 't')
+  'true', '1', 't')
+MAX_ASSETS = int(os.environ.get('BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT', '100'))
 
 
 def check_needs_resolutions(a):
