@@ -12,13 +12,12 @@ page_size = 100
 BLENDERKIT_RESOLUTIONS_SEARCH_ID = os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID', None)
 MAX_ASSETS = int(os.environ.get('BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT', '100'))
 
-
-def generate_resolution_thread(asset_data, api_key):
+def generate_gltf_thread(asset_data, api_key):
   '''
   A thread that:
    1.downloads file
-   2.starts an instance of Blender that generates the resolutions
-   3.uploads files that were prepared
+   2.starts an instance of Blender that generates the GLTF file
+   3.uploads GLTF file
    4.patches asset data with a new parameter.
 
   Parameters
@@ -33,32 +32,22 @@ def generate_resolution_thread(asset_data, api_key):
   destination_directory = tempfile.gettempdir()
 
   # Download asset
-  asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+  asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory, resolution='2k')
 
   # Unpack asset
-  if asset_file_path and asset_data['assetType'] != 'hdr':
-    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py')
+  send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py')
 
   if not asset_file_path:
     # fail message?
     return;
 
-  # Send to background to generate resolutions
+  # Send to background to generate GLTF
   tempdir = tempfile.mkdtemp()
   result_path = os.path.join(tempdir, asset_data['assetBaseId'] + '_resdata.json')
 
-  if asset_data['assetType'] == 'hdr':
-    # asset_file_path = 'empty.blend'
-    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
-                          template_file_path=os.path.join('blend_files', 'empty.blend'),
+  send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
                           result_path=result_path,
-                          script='resolutions_bg_blender_hdr.py')
-  else:
-    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
-                          result_path=result_path,
-                          script='resolutions_bg_blender.py')
-
-
+                          script='gltf_bg_blender.py')
 
   files = None
   try:
@@ -87,6 +76,7 @@ def generate_resolution_thread(asset_data, api_key):
   upload.patch_individual_parameter(asset_data, parameter=resgen_param, api_key=api_key)
 
 
+
 def iterate_assets(filepath, thread_function = None, process_count=12, api_key=''):
   ''' iterate through all assigned assets, check for those which need generation and send them to res gen'''
   assets = search.load_assets_list(filepath)
@@ -103,6 +93,7 @@ def iterate_assets(filepath, thread_function = None, process_count=12, api_key='
             threads.remove(t)
           break;
         time.sleep(0.1) # wait for a bit to finish all threads
+
 def main():
   dpath = tempfile.gettempdir()
   filepath = os.path.join(dpath, 'assets_for_resolutions.json')
@@ -110,14 +101,14 @@ def main():
 
   params = {
     # 'asset_type': 'hdr',
-    'asset_type': 'material,model,hdr',
+    'asset_type': 'model',
     'order': '-created',
     'verification_status': 'validated',
     # # 'textureResolutionMax_gte': '1024',
     'files_size_gte': '1024000',
     #
-    # # 'last_resolution_upload_lte': '2021-01-01'
-    'last_resolution_upload': '0001-01-01'
+    'last_resolution_upload_gte': '2021-01-01'
+    # 'last_resolution_upload': '0001-01-01'
   }
 
   # if BLENDERKIT_RESOLUTIONS_SEARCH_ID was provided, get just a single asset
@@ -131,7 +122,7 @@ def main():
   for i, a in enumerate(assets):
     print(a['name'], a['assetType'])
 
-  iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=generate_resolution_thread)
+  iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=generate_gltf_thread)
 
 if __name__ == '__main__':
   main()
