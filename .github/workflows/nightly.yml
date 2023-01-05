@@ -12,6 +12,10 @@ on:
 
 env:
   BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
+  BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
+  - if: github.event.inputs.BLENDERKIT_SERVER == 'https://devel.blenderkit.com'
+    BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}' #
+    IS_DEVEL: "TRUE"
 
 jobs:
   Checks:
@@ -25,3 +29,5 @@ jobs:
         run: echo $BLENDERKIT_SERVER
       - name: ECHO KEY
         run: echo $BLENDERKIT_API_KEY
+      - name: IS DEVEL
+        run: echo $IS_DEVEL
