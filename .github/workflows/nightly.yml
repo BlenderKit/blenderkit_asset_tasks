@@ -3,6 +3,8 @@ name: nightly
 on:
   schedule:
     - cron: '30 4 * * *'
+  push:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       BLENDERKIT_SERVER:
@@ -25,8 +27,6 @@ jobs:
     container: agajdosi/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
-      - name: install pip
-        run: python3 -m ensurepip --upgrade
       - name: Install requirements
         run: pip3 install -r requirements.txt
       - name: Generate resolutions
