@@ -11,11 +11,12 @@ on:
         type: choice
         options:
         - 'https://devel.blenderkit.com'
-        - 'https://www.blenderkit.com'
+        - 'https://www.blenderkit.com (DO NOT USE NOW, NEED TO HANDLE API_KEY CHANGING)'
 
 env:
   BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
+  BLENDERS_PATH: ''
 
 jobs:
   Checks:
@@ -23,8 +24,12 @@ jobs:
     container: agajdosi/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
-      - name: RUN
+      - name: LS
         run: ls -l
+      - name: PWD
+        run: ls ~
+      - name: PWD
+        run: ls ~/blender
       - name: ECHO
         run: echo $BLENDERKIT_SERVER
       - name: ECHO KEY
