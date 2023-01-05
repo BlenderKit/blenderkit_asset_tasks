@@ -1,0 +1,15 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  Checks:
+    runs-on: ubuntu-latest
+    container: agajdosi/headless-blender:latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: RUN
+        run: ls -l
