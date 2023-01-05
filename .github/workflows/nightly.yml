@@ -27,6 +27,8 @@ jobs:
     container: agajdosi/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
+      - name: Install pip
+        run: sudo apt --fix-broken install pip
       - name: Install requirements
         run: pip3 install -r requirements.txt
       - name: Generate resolutions
