@@ -25,5 +25,7 @@ jobs:
     container: agajdosi/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
+      - name: Check Blenders
+        run: ls /home/headless/blenders
       - name: Generate resolutions
-        run: python generate_resolutions.py
+        run: python3 generate_resolutions.py
