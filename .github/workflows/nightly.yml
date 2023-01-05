@@ -4,6 +4,13 @@ on:
   schedule:
     - cron: '30 4 * * *'
   workflow_dispatch:
+    BLENDERKIT_SERVER:
+      description: 'With which server this runs'
+      required: true
+      default: 'https://devel.blenderkit.com'
+
+env:
+  BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
 
 jobs:
   Checks:
@@ -13,3 +20,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: RUN
         run: ls -l
+      - name: ECHO
+        run: echo $BLENDERKIT_SERVER
+      - name: ECHO KEY
+        run: echo $BLENDERKIT_API_KEY
