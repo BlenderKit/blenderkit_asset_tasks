@@ -27,15 +27,13 @@ jobs:
       - name: PWD
         run: pwd
       - name: LS
-        run: ls /home
+        run: ls /home/headless
       - name: LS
-        run: ls /github
+        run: ls /github/home
       - name: LS
-        run: ls /__e
+        run: ls /github/workflow
       - name: LS
-        run: ls /__t
-      - name: LS
-        run: ls /__w
+        run: ls /__w/blenderkit_asset_tasks
       - name: ECHO
         run: echo $BLENDERKIT_SERVER
       - name: ECHO KEY
