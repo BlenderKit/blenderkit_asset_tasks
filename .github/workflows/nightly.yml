@@ -6,9 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       BLENDERKIT_SERVER:
-        description: 'With which server this runs'
+        description: 'BLENDERKIT_SERVER'
         required: true
-        default: 'https://devel.blenderkit.com'
+        type: choice
+        options:
+        - 'https://devel.blenderkit.com'
+        - 'https://www.blenderkit.com'
 
 env:
   BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
