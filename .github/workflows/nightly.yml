@@ -24,12 +24,18 @@ jobs:
     container: agajdosi/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
-      - name: LS
-        run: ls -l
       - name: PWD
         run: pwd
       - name: LS
-        run: ls /
+        run: ls /home
+      - name: LS
+        run: ls /github
+      - name: LS
+        run: ls /__e
+      - name: LS
+        run: ls /__t
+      - name: LS
+        run: ls /__w
       - name: ECHO
         run: echo $BLENDERKIT_SERVER
       - name: ECHO KEY
