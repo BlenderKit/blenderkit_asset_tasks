@@ -29,7 +29,7 @@ jobs:
       - name: PWD
         run: pwd
       - name: LS
-        ls /
+        run: ls /
       - name: ECHO
         run: echo $BLENDERKIT_SERVER
       - name: ECHO KEY
