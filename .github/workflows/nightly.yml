@@ -4,10 +4,11 @@ on:
   schedule:
     - cron: '30 4 * * *'
   workflow_dispatch:
-    BLENDERKIT_SERVER:
-      description: 'With which server this runs'
-      required: true
-      default: 'https://devel.blenderkit.com'
+    inputs:
+      BLENDERKIT_SERVER:
+        description: 'With which server this runs'
+        required: true
+        default: 'https://devel.blenderkit.com'
 
 env:
   BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
