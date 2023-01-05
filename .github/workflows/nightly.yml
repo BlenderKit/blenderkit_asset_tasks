@@ -27,9 +27,7 @@ jobs:
       - name: LS
         run: ls -l
       - name: PWD
-        run: ls ~
-      - name: PWD
-        run: ls ~/blender
+        run: pwd
       - name: ECHO
         run: echo $BLENDERKIT_SERVER
       - name: ECHO KEY
