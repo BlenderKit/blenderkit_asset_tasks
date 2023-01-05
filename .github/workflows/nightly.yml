@@ -16,7 +16,8 @@ on:
 env:
   BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
-  BLENDERS_PATH: ''
+  BLENDERS_PATH: '/home/headless/blenders'
+  BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT: 100
 
 jobs:
   Checks:
@@ -24,19 +25,5 @@ jobs:
     container: agajdosi/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
-      - name: PWD
-        run: pwd
-      - name: LS
-        run: ls /home/headless
-      - name: LS
-        run: ls /github/home
-      - name: LS
-        run: ls /github/workflow
-      - name: LS
-        run: ls /__w/blenderkit_asset_tasks
-      - name: ECHO
-        run: echo $BLENDERKIT_SERVER
-      - name: ECHO KEY
-        run: echo $BLENDERKIT_API_KEY
-      - name: IS DEVEL
-        run: echo $IS_DEVEL
+      - name: Generate resolutions
+        run: python generate_resolutions.py
