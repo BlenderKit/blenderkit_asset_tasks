@@ -1,4 +1,4 @@
-name: nightly
+name: nightly_gltf
 
 on:
   schedule:
