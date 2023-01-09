@@ -33,7 +33,8 @@ def get_blender_binary(asset_data):
     blender_target = blenders[-1]
 
   print(blender_target)
-  binary = os.path.join(blenders_path, blender_target[1], 'blender.exe')
+  ext = '.exe' if sys.platform == 'win32' else ''
+  binary = os.path.join(blenders_path, blender_target[1], f'blender{ext}')
   print(binary)
   return binary
 
