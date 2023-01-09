@@ -3,8 +3,8 @@ name: nightly_gltf
 on:
   schedule:
     - cron: '30 4 * * *'
-  push:
-    branches: [ main ]
+  #push:
+  #  branches: [ main ]
   workflow_dispatch:
     inputs:
       BLENDERKIT_SERVER:
