@@ -21,7 +21,7 @@ env:
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
   BLENDERS_PATH: '/home/headless/blenders'
   BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT: 1
-  BLENDERKIT_RESOLUTIONS_SEARCH_ID: '910c4531-aa52-4baf-8dff-e0f989075b00'
+  #BLENDERKIT_RESOLUTIONS_SEARCH_ID: '910c4531-aa52-4baf-8dff-e0f989075b00'
 
 
 jobs:
@@ -34,5 +34,5 @@ jobs:
         run: sudo apt-get install python3-pip -y
       - name: Install requirements
         run: pip install -r requirements.txt
-      - name: Generate resolutions
+      - name: Generate GLTF files
         run: python3 generate_gltf.py
