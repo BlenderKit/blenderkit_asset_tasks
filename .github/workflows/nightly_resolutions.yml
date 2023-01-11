@@ -1,0 +1,25 @@
+name: Resolutions - NIGHTLY 
+
+on:
+  schedule:
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+env:
+  BLENDERKIT_SERVER: 'https://www.blenderkit.com'
+  BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
+  BLENDERS_PATH: '/home/headless/blenders'
+  BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT: 1
+
+jobs:
+  RESOLUTIONS:
+    runs-on: ubuntu-latest
+    container: agajdosi/headless-blender:multi-version
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install pip
+        run: sudo apt-get install python3-pip -y
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Generate resolutions
+        run: python3 generate_resolutions.py

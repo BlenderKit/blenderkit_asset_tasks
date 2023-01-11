@@ -1,29 +1,18 @@
-name: nightly
+name: Resolutions - PUSH
 
 on:
-  schedule:
-    - cron: '30 4 * * *'
-  #push:
-  #  branches: [ main ]
+  push:
+    branches: [ main ]
   workflow_dispatch:
-    inputs:
-      BLENDERKIT_SERVER:
-        description: 'BLENDERKIT_SERVER'
-        required: true
-        type: choice
-        options:
-        - 'https://devel.blenderkit.com'
-        - 'https://www.blenderkit.com (DO NOT USE NOW, NEED TO HANDLE API_KEY CHANGING)'
 
 env:
-  #BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
   BLENDERKIT_SERVER: 'https://devel.blenderkit.com'
-  BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
+  BLENDERKIT_API_KEY: '${{ secrets.DEVEL_BLENDERKIT_API_KEY }}'
   BLENDERS_PATH: '/home/headless/blenders'
   BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT: 1
 
 jobs:
-  Checks:
+  RESOLUTIONS:
     runs-on: ubuntu-latest
     container: agajdosi/headless-blender:multi-version
     steps:
