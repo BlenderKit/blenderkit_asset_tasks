@@ -1,8 +1,8 @@
 name: nightly_gltf
 
 on:
-  schedule:
-    - cron: '30 4 * * *'
+#   schedule:
+#     - cron: '30 4 * * *'
   #push:
   #  branches: [ main ]
   workflow_dispatch:
