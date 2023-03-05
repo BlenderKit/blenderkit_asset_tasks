@@ -23,16 +23,17 @@ def generate_resolution_thread(asset_data, api_key):
 
   Parameters
   ----------
-  asset_data
+  asset_data - asset to be processed
+  api_key - api key to be used for the upload
 
   Returns
   -------
 
   '''
-
+  # data gets saved into the default temp directory
   destination_directory = tempfile.gettempdir()
 
-  # Download asset
+  # Download asset into temp directory
   asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
   # Unpack asset
@@ -40,6 +41,8 @@ def generate_resolution_thread(asset_data, api_key):
     send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py')
 
   if not asset_file_path:
+    #this could probably happen when wrong api_key with wrong plan was submitted,
+    # or e.g. a private asset was submitted.
     # fail message?
     return;
 
@@ -49,6 +52,7 @@ def generate_resolution_thread(asset_data, api_key):
 
   if asset_data['assetType'] == 'hdr':
     # asset_file_path = 'empty.blend'
+    # HDRs have a different script, and are open inside an empty blend file.
     send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
                           template_file_path=os.path.join('blend_files', 'empty.blend'),
                           result_path=result_path,
@@ -77,6 +81,7 @@ def generate_resolution_thread(asset_data, api_key):
   else:
     # zero files, consider skipped
     result_state = 'skipped'
+  print(f'result state: {result_state}')
   print('changing asset variable')
   resgen_param = {'resolutionsGenerated': result_state}
 
@@ -108,6 +113,12 @@ def main():
   filepath = os.path.join(dpath, 'assets_for_resolutions.json')
   # search for assets if assets were not provided with these parameters
 
+  #this selects specific assets
+  # only material, model and hdr are supported currently. We can do scenes in future potentially
+  # only validated public assets are processed
+  # only files from a certain size are processed (over 1 MB)
+  # TODO: Fix the parameter last_resolution_upload - currently searches for assets that were never processed,
+  # TODO: but we need to process all updated assets too, and write a specific parameter too
   params = {
     # 'asset_type': 'hdr',
     'asset_type': 'material,model,hdr',

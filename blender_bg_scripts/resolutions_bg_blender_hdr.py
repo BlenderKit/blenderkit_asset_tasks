@@ -12,7 +12,11 @@ sys.path.append(parent_path)
 from blenderkit_server_utils import paths, image_utils
 
 def generate_lower_resolutions(data):
-    '''generates lower resolutions for HDR images'''
+    '''generates lower resolutions for HDR images.
+    1. since an empty .blend was opened, we need to load the HDR image
+    2. then we need to downscale it and save it in the same folder with the suffixes like _2k, _1k, _512
+    3. dumps a json file with the paths to the generated files, so they can be uploaded by the main thread.
+    '''
     asset_data = data['asset_data']
     fpath = data['file_path']
     hdr = bpy.data.images.load(fpath)

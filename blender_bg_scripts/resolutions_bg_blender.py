@@ -15,6 +15,7 @@ from blenderkit_server_utils import paths, image_utils
 
 
 def get_current_resolution():
+  """finds maximum image resolution in the .blend file"""
   actres = 0
   for i in bpy.data.images:
     if i.name != 'Render Result':
@@ -23,6 +24,12 @@ def get_current_resolution():
 
 
 def generate_lower_resolutions(data):
+  '''Generate resolutions.
+  1.get current resolution of the asset
+  2. round it to the closest resolution like 4k, 2k, 1k, 512,
+  3. generate lower resolutions by downscaling the textures and saving in files with suffixes like _2k, _1k, _512
+  4. dumps a json file with the paths to the generated files, so they can be uploaded by the main thread.
+  '''
   asset_data = data['asset_data']
   actres = get_current_resolution()
   # first let's skip procedural assets
@@ -108,7 +115,7 @@ def generate_lower_resolutions(data):
           finished = True
         else:
           p2res = paths.rkeys[paths.rkeys.index(p2res) - 1]
-      print('uploading resolution files')
+      print('prepared resolution files')
       print(files)
   with open(data['result_filepath'], 'w') as f:
     json.dump(files, f, ensure_ascii=False, indent=4)
