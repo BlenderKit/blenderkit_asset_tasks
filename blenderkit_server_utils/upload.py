@@ -103,24 +103,20 @@ def upload_resolutions(files, asset_data, api_key = ''):
     else:
         print('upload failed.')
 
-
-def patch_individual_parameter(asset_data, parameter = {}, api_key = ''):
-    # changes individual parameter in the parameters dictionary of the assets
-    # gets the asset data from the /assets endpoint to work on the freshest possible data
-    # this still needs to be resolved.
-    url = f"{paths.get_api_url()}/assets/{asset_data['id']}/"
+def get_individual_parameter(asset_id='', param_name='', api_key = ''):
+    url = f"{paths.get_api_url()}/assets/{asset_id}/parameter/{param_name}/"
     headers = utils.get_headers(api_key)
-    # try:
     r = requests.get(url, headers=headers)  # files = files,
-    asset_data_from_server = r.json()
-    params = asset_data_from_server['parameters']
-    #insert parameter in to the parameters dict
-    param_complex = utils.dict_to_params(parameter)
-    params.update(param_complex)
+    parameter = r.json()
+    return r.json
 
-    metadata_dict = {"parameters": params}
-    print(metadata_dict)
-    r = requests.patch(url, json=metadata_dict, headers=headers, verify=True)  # files = files,
+def patch_individual_parameter(asset_id='', param_name='', param_value='', api_key = ''):
+    # changes individual parameter in the parameters dictionary of the assets
+    url = f"{paths.get_api_url()}/assets/{asset_id}/parameter/{param_name}/"
+    headers = utils.get_headers(api_key)
+    metadata_dict = {"value": param_value}
+    print(url)
+    r = requests.put(url, json=metadata_dict, headers=headers, verify=True)  # files = files,
     print(r.text)
     print(r.status_code)
 

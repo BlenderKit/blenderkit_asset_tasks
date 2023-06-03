@@ -2,7 +2,9 @@ import json
 import os
 import tempfile
 import time
+from datetime import datetime
 import threading
+import pathlib
 
 from blenderkit_server_utils import download, search, paths, upload, send_to_bg
 
@@ -53,8 +55,10 @@ def generate_resolution_thread(asset_data, api_key):
   if asset_data['assetType'] == 'hdr':
     # asset_file_path = 'empty.blend'
     # HDRs have a different script, and are open inside an empty blend file.
+    current_dir = pathlib.Path(__file__).parent.resolve()
+
     send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
-                          template_file_path=os.path.join('blend_files', 'empty.blend'),
+                          template_file_path=os.path.join(current_dir,'blend_files', 'empty.blend'),
                           result_path=result_path,
                           script='resolutions_bg_blender_hdr.py')
   else:
@@ -85,11 +89,13 @@ def generate_resolution_thread(asset_data, api_key):
   print('changing asset variable')
   resgen_param = {'resolutionsGenerated': result_state}
 
-  # TODO add writing of the parameter, we'll skip it by now.
-  upload.patch_asset_empty(asset_data['id'], api_key)
-  return
+  today = datetime.today().strftime('%Y-%m-%d')
 
-  upload.patch_individual_parameter(asset_data, parameter=resgen_param, api_key=api_key)
+  upload.patch_asset_empty(asset_data['assetBaseId'], api_key=api_key)
+  # return,no param patching for now - no need for it by now?
+  return
+  upload.patch_individual_parameter(asset_data['id'], param_name=resgen_param, api_key=api_key)
+  upload.patch_individual_parameter(asset_data['id'], param_name='resolutionsGeneratedDate', param_value=today, api_key=api_key)
 
 
 def iterate_assets(filepath, thread_function = None, process_count=12, api_key=''):
@@ -120,8 +126,8 @@ def main():
   # TODO: Fix the parameter last_resolution_upload - currently searches for assets that were never processed,
   # TODO: but we need to process all updated assets too, and write a specific parameter too
   params = {
-    # 'asset_type': 'hdr',
-    'asset_type': 'material,model,hdr',
+    'asset_type': 'model',
+    # 'asset_type': 'material,model,hdr',
     'order': '-created',
     'verification_status': 'validated',
     # # 'textureResolutionMax_gte': '1024',

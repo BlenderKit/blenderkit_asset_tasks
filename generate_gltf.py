@@ -3,14 +3,13 @@ import os
 import tempfile
 import time
 import threading
+from datetime import datetime
 
 from blenderkit_server_utils import download, search, paths, upload, send_to_bg
 
 results = []
 page_size = 100
 
-BLENDERKIT_RESOLUTIONS_SEARCH_ID = os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID', None)
-MAX_ASSETS = int(os.environ.get('BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT', '100'))
 
 def generate_gltf_thread(asset_data, api_key):
   '''
@@ -67,13 +66,15 @@ def generate_gltf_thread(asset_data, api_key):
     # zero files, consider skipped
     result_state = 'skipped'
   print('changing asset variable')
-  resgen_param = {'resolutionsGenerated': result_state}
 
-  # TODO add writing of the parameter, we'll skip it by now.
-  upload.patch_asset_empty(asset_data['id'], api_key)
+  today = datetime.today().strftime('%Y-%m-%d')
+
+  # patch the parameter to know when this was generated
+
+  upload.patch_individual_parameter(asset_data['id'], param_name='gltfGeneratedDate', param_value=today, api_key=api_key)
+  upload.get_individual_parameter(asset_data['id'], param_name='gltfGeneratedDate', api_key=api_key)
+  # upload.patch_asset_empty(asset_data['id'], api_key)
   return
-
-  upload.patch_individual_parameter(asset_data, parameter=resgen_param, api_key=api_key)
 
 
 
@@ -83,7 +84,7 @@ def iterate_assets(filepath, thread_function = None, process_count=12, api_key='
   threads = []
   for asset_data in assets:
     if asset_data is not None:
-      print('downloading and generating resolution for  %s' % asset_data['name'])
+      print('downloading and generating GLTF files for  %s' % asset_data['name'])
       thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
       thread.start()
       threads.append(thread)
@@ -100,20 +101,13 @@ def main():
   # search for assets if assets were not provided with these parameters
 
   params = {
-    # 'asset_type': 'hdr',
     'asset_type': 'model',
     'order': '-created',
     'verification_status': 'validated',
-    # # 'textureResolutionMax_gte': '1024',
-    'files_size_gte': '1024000',
-    #
-    'last_resolution_upload_gte': '2021-01-01'
-    # 'last_resolution_upload': '0001-01-01'
+    'gltfGeneratedDate_isnull': True
   }
 
-  # if BLENDERKIT_RESOLUTIONS_SEARCH_ID was provided, get just a single asset
-  if BLENDERKIT_RESOLUTIONS_SEARCH_ID is not None:
-    params = {'asset_base_id': BLENDERKIT_RESOLUTIONS_SEARCH_ID, }
+  MAX_ASSETS = int(os.environ.get('BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT', '100'))
 
   assets = search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
                            api_key=paths.API_KEY)
@@ -121,7 +115,7 @@ def main():
   print('ASSETS TO BE PROCESSED')
   for i, a in enumerate(assets):
     print(a['name'], a['assetType'])
-
+  # return
   iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=generate_gltf_thread)
 
 if __name__ == '__main__':
