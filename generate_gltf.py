@@ -107,7 +107,7 @@ def main():
     'gltfGeneratedDate_isnull': True
   }
 
-  MAX_ASSETS = int(os.environ.get('BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT', '100'))
+  MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
 
   assets = search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
                            api_key=paths.API_KEY)

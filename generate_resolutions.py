@@ -12,7 +12,7 @@ results = []
 page_size = 100
 
 BLENDERKIT_RESOLUTIONS_SEARCH_ID = os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID', None)
-MAX_ASSETS = int(os.environ.get('BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT', '100'))
+MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
 
 
 def generate_resolution_thread(asset_data, api_key):

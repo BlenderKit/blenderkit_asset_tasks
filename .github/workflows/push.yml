@@ -9,7 +9,7 @@ env:
   BLENDERKIT_SERVER: 'https://devel.blenderkit.com'
   BLENDERKIT_API_KEY: '${{ secrets.DEVEL_BLENDERKIT_API_KEY }}'
   BLENDERS_PATH: '/home/headless/blenders'
-  BLENDERKIT_RESOLUTION_MAX_ASSET_COUNT: 1
+  MAX_ASSET_COUNT: 1
 
 jobs:
   RESOLUTIONS:

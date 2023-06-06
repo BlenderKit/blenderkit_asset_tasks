@@ -1,12 +1,3 @@
-# --------------------------------------------------------------------------------------------------------------------
-import os
-import subprocess
-
-# ----------------------------------------------------------------------------------------------------------------------
-import torch
-torch.cuda.is_available()
-print(torch.__version__)
-
 # ----------------------------------------------------------------------------------------------------------------------
 # installing pytorch gpu version
 # https://pytorch.org/get-started/locally/
@@ -28,18 +19,10 @@ subprocess.call([sys.executable, "-m", "pip", "install", "torch", "torchvision",
 subprocess.call([sys.executable, "-m", "pip", "install", "gradio"])
 subprocess.call([sys.executable, "-m", "pip", "install", "open_clip_torch"])
 subprocess.call([sys.executable, "-m", "pip", "install", "clip-interrogator"])
-#
-# def setup():
-#     install_cmds = [
-#         ['pip', 'install', 'Pillow'],
-#         ['pip', 'install', 'gradio'],
-#         ['pip', 'install', 'open_clip_torch'],
-#         ['pip', 'install', 'clip-interrogator'],
-#     ]
-#     for cmd in install_cmds:
-#         print(subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('utf-8'))
-#
-# setup()
+
+import torch
+torch.cuda.is_available()
+print(torch.__version__)
 
 from PIL import Image
 from clip_interrogator import Config, Interrogator
@@ -73,15 +56,16 @@ def read_json(json_url):
 param_name  = "imageCaptionInterrogator"
 params = {
     'order': '-created',
+    'asset_type': 'model',
     'verification_status': 'validated',
     param_name+'_isnull': True,
   }
 dpath = tempfile.gettempdir()
 filepath = os.path.join(dpath, 'assets_for_resolutions.json')
-max_assets = 2
-assets = search.get_search_simple(params, filepath, page_size=min(max_assets, 100), max_results=max_assets,
+MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
+
+assets = search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
                            api_key=paths.API_KEY)
-print(assets)
 
 ci = Interrogator(Config(clip_model_name="ViT-L-14/openai"))
 # ci = Interrogator(Config(clip_model_name="ViT-H-14/laion2b_s32b_b79k"))
@@ -90,14 +74,10 @@ for asset_data in assets:
     start_time = time.time()
 
     asset_id = asset_data['id']
-    json_url = "https://www.blenderkit.com/api/v1/search/?format=json&query=asset_id:" + asset_id
-    data_json = read_json(json_url)
 
-    # print(data_json['results'][0]['id'])
-    # print(data_json['results'][0]['description'])
-    print(data_json['results'][0]['thumbnailXlargeUrl'])
-
-    img_data = requests.get(data_json['results'][0]['thumbnailXlargeUrl']).content
+    print(asset_data['thumbnailXlargeUrl'])
+    print(f'Interrogating asset {asset_id} {asset_data["name"]}')
+    img_data = requests.get(asset_data['thumbnailXlargeUrl']).content
     img_path = os.path.join(dpath, 'image_name.jpg')
     with open(img_path, 'wb') as handler:
         handler.write(img_data)
@@ -107,11 +87,18 @@ for asset_data in assets:
     image = Image.open(img_path).convert('RGB')
 
 
-    print(ci.interrogate(image))
-    param_value = ci.interrogate(image)
-    # --------------------------------------------------------------------------------------------------------------------
 
+    param_value = ci.interrogate(image)
+    print(param_value)
+
+    # --------------------------------------------------------------------------------------------------------------------
+    #shorten param_value to 255 characters if it's longer
+    if len(param_value) > 255:
+        #split the string on last space before the max length is reached
+        param_value = param_value[:255].rsplit(' ', 1)[0]
+        print(f'param_value shortened to {param_value}')
     # patch parameters on server
+
     upload.patch_individual_parameter(asset_id = asset_id, param_name = param_name, param_value = param_value, api_key = paths.API_KEY)
     upload.get_individual_parameter(asset_id = asset_id, param_name = param_name, api_key = paths.API_KEY)
 
