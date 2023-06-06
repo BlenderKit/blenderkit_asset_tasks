@@ -2,17 +2,44 @@
 import os
 import subprocess
 
-def setup():
-    install_cmds = [
-        ['pip', 'install', 'Pillow'],
-        ['pip', 'install', 'gradio'],
-        ['pip', 'install', 'open_clip_torch'],
-        ['pip', 'install', 'clip-interrogator'],
-    ]
-    for cmd in install_cmds:
-        print(subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('utf-8'))
+# ----------------------------------------------------------------------------------------------------------------------
+import torch
+torch.cuda.is_available()
+print(torch.__version__)
 
-setup()
+# ----------------------------------------------------------------------------------------------------------------------
+# installing pytorch gpu version
+# https://pytorch.org/get-started/locally/
+# & C:\Users\blend\AppData\Local\Programs\Python\Python310\python.exe -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu117
+
+# ----------------------------------------------------------------------------------------------------------------------
+import subprocess
+import sys
+import os
+
+# upgrade pip
+subprocess.call([sys.executable, "-m", "ensurepip"])
+subprocess.call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+
+# python -m pip install --upgrade pip
+
+# install required packages
+subprocess.call([sys.executable, "-m", "pip", "install", "torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu117"])
+subprocess.call([sys.executable, "-m", "pip", "install", "gradio"])
+subprocess.call([sys.executable, "-m", "pip", "install", "open_clip_torch"])
+subprocess.call([sys.executable, "-m", "pip", "install", "clip-interrogator"])
+#
+# def setup():
+#     install_cmds = [
+#         ['pip', 'install', 'Pillow'],
+#         ['pip', 'install', 'gradio'],
+#         ['pip', 'install', 'open_clip_torch'],
+#         ['pip', 'install', 'clip-interrogator'],
+#     ]
+#     for cmd in install_cmds:
+#         print(subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('utf-8'))
+#
+# setup()
 
 from PIL import Image
 from clip_interrogator import Config, Interrogator
