@@ -56,7 +56,7 @@ def read_json(json_url):
 param_name  = "imageCaptionInterrogator"
 params = {
     'order': '-created',
-    'asset_type': 'model',
+    # 'asset_type': 'model',
     'verification_status': 'validated',
     param_name+'_isnull': True,
   }
