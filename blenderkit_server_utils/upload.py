@@ -108,7 +108,8 @@ def get_individual_parameter(asset_id='', param_name='', api_key = ''):
     headers = utils.get_headers(api_key)
     r = requests.get(url, headers=headers)  # files = files,
     parameter = r.json()
-    return r.json
+    print(url)
+    return parameter
 
 def patch_individual_parameter(asset_id='', param_name='', param_value='', api_key = ''):
     # changes individual parameter in the parameters dictionary of the assets
@@ -117,6 +118,17 @@ def patch_individual_parameter(asset_id='', param_name='', param_value='', api_k
     metadata_dict = {"value": param_value}
     print(url)
     r = requests.put(url, json=metadata_dict, headers=headers, verify=True)  # files = files,
+    print(r.text)
+    print(r.status_code)
+
+
+def delete_individual_parameter(asset_id='', param_name='', param_value='', api_key = ''):
+    # changes individual parameter in the parameters dictionary of the assets
+    url = f"{paths.get_api_url()}/assets/{asset_id}/parameter/{param_name}/"
+    headers = utils.get_headers(api_key)
+    metadata_dict = {"value": param_value}
+    print(url)
+    r = requests.delete(url, json=metadata_dict, headers=headers, verify=True)  # files = files,
     print(r.text)
     print(r.status_code)
 
