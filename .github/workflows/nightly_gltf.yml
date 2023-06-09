@@ -13,14 +13,14 @@ on:
         type: choice
         options:
         - 'https://devel.blenderkit.com'
-        - 'https://www.blenderkit.com (DO NOT USE NOW, NEED TO HANDLE API_KEY CHANGING)'
+        - 'https://www.blenderkit.com'# (DO NOT USE NOW, NEED TO HANDLE API_KEY CHANGING)'
 
 env:
   BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
   #BLENDERKIT_SERVER: 'https://devel.blenderkit.com'
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
   BLENDERS_PATH: '/home/headless/blenders'
-  MAX_ASSET_COUNT: 1
+  MAX_ASSET_COUNT: 100
   #BLENDERKIT_RESOLUTIONS_SEARCH_ID: '910c4531-aa52-4baf-8dff-e0f989075b00'
 
 
