@@ -25,12 +25,12 @@ env:
 jobs:
   Checks:
     runs-on: ubuntu-latest
-    container: agajdosi/headless-blender:multi-version
+#    container: agajdosi/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
       - name: Install pip
         run: sudo apt-get install python3-pip -y
       - name: Install requirements
-        run: pip install -r requirements.txt
-      - name: Generate GLTF files
+        run: pip install openai
+      - name: Generate ALT texts and patch them to bk server
         run: python3 generate_caption_alt_text_gpt.py

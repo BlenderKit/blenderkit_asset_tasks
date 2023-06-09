@@ -8,7 +8,7 @@ import time
 import subprocess
 from blenderkit_server_utils import search, paths, upload
 
-subprocess.call([sys.executable, "-m", "pip", "install", "openai"])
+# subprocess.call([sys.executable, "-m", "pip", "install", "openai"])
 
 import openai
 
