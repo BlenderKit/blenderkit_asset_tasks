@@ -92,12 +92,12 @@ for asset_data in assets:
     print(param_value)
 
     # --------------------------------------------------------------------------------------------------------------------
-    #shorten param_value to 255 characters if it's longer
-    if len(param_value) > 255:
-        #split the string on last space before the max length is reached
-        param_value = param_value[:255].rsplit(' ', 1)[0]
-        print(f'param_value shortened to {param_value}')
-    # patch parameters on server
+    # #shorten param_value to 255 characters if it's longer
+    # if len(param_value) > 255:
+    #     #split the string on last space before the max length is reached
+    #     param_value = param_value[:255].rsplit(' ', 1)[0]
+    #     print(f'param_value shortened to {param_value}')
+    # # patch parameters on server
 
     upload.patch_individual_parameter(asset_id = asset_id, param_name = param_name, param_value = param_value, api_key = paths.API_KEY)
     upload.get_individual_parameter(asset_id = asset_id, param_name = param_name, api_key = paths.API_KEY)
