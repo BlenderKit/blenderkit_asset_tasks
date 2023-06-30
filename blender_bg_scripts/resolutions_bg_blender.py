@@ -71,9 +71,12 @@ def generate_lower_resolutions(data):
 
         reduced_textures_filessize = 0
         for i in bpy.data.images:
-          if i.name != 'Render Result':
+          if i.name not in ['Render Result', 'Viewer Node']:
 
             print('scaling ', i.name, i.size[0], i.size[1])
+            if i.size[0] == 0 or i.size[1] == 0:
+              print('image is empty', i.name)
+              continue
             fp = paths.get_texture_filepath(tex_dir_path, i, resolution=p2res)
 
             if p2res == orig_res:

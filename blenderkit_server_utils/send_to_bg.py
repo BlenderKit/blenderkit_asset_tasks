@@ -15,17 +15,45 @@ def version_to_float(version):
     version += .0001 * int(vars[2])
   return version
 
-def get_blender_binary(asset_data):
+
+def get_blender_version_from_blend(blend_file_path):
+  # get blender version from blend file, works only for 2.8+
+    with open(blend_file_path, 'rb') as blend_file:
+        # Read the first 12 bytes
+        header = blend_file.read(24)
+        # Check for compression
+        if header[0:7] == b'BLENDER':
+            # If the file is uncompressed, the version is in bytes 9-11
+            version_bytes = header[9:12]
+            version = (chr(version_bytes[0]) , chr(version_bytes[2]))
+        elif header[12:19] == b'BLENDER':
+            # If the file is compressed, the version is in bytes 8-10
+            version_bytes = header[21:24]
+            version = (chr(version_bytes[0]), chr(version_bytes[2]))
+        else:
+            version_bytes = None
+            version = (2, 93) #last supported version by now
+        return '.'.join(version)
+
+
+def get_blender_binary(asset_data, file_path=''):
   # pick the right blender version for asset processing
   blenders_path = paths.BLENDERS_PATH
   blenders = []
   #Get available blender versions
   for fn in os.listdir(blenders_path):
     blenders.append((version_to_float(fn), fn))
+
   #get asset's blender upload version
   asset_blender_version = version_to_float(asset_data['sourceAppVersion'])
-  print(blenders)
-  print(asset_blender_version)
+  print('asset blender version', asset_blender_version)
+
+  asset_blender_version_from_blend = get_blender_version_from_blend(file_path)
+  print('asset blender version from blend', asset_blender_version_from_blend)
+
+  asset_blender_version_from_blend = version_to_float(asset_blender_version_from_blend)
+  asset_blender_version = max(asset_blender_version, asset_blender_version_from_blend)
+  print('asset blender version picked', asset_blender_version)
 
   blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
   # use latest blender version for hdrs
@@ -54,6 +82,9 @@ def get_process_flags():
 
   return flags
 
+
+
+
 def send_to_bg(asset_data, asset_file_path='', template_file_path = '', result_path='', api_key='', script='', addons = ''):
   '''
   Send varioust task to a new blender instance that runs and closes after finishing the task.
@@ -70,7 +101,8 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path = '', result_p
   -------
   None
   '''
-  binary_path = get_blender_binary(asset_data)
+  binary_path = get_blender_binary(asset_data, file_path=asset_file_path)
+
 
   data = {
     'file_path': asset_file_path,
@@ -78,7 +110,6 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path = '', result_p
     'asset_data': asset_data,
     'api_key': api_key,
   }
-  # binary_path = global_vars.PREFS['binary_path']
   tempdir = tempfile.mkdtemp()
   datafile = os.path.join(tempdir + 'resdata.json').replace('\\', '\\\\')
   script_path = os.path.dirname(os.path.realpath(__file__))

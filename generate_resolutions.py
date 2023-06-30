@@ -126,15 +126,13 @@ def main():
   # TODO: Fix the parameter last_resolution_upload - currently searches for assets that were never processed,
   # TODO: but we need to process all updated assets too, and write a specific parameter too
   params = {
-    'asset_type': 'model',
-    # 'asset_type': 'material,model,hdr',
+    'asset_type': 'model,material,hdr',
     'order': '-created',
     'verification_status': 'validated',
     # # 'textureResolutionMax_gte': '1024',
     'files_size_gte': '1024000',
     #
-    # # 'last_resolution_upload_lte': '2021-01-01'
-    'last_resolution_upload': '0001-01-01'
+    'last_resolution_upload_lte': '2021-01-01'
   }
 
   # if BLENDERKIT_RESOLUTIONS_SEARCH_ID was provided, get just a single asset
@@ -144,11 +142,11 @@ def main():
   assets = search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
                            api_key=paths.API_KEY)
 
-  print('ASSETS TO BE PROCESSED')
+  print('COUNT OF ASSETS TO BE PROCESSED ', len(assets))
   for i, a in enumerate(assets):
     print(a['name'], a['assetType'])
 
-  iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=generate_resolution_thread)
+  iterate_assets(filepath, process_count=3, api_key=paths.API_KEY, thread_function=generate_resolution_thread)
 
 if __name__ == '__main__':
   main()

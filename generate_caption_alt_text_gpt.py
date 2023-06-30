@@ -12,6 +12,8 @@ from blenderkit_server_utils import search, paths, upload
 
 import openai
 
+# search for assets to process
+
 param_name_source = "imageCaptionInterrogator"
 param_name_target = "imageAltTextGen3"
 params = {
@@ -33,7 +35,7 @@ assets = search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 10
 
 
 def get_GPT_request_text(asset_data):
-    """Returns text for GPT request.
+    """Returns text for GPT request to format a nice image alt text.
     """
     text = f'''We got this information from a BlenderKit 3D {asset_data['assetType']}.
 name of 3d {asset_data['assetType']}: "{asset_data['name']}"
@@ -49,7 +51,7 @@ Please write an alt text in max 3 sentences, use the keywords in the description
 
     return text
 
-
+# iterate assets and generate alt text for them
 for asset_data in assets:
     start_time = time.time()
 
