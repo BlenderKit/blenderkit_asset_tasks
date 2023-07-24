@@ -9,14 +9,14 @@ import threading
 import time
 import pathlib
 
-from blenderkit_server_utils import download, search, paths, upload, send_to_bg
+from blenderkit_server_utils import download, search, paths, upload, send_to_bg, google_drive
 
 results = []
 page_size = 100
 
 MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
-MATERIAL_VALIDATION_FOLDER = 'G:\\Shared drives\\Validations\\material_validation\\'
-
+MATERIAL_VALIDATION_FOLDER_ID = "1CnWzlP1e920rF-Zeoacq1gju9Em8Ii-O"
+GOOGLE_SHARED_DRIVE_ID = "0ABpmYJ3IosxhUk9PVA"
 def render_material_validation_thread(asset_data, api_key):
   '''
   A thread that:
@@ -36,6 +36,21 @@ def render_material_validation_thread(asset_data, api_key):
 
   destination_directory = tempfile.gettempdir()
 
+  upload_id = asset_data['files'][0]['downloadUrl'].split('/')[-2]
+
+  # Check if the asset has already been processed
+  author_folder_name = f"{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
+  result_file_name = f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
+
+  drive = google_drive.init_drive()
+
+  author_folder_id = google_drive.ensure_folder_exists(drive, author_folder_name, parent_id=MATERIAL_VALIDATION_FOLDER_ID, drive_id=GOOGLE_SHARED_DRIVE_ID)
+
+  f_exists = google_drive.file_exists(drive, result_file_name, folder_id=author_folder_id)
+  if f_exists:
+      print('file exists, skipping')
+      return
+
   # Download asset
   file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
@@ -45,34 +60,24 @@ def render_material_validation_thread(asset_data, api_key):
 
   # Send to background to generate resolutions
   tempdir = tempfile.mkdtemp()
-  # result_path =  os.path.join(tempdir, asset_data['assetBaseId'] + '_resdata.json')
-  upload_id = asset_data['files'][0]['downloadUrl'].split('/')[-2]
 
-  result_path = f"{MATERIAL_VALIDATION_FOLDER}{asset_data['author']['firstName']}_{asset_data['author']['lastName']}/{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
+  # local file path of rendered image
+  result_path = os.path.join(tempdir,
+                             f"{asset_data['author']['firstName']}_{asset_data['author']['lastName']}",
+                             f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}.jpg")
 
+
+  # send to background to render
   send_to_bg.send_to_bg(asset_data,
                         asset_file_path=file_path,
                         template_file_path=template_file_path,
                         result_path=result_path,
                         script='material_validation_bg.py',
                         binary_type = 'NEWEST')
-
-  # TODO add writing of the parameter, we'll skip it by now.
-  # upload.patch_asset_empty(asset_data['id'], api_key)
+  # Upload result
+  google_drive.upload_file_to_folder(drive, result_path, folder_id=author_folder_id)
   return
 
-  files = None
-  try:
-    with open(result_path, 'r', encoding='utf-8') as f:
-      files = json.load(f)
-  except Exception as e:
-    print(e)
-
-  
-  print('changing asset variable')
-  resgen_param = {'resolutionsGenerated': result_state}
-  upload.patch_individual_parameter(asset_data, parameter=resgen_param, api_key=api_key)
-  os.remove(file_path)
 
 
 def iterate_assets(filepath, thread_function = None, process_count=12, api_key=''):
