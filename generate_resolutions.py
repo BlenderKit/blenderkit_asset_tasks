@@ -1,3 +1,7 @@
+# ------------------------------------------------------------------------------------
+# Generate resolutions for assets in the blenderkit database
+# ------------------------------------------------------------------------------------
+
 import json
 import os
 import tempfile
@@ -5,7 +9,7 @@ import time
 from datetime import datetime
 import threading
 import pathlib
-
+import shutil
 from blenderkit_server_utils import download, search, paths, upload, send_to_bg
 
 results = []
@@ -92,6 +96,11 @@ def generate_resolution_thread(asset_data, api_key):
   today = datetime.today().strftime('%Y-%m-%d')
 
   upload.patch_asset_empty(asset_data['assetBaseId'], api_key=api_key)
+  # TODO: delete the temp folder
+  shutil.rmtree(tempdir)
+  os.remove(asset_file_path)
+  # delete all files from drive.
+  # os.remove(asset_file_path)
   # return,no param patching for now - no need for it by now?
   return
   upload.patch_individual_parameter(asset_data['id'], param_name=resgen_param, api_key=api_key)
@@ -114,6 +123,7 @@ def iterate_assets(filepath, thread_function = None, process_count=12, api_key='
             threads.remove(t)
           break;
         time.sleep(0.1) # wait for a bit to finish all threads
+
 def main():
   dpath = tempfile.gettempdir()
   filepath = os.path.join(dpath, 'assets_for_resolutions.json')

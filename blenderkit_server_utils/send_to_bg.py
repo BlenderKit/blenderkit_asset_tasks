@@ -36,26 +36,28 @@ def get_blender_version_from_blend(blend_file_path):
         return '.'.join(version)
 
 
-def get_blender_binary(asset_data, file_path=''):
+def get_blender_binary(asset_data, file_path='', binary_type='CLOSEST'):
   # pick the right blender version for asset processing
   blenders_path = paths.BLENDERS_PATH
   blenders = []
   #Get available blender versions
   for fn in os.listdir(blenders_path):
     blenders.append((version_to_float(fn), fn))
+  if binary_type == 'CLOSEST':
+    #get asset's blender upload version
+    asset_blender_version = version_to_float(asset_data['sourceAppVersion'])
+    print('asset blender version', asset_blender_version)
 
-  #get asset's blender upload version
-  asset_blender_version = version_to_float(asset_data['sourceAppVersion'])
-  print('asset blender version', asset_blender_version)
+    asset_blender_version_from_blend = get_blender_version_from_blend(file_path)
+    print('asset blender version from blend', asset_blender_version_from_blend)
 
-  asset_blender_version_from_blend = get_blender_version_from_blend(file_path)
-  print('asset blender version from blend', asset_blender_version_from_blend)
+    asset_blender_version_from_blend = version_to_float(asset_blender_version_from_blend)
+    asset_blender_version = max(asset_blender_version, asset_blender_version_from_blend)
+    print('asset blender version picked', asset_blender_version)
 
-  asset_blender_version_from_blend = version_to_float(asset_blender_version_from_blend)
-  asset_blender_version = max(asset_blender_version, asset_blender_version_from_blend)
-  print('asset blender version picked', asset_blender_version)
-
-  blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
+    blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
+  if binary_type == 'NEWEST':
+    blender_target = max(blenders, key=lambda x: x[0])
   # use latest blender version for hdrs
   if asset_data['assetType'] == 'hdr':
     blender_target = blenders[-1]
@@ -85,7 +87,7 @@ def get_process_flags():
 
 
 
-def send_to_bg(asset_data, asset_file_path='', template_file_path = '', result_path='', api_key='', script='', addons = ''):
+def send_to_bg(asset_data, asset_file_path='', template_file_path = '', result_path='', api_key='', script='', addons = '', binary_type = 'CLOSEST'):
   '''
   Send varioust task to a new blender instance that runs and closes after finishing the task.
   This function waits until the process finishes.
@@ -101,7 +103,8 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path = '', result_p
   -------
   None
   '''
-  binary_path = get_blender_binary(asset_data, file_path=asset_file_path)
+
+  binary_path = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
 
 
   data = {
@@ -125,7 +128,7 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path = '', result_p
   command = [
     binary_path,
     "--background",
-    "--factory-startup",
+    # "--factory-startup",
     "-noaudio",
     template_file_path,
     "--python", os.path.join(paths.BG_SCRIPTS_PATH, script),
