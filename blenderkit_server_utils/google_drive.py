@@ -47,7 +47,7 @@ def file_exists(service, filename, folder_id):
 # If the folder doesn't exist, it's created.
 def ensure_folder_exists(service, folder_name, parent_id='', drive_id='root'):
     # Query the API to search for the folder.
-    query = f"name='{folder_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder'"
+    query = f"name='{folder_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
     response = service.files().list(q=query,
                                     corpora='drive',
                                     driveId=drive_id,

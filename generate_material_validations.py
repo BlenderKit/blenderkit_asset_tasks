@@ -109,8 +109,6 @@ def main():
   search.get_search_simple(params, filepath=filepath,  page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
                            api_key=paths.API_KEY)
 
-  search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
-                           api_key=paths.API_KEY)
 
   assets = search.load_assets_list(filepath)
   print('ASSETS TO BE PROCESSED')
