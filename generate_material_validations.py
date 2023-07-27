@@ -40,7 +40,7 @@ def render_material_validation_thread(asset_data, api_key):
 
   # Check if the asset has already been processed
   author_folder_name = f"{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
-  result_file_name = f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
+  result_file_name = f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}.jpg"
 
   drive = google_drive.init_drive()
 

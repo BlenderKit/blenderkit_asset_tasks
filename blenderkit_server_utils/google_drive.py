@@ -9,6 +9,7 @@ import json
 # This scope allows for full read/write access to the authenticated user's account.
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
+
 # Initialize the Google Drive service.
 # This function handles authentication and returns a service object that can be used to interact with the API.
 def init_drive():
@@ -22,26 +23,34 @@ def init_drive():
 
     return service
 
+
 # List all files in a specific folder in Google Drive.
 def list_files_in_folder(service, folder_id):
     # Query the API to list the files in the folder.
     results = service.files().list(
-        pageSize=10, q=f"'{folder_id}' in parents", fields="nextPageToken, files(id, name)").execute()
+        pageSize=10, q=f"'{folder_id}' in parents",
+        includeItemsFromAllDrives=True,
+        supportsAllDrives=True, fields="nextPageToken, files(id, name)").execute()
     items = results.get('files', [])
 
     # Print each file's name and ID.
     for item in items:
         print(f"Found file: {item['name']} ({item['id']})")
 
+
 # Check if a specific file exists in a Google Drive folder.
 def file_exists(service, filename, folder_id):
     # Query the API to search for the file in the folder.
-    query = f"name='{filename}' and '{folder_id}' in parents"
-    results = service.files().list(q=query, fields='files(id, name)').execute()
+    query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+    results = service.files().list(q=query,
+                                   includeItemsFromAllDrives=True,
+                                   supportsAllDrives=True,
+                                   fields='files(id, name)'
+                                   ).execute()
     items = results.get('files', [])
-
     # If the file was found, return True. Otherwise, return False.
     return len(items) > 0
+
 
 # Ensure that a specific folder exists in Google Drive.
 # If the folder doesn't exist, it's created.
@@ -70,6 +79,7 @@ def ensure_folder_exists(service, folder_name, parent_id='', drive_id='root'):
                                         # driveId=drive_id,
                                         fields='id').execute()
         return folder['id']
+
 
 # Upload a file to a specific folder in Google Drive.
 def upload_file_to_folder(service, file_path, folder_id):
