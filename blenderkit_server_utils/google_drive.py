@@ -51,6 +51,18 @@ def file_exists(service, filename, folder_id):
     # If the file was found, return True. Otherwise, return False.
     return len(items) > 0
 
+def file_exists_partial(service, partial_filename, folder_id):
+    # Query the API to search for the file in the folder.
+    # Use 'contains' keyword for partial match instead of an exact match.
+    query = f"name contains '{partial_filename}' and '{folder_id}' in parents and trashed=false"
+    results = service.files().list(q=query,
+                                   includeItemsFromAllDrives=True,
+                                   supportsAllDrives=True,
+                                   fields='files(id, name)'
+                                   ).execute()
+    items = results.get('files', [])
+    # If the file was found, return True. Otherwise, return False.
+    return len(items) > 0
 
 # Ensure that a specific folder exists in Google Drive.
 # If the folder doesn't exist, it's created.
