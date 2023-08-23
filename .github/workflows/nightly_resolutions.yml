@@ -14,7 +14,7 @@ env:
 jobs:
   RESOLUTIONS:
     runs-on: ubuntu-latest
-    container: agajdosi/headless-blender:multi-version
+    container: blenderkit/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v2
       - name: Install pip
