@@ -1,2 +1,3 @@
 .venv
 prepare_and_upload_resolutions.bat
+__pycache__

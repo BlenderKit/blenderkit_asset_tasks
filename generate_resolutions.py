@@ -1,6 +1,10 @@
-# ------------------------------------------------------------------------------------
-# Generate resolutions for assets in the blenderkit database
-# ------------------------------------------------------------------------------------
+"""Script to generate resolutions for assets that don't have them yet.
+Required environment variables:
+BLENDERKIT_API_KEY - API key to be used
+BLENDERS_PATH - path to the folder with blender versions
+
+For single asset processing, set BLENDERKIT_RESOLUTIONS_SEARCH_ID to the asset_base_id.
+"""
 
 import json
 import os
