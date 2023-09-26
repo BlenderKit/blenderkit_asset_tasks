@@ -68,3 +68,18 @@ def dict_to_params(inputs, parameters=None):
                 "value": value
             })
     return parameters
+
+def enable_cycles_CUDA():
+  preferences = bpy.context.preferences
+  cycles_preferences = preferences.addons['cycles'].preferences
+
+  cycles_preferences.compute_device_type = 'CUDA'
+  if cycles_preferences.compute_device_type == 'CUDA':
+      print("CUDA is enabled for rendering.")
+      # Additional code for GPU rendering
+  elif cycles_preferences.compute_device_type == 'OPTIX':
+      print("OPTIX is enabled for rendering.")
+      # Additional code for GPU rendering
+  else:
+      print("GPU rendering is not enabled.")
+      # Additional code for CPU rendering

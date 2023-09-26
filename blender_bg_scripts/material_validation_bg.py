@@ -3,6 +3,8 @@ import os
 import sys
 import json
 
+from blenderkit_server_utils import utils
+
 def getNode(mat, type):
   for n in mat.node_tree.nodes:
     if n.type == type:
@@ -15,20 +17,7 @@ def set_text(ob, text):
   textob = bpy.data.objects[ob]
   textob.data.body = str(text)
 
-def get_render_device_info():
-  preferences = bpy.context.preferences
-  cycles_preferences = preferences.addons['cycles'].preferences
 
-  # cycles_preferences.compute_device_type = 'CUDA'
-  if cycles_preferences.compute_device_type == 'CUDA':
-      print("CUDA is enabled for rendering.")
-      # Additional code for GPU rendering
-  elif cycles_preferences.compute_device_type == 'OPTIX':
-      print("OPTIX is enabled for rendering.")
-      # Additional code for GPU rendering
-  else:
-      print("GPU rendering is not enabled.")
-      # Additional code for CPU rendering
 
 
 def render_material_validation(mat, asset_data, filepath):
@@ -105,7 +94,7 @@ def render_material_validation(mat, asset_data, filepath):
   cycles_preferences.compute_device_type = 'CUDA'
   cycles_preferences.devices[0].use = True
 
-  get_render_device_info()
+  utils.enable_cycles_CUDA()
   bpy.ops.render.render(write_still=True)
 
 def append_material(file_name, matname=None, link=False, fake_user=True):

@@ -101,8 +101,10 @@ def generate_resolution_thread(asset_data, api_key):
 
   upload.patch_asset_empty(asset_data['assetBaseId'], api_key=api_key)
   # TODO: delete the temp folder
+  print('deleting temp folder')
   shutil.rmtree(tempdir)
   os.remove(asset_file_path)
+  print('deleted temp folder')
   # delete all files from drive.
   # os.remove(asset_file_path)
   # return,no param patching for now - no need for it by now?
@@ -141,12 +143,13 @@ def main():
   # TODO: but we need to process all updated assets too, and write a specific parameter too
   params = {
     'asset_type': 'model,material,hdr',
+    # 'asset_type': 'hdr',
     'order': '-created',
     'verification_status': 'validated',
     # # 'textureResolutionMax_gte': '1024',
     'files_size_gte': '1024000',
     #
-    'last_resolution_upload_lte': '2021-01-01'
+    'last_resolution_upload_isnull': True
   }
 
   # if BLENDERKIT_RESOLUTIONS_SEARCH_ID was provided, get just a single asset
@@ -160,7 +163,7 @@ def main():
   for i, a in enumerate(assets):
     print(a['name'], a['assetType'])
 
-  iterate_assets(filepath, process_count=3, api_key=paths.API_KEY, thread_function=generate_resolution_thread)
+  iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=generate_resolution_thread)
 
 if __name__ == '__main__':
   main()

@@ -144,9 +144,11 @@ def patch_asset_empty(asset_id, api_key):
     }
     url = f'{paths.get_api_url()}/assets/{asset_id}/'
     headers = utils.get_headers(api_key)
+    print('patching asset with empty data')
     try:
         r = requests.patch(url, json=upload_data, headers=headers, verify=True)  # files = files,
     except requests.exceptions.RequestException as e:
         print(e)
         return {'CANCELLED'}
+    print('patched asset with empty data')
     return {'FINISHED'}

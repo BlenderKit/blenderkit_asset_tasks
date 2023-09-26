@@ -37,7 +37,9 @@ def render_model_validation_thread(asset_data, api_key):
     '''
 
     destination_directory = tempfile.gettempdir()
-
+    if len(asset_data['files']) == 0:
+        print('no files for asset %s' % asset_data['name'])
+        return
     upload_id = asset_data['files'][0]['downloadUrl'].split('/')[-2]
 
     # Check if the asset has already been processed
@@ -51,12 +53,6 @@ def render_model_validation_thread(asset_data, api_key):
                                                          parent_id=MODEL_VALIDATION_FOLDER_ID,
                                                          drive_id=GOOGLE_SHARED_DRIVE_ID)
 
-    # upload_id = asset_data['files'][0]['downloadUrl'].split('/')[-2]
-    # filename = paths.slugify(
-    #     f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}")
-    #
-    # filepath = os.path.join(MODEL_VALIDATION_FOLDER, filename)
-    # predicted_fpilepath = filepath + f'{str(s.frame_start).zfill(4)}-{str(s.frame_end).zfill(4)}.mkv'
 
     # check if the file exists, only with partial name - because animations can end up with different framecount which is then in the name or similar
     f_exists = google_drive.file_exists_partial(drive, result_file_name, folder_id=author_folder_id)
@@ -85,7 +81,8 @@ def render_model_validation_thread(asset_data, api_key):
                           template_file_path=template_file_path,
                           result_path=result_path,
                           script='model_validation_bg_render.py',
-                          binary_type='NEWEST')
+                          binary_type='NEWEST',
+                          verbosity_level=1)
 
     # Upload result
     google_drive.upload_file_to_folder(drive, result_path, folder_id=author_folder_id)
@@ -98,7 +95,7 @@ def iterate_assets(filepath, thread_function=None, process_count=12, api_key='')
     threads = []
     for asset_data in assets:
         if asset_data is not None:
-            print('downloading and generating resolution for  %s' % asset_data['name'])
+            print('downloading and generating validation render for  %s' % asset_data['name'])
             thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
             thread.start()
             threads.append(thread)
@@ -114,7 +111,7 @@ def main():
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, 'assets_for_resolutions.json')
     params = {
-        'order': '-created',
+        'order': 'created',
         'asset_type': 'model',
         'verification_status': 'uploaded'
     }
