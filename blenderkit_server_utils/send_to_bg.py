@@ -145,19 +145,19 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path='', result_pat
 
     # Other code remains the same ...
 
-    if verbosity_level == 0:
-        stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
-    elif verbosity_level in {1, 2}:
-        stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
-    else:
-        raise ValueError(
-            "Invalid verbosity level. It must be 0 (silent mode), 1 (only print errors), or 2 (print everything).")
+
+    stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
+
 
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
         if verbosity_level == 2:
             stdout_thread = threading.Thread(target=reader_thread,
                                              args=(proc.stdout, lambda line: print('STDOUT:', line)))
+            stderr_thread = threading.Thread(target=reader_thread,
+                                             args=(proc.stderr, lambda line: print('STDERR:', line)))
         elif verbosity_level == 1:
+            stdout_thread = threading.Thread(target=reader_thread,
+                                             args=(proc.stdout, lambda _: None))
             stderr_thread = threading.Thread(target=reader_thread,
                                              args=(proc.stderr, lambda line: print('STDERR:', line)))
         else:
