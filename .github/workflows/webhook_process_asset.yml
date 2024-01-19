@@ -7,7 +7,7 @@ on:
         description: 'Asset Base ID'
         required: true
   repository_dispatch:
-    types: [trigger-process-asset]
+    types: [process-asset]
 
 env:
   BLENDERKIT_SERVER: 'https://www.blenderkit.com'
