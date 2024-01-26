@@ -13,7 +13,7 @@ on:
         type: choice
         options:
         - 'https://devel.blenderkit.com'
-        - 'https://www.blenderkit.com'# (DO NOT USE NOW, NEED TO HANDLE API_KEY CHANGING)'
+        - 'https://www.blenderkit.com' #(DO NOT USE NOW, NEED TO HANDLE API_KEY CHANGING)'
 
 env:
   BLENDERKIT_SERVER: '${{ github.event.inputs.BLENDERKIT_SERVER }}'
@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:multi-version
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install pip
         run: sudo apt-get install python3-pip -y
       - name: Install requirements
