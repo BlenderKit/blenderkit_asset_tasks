@@ -21,7 +21,7 @@ page_size = 100
 
 BLENDERKIT_RESOLUTIONS_SEARCH_ID = os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID', None)
 MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
-
+SKIP_UPLOAD = os.environ.get('SKIP_UPLOAD', False) == "True"
 
 def generate_resolution_thread(asset_data, api_key):
   '''
@@ -83,6 +83,9 @@ def generate_resolution_thread(asset_data, api_key):
   except Exception as e:
     print(e)
 
+  if SKIP_UPLOAD:
+    print('----- SKIP_UPLOAD==True -> skipping upload -----')
+    exit()
   if files == None:
     # this means error
     result_state = 'error'
