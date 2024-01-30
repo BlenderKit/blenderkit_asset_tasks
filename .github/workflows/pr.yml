@@ -1,0 +1,57 @@
+name: Resolutions - PR
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  BLENDERKIT_SERVER: 'https://www.blenderkit.com'
+  BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
+  BLENDERS_PATH: '/home/headless/blenders'
+  SKIP_UPLOAD: 'True'
+
+jobs:
+  RESOLUTIONS_MODEL:
+    runs-on: ubuntu-latest
+    container: blenderkit/headless-blender:multi-version
+    env:
+      #https://www.blenderkit.com/get-blenderkit/67f55944-a088-48de-8a60-6132547cbf75/
+      BLENDERKIT_RESOLUTIONS_SEARCH_ID: '67f55944-a088-48de-8a60-6132547cbf75'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pip
+        run: sudo apt-get install python3-pip -y
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Generate resolutions
+        run: python3 generate_resolutions.py
+
+  RESOLUTIONS_MATERIAL:
+    runs-on: ubuntu-latest
+    container: blenderkit/headless-blender:multi-version
+    env:
+      #https://www.blenderkit.com/get-blenderkit/f2389247-c173-4a33-ae88-e4a2682cb91e/
+      BLENDERKIT_RESOLUTIONS_SEARCH_ID: 'f2389247-c173-4a33-ae88-e4a2682cb91e'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pip
+        run: sudo apt-get install python3-pip -y
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Generate resolutions
+        run: python3 generate_resolutions.py
+
+  RESOLUTIONS_HDR:
+    runs-on: ubuntu-latest
+    container: blenderkit/headless-blender:multi-version
+    env:
+      #https://www.blenderkit.com/get-blenderkit/066aa61d-6eb9-4e9a-8188-8f34c0b4d030/
+      BLENDERKIT_RESOLUTIONS_SEARCH_ID: '066aa61d-6eb9-4e9a-8188-8f34c0b4d030'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pip
+        run: sudo apt-get install python3-pip -y
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Generate resolutions
+        run: python3 generate_resolutions.py
