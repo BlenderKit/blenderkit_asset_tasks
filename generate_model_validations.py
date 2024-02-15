@@ -18,6 +18,7 @@ MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
 MODEL_VALIDATION_FOLDER_ID = "1L10ngR6vkTjmlzy9CQa2D08slhigBpwe"
 GOOGLE_SHARED_DRIVE_ID = "0ABpmYJ3IosxhUk9PVA"
 
+existing_folders = []
 
 def render_model_validation_thread(asset_data, api_key):
     '''
@@ -35,6 +36,7 @@ def render_model_validation_thread(asset_data, api_key):
     -------
 
     '''
+    global existing_folders
 
     destination_directory = tempfile.gettempdir()
     if len(asset_data['files']) == 0:
@@ -43,19 +45,25 @@ def render_model_validation_thread(asset_data, api_key):
     upload_id = asset_data['files'][0]['downloadUrl'].split('/')[-2]
 
     # Check if the asset has already been processed
-    author_folder_name = f"{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
-    result_file_name = f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
-    predicted_filename = result_file_name + f'{str(1).zfill(4)}-{str(80).zfill(4)}.mkv'
+    # stop using author folder
+    author_folder_name = f"{upload_id}"
+    result_file_name = f"{upload_id}"
+    predicted_filename = f'{result_file_name}.mkv'#let's try to super simplify now.
 
-    drive = google_drive.init_drive()
+    # author_folder_id = google_drive.ensure_folder_exists(drive, author_folder_name,
+    #                                                      parent_id=MODEL_VALIDATION_FOLDER_ID,
+    #                                                      drive_id=GOOGLE_SHARED_DRIVE_ID)
 
-    author_folder_id = google_drive.ensure_folder_exists(drive, author_folder_name,
-                                                         parent_id=MODEL_VALIDATION_FOLDER_ID,
-                                                         drive_id=GOOGLE_SHARED_DRIVE_ID)
-
+    #print('all validation folders', all_validation_folders)
 
     # check if the file exists, only with partial name - because animations can end up with different framecount which is then in the name or similar
-    f_exists = google_drive.file_exists_partial(drive, result_file_name, folder_id=author_folder_id)
+    f_exists=False
+    for ef in existing_folders:
+        if author_folder_name in ef['name']:
+            f_exists=True
+            break
+    # f_exists = google_drive.file_exists_partial(drive, result_file_name, folder_id=MODEL_VALIDATION_FOLDER_ID)
+
     if f_exists:
         print('file exists, skipping')
         return
@@ -68,11 +76,17 @@ def render_model_validation_thread(asset_data, api_key):
     template_file_path = os.path.join(current_dir, 'blend_files', 'model_validation_mix.blend')
 
     # Send to background to generate resolutions
+    #generated temp folder
+    #.blend gets resaved there and also /tmp renders of images
     tempdir = tempfile.mkdtemp()
+
+    # result folder where the stuff for upload to drive goes
+    result_folder = os.path.join(tempdir, upload_id)
+    os.makedirs(result_folder, exist_ok=True)
 
     # local file path of rendered image
     result_path = os.path.join(tempdir,
-                               author_folder_name,
+                               result_folder,
                                predicted_filename)
 
     # send to background to render
@@ -80,12 +94,16 @@ def render_model_validation_thread(asset_data, api_key):
                           asset_file_path=file_path,
                           template_file_path=template_file_path,
                           result_path=result_path,
+                          result_folder=result_folder,
+                          tempdir=tempdir,
                           script='model_validation_bg_render.py',
                           binary_type='NEWEST',
-                          verbosity_level=1)
+                          verbosity_level=2)
 
     # Upload result
-    google_drive.upload_file_to_folder(drive, result_path, folder_id=author_folder_id)
+    drive = google_drive.init_drive()
+    google_drive.upload_folder_to_drive(drive, result_folder, MODEL_VALIDATION_FOLDER_ID, GOOGLE_SHARED_DRIVE_ID)
+
     return
 
 
@@ -108,6 +126,7 @@ def iterate_assets(filepath, thread_function=None, process_count=12, api_key='')
 
 
 def main():
+
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, 'assets_for_resolutions.json')
     params = {
@@ -117,6 +136,10 @@ def main():
     }
     search.get_search_simple(params, filepath=filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
                              api_key=paths.API_KEY)
+
+    global existing_folders
+    drive = google_drive.init_drive()
+    existing_folders = google_drive.list_files_in_folder(drive, MODEL_VALIDATION_FOLDER_ID)
 
     assets = search.load_assets_list(filepath)
     print('ASSETS TO BE PROCESSED')

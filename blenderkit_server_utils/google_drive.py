@@ -28,7 +28,7 @@ def init_drive():
 def list_files_in_folder(service, folder_id):
     # Query the API to list the files in the folder.
     results = service.files().list(
-        pageSize=10, q=f"'{folder_id}' in parents",
+        pageSize=10, q=f"'{folder_id}' in parents  and trashed=false",
         includeItemsFromAllDrives=True,
         supportsAllDrives=True, fields="nextPageToken, files(id, name)").execute()
     items = results.get('files', [])
@@ -36,7 +36,7 @@ def list_files_in_folder(service, folder_id):
     # Print each file's name and ID.
     for item in items:
         print(f"Found file: {item['name']} ({item['id']})")
-
+    return items
 
 # Check if a specific file exists in a Google Drive folder.
 def file_exists(service, filename, folder_id):
@@ -108,3 +108,31 @@ def upload_file_to_folder(service, file_path, folder_id):
                                   fields='id',
                                   supportsAllDrives=True).execute()
     print(f"File ID: {file.get('id')}")
+
+import os
+
+def upload_folder_to_drive(service, folder_path, drive_folder_id, drive_id):
+    """
+    Uploads a folder and its contents to Google Drive under a specified folder.
+
+    :param service: Initialized Google Drive service object.
+    :param folder_path: Path to the local folder to upload.
+    :param drive_folder_id: The ID of the folder on Google Drive to upload the contents into.
+    """
+    # Ensure the folder to upload into exists on Google Drive
+    drive_subfolder_id = ensure_folder_exists(service, os.path.basename(folder_path),
+                                                         parent_id=drive_folder_id,
+                                                         drive_id=drive_id)
+
+    # Iterate over all items in the local folder
+    for item in os.listdir(folder_path):
+        item_path = os.path.join(folder_path, item)
+        # If the item is a file, upload it
+        if os.path.isfile(item_path):
+            upload_file_to_folder(service, item_path, drive_subfolder_id)
+        # If the item is a folder, recursively call this function
+        elif os.path.isdir(item_path):
+            # This creates/ensures a subfolder on Drive and uploads the contents
+            upload_folder_to_drive(service, item_path, drive_subfolder_id)
+
+print("Function 'upload_folder_to_drive' is ready to use.")

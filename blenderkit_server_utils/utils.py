@@ -15,6 +15,12 @@ def get_headers(api_key):
         headers["Authorization"] = "Bearer %s" % api_key
     return headers
 
+def activate_object(ob):
+    # this deselects everything, selects the object and makes it active
+    bpy.ops.object.select_all(action='DESELECT')
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+
 
 def selection_get():
     aob = bpy.context.view_layer.objects.active
