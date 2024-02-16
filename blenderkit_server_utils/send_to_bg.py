@@ -85,7 +85,7 @@ def get_process_flags():
 
     return flags
 
-def send_to_bg(asset_data, asset_file_path='', template_file_path='', tempdir='', result_path='', result_folder='', api_key='', script='', addons='',
+def send_to_bg(asset_data, asset_file_path='', template_file_path='', temp_folder='', result_path='', result_folder='', api_key='', script='', addons='',
                binary_type='CLOSEST', verbosity_level=2):
     '''
     Send varioust task to a new blender instance that runs and closes after finishing the task.
@@ -96,7 +96,7 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path='', tempdir=''
     asset_data
     asset_file_path - asset file that will be processed
     template_file_path - if provided, gets open first, and the background script handles what should be done with asset file
-    tempdir - temporary directory where the results will be stored
+    temp_folder - temporary directory where the results will be stored
     result_path - path where the result of the processing will be stored
     result_folder - path where only things for possible upload can get stored if there is more than one outpit file
     api_key - api key for the server
@@ -123,10 +123,10 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path='', tempdir=''
         'result_folder': result_folder,
         'asset_data': asset_data,
         'api_key': api_key,
-        'tempdir': tempdir,
+        'temp_folder': temp_folder,
     }
-    tempdir = tempfile.mkdtemp()
-    datafile = os.path.join(tempdir + 'resdata.json').replace('\\', '\\\\')
+    temp_folder = tempfile.mkdtemp()
+    datafile = os.path.join(temp_folder + 'resdata.json').replace('\\', '\\\\')
     script_path = os.path.dirname(os.path.realpath(__file__))
     with open(datafile, 'w', encoding='utf-8') as s:
         json.dump(data, s, ensure_ascii=False, indent=4)

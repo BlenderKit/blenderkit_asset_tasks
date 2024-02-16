@@ -341,7 +341,20 @@ def export_all_textures(tempfolder, objects):
                                 if img not in unique_textures:
                                     unique_textures.append(img)
     for img in unique_textures:
-        img.filepath = os.path.join(tempfolder, f"{img.name}.png")
+        img.filepath = os.path.join(tempfolder, f"{img.name}")
+        img.save()
+
+def export_all_material_textures(tempfolder, material):
+    # export all textures
+    unique_textures = []
+    for node in material.node_tree.nodes:
+        if node.type == 'TEX_IMAGE':
+            img = node.image
+            if img is not None:
+                if img not in unique_textures:
+                    unique_textures.append(img)
+    for img in unique_textures:
+        img.filepath = os.path.join(tempfolder, f"{img.name}")
         img.save()
 def visualize_and_save_all(tempfolder, objects):
     # first let's save all textures

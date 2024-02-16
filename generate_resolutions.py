@@ -57,8 +57,8 @@ def generate_resolution_thread(asset_data, api_key):
     return;
 
   # Send to background to generate resolutions
-  tempdir = tempfile.mkdtemp()
-  result_path = os.path.join(tempdir, asset_data['assetBaseId'] + '_resdata.json')
+  temp_folder = tempfile.mkdtemp()
+  result_path = os.path.join(temp_folder, asset_data['assetBaseId'] + '_resdata.json')
 
   if asset_data['assetType'] == 'hdr':
     # asset_file_path = 'empty.blend'
@@ -105,7 +105,7 @@ def generate_resolution_thread(asset_data, api_key):
   upload.patch_asset_empty(asset_data['assetBaseId'], api_key=api_key)
   # TODO: delete the temp folder
   print('deleting temp folder')
-  shutil.rmtree(tempdir)
+  shutil.rmtree(temp_folder)
   os.remove(asset_file_path)
   print('deleted temp folder')
   # delete all files from drive.

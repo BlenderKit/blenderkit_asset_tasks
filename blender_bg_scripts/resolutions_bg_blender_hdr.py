@@ -64,8 +64,8 @@ def generate_lower_resolutions(data):
     print(files)
     data_out = files
     # binary_path = global_vars.PREFS['binary_path']
-    # tempdir = tempfile.mkdtemp()
-    # datafile = os.path.join(tempdir + 'resdata.json').replace('\\', '\\\\')
+    # temp_folder = tempfile.mkdtemp()
+    # datafile = os.path.join(temp_folder + 'resdata.json').replace('\\', '\\\\')
     # script_path = os.path.dirname(os.path.realpath(__file__))
     with open(data['result_filepath'], 'w', encoding='utf-8') as s:
         json.dump(files, s, ensure_ascii=False, indent=4)

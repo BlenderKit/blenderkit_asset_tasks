@@ -41,8 +41,8 @@ def generate_gltf_thread(asset_data, api_key):
     return;
 
   # Send to background to generate GLTF
-  tempdir = tempfile.mkdtemp()
-  result_path = os.path.join(tempdir, asset_data['assetBaseId'] + '_resdata.json')
+  temp_folder = tempfile.mkdtemp()
+  result_path = os.path.join(temp_folder, asset_data['assetBaseId'] + '_resdata.json')
 
   send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
                           result_path=result_path,

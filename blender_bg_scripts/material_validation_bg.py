@@ -3,7 +3,12 @@ import os
 import sys
 import json
 
-from blenderkit_server_utils import utils
+# import utils- add path
+dir_path = os.path.dirname(os.path.realpath(__file__))
+parent_path = os.path.join(dir_path, os.path.pardir)
+sys.path.append(parent_path)
+
+from blenderkit_server_utils import paths, utils, render_nodes_graph
 
 def getNode(mat, type):
   for n in mat.node_tree.nodes:
@@ -64,11 +69,13 @@ def render_material_validation(mat, asset_data, filepath):
     set_text('displacement_info', 'none')
 
   if principled:
-    sss = principled.inputs['Subsurface'].default_value
+    sss = principled.inputs['Subsurface Weight'].default_value
     set_text('sss_intensity_info', sss)
     if sss > 0:
       sssr = principled.inputs['Subsurface Radius'].default_value
-      t = f'{sssr[0]:.2f} {sssr[1]:.2f} {sssr[2]:.2f} m\n'
+      sssrs = principled.inputs['Subsurface Scale'].default_value
+      # radius gets multiplied by scale
+      t = f'{sssr[0] * sssrs:.2f} {sssr[1]*sssrs:.2f} {sssr[2]*sssrs:.2f} m\n'
 
       set_text('sss_radius_info', t)
     else:
@@ -97,6 +104,7 @@ def render_material_validation(mat, asset_data, filepath):
   utils.enable_cycles_CUDA()
   bpy.ops.render.render(write_still=True)
 
+  
 def append_material(file_name, matname=None, link=False, fake_user=True):
     """append a material type asset
 
@@ -165,6 +173,9 @@ def render_uploaded_material(data):
   mat.use_fake_user = False
 
   render_material_validation(mat, asset_data, result_filepath)
+  
+  render_nodes_graph.visualize_nodes(data['result_folder'], mat.name, mat.node_tree, bpy.context.scene)
+  render_nodes_graph.export_all_material_textures(data['result_folder'], mat)
 
 if __name__ == "__main__":
   print('background resolution generator')

@@ -15,7 +15,7 @@ results = []
 page_size = 100
 
 MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
-MATERIAL_VALIDATION_FOLDER_ID = "1CnWzlP1e920rF-Zeoacq1gju9Em8Ii-O"
+MATERIAL_VALIDATION_FOLDER_ID = "1L10ngR6vkTjmlzy9CQa2D08slhigBpwe" #changed it to be the same as models now
 GOOGLE_SHARED_DRIVE_ID = "0ABpmYJ3IosxhUk9PVA"
 def render_material_validation_thread(asset_data, api_key):
   '''
@@ -39,14 +39,16 @@ def render_material_validation_thread(asset_data, api_key):
   upload_id = asset_data['files'][0]['downloadUrl'].split('/')[-2]
 
   # Check if the asset has already been processed
-  author_folder_name = f"{asset_data['author']['firstName']}_{asset_data['author']['lastName']}"
-  result_file_name = f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}.jpg"
+  # stop using author folder
+  # Check if the asset has already been processed
+  result_file_name = f"{upload_id}.jpg"
 
   drive = google_drive.init_drive()
 
-  author_folder_id = google_drive.ensure_folder_exists(drive, author_folder_name, parent_id=MATERIAL_VALIDATION_FOLDER_ID, drive_id=GOOGLE_SHARED_DRIVE_ID)
-
-  f_exists = google_drive.file_exists(drive, result_file_name, folder_id=author_folder_id)
+  # check if the directory exists on the drive
+  # we check file by file, since the comparison with folder contents is not reliable and would potentially
+  # compare with a very long list. main issue was what to set the page size for the search request...
+  f_exists = google_drive.file_exists(drive, upload_id, folder_id=MATERIAL_VALIDATION_FOLDER_ID)
   if f_exists:
       print('file exists, skipping')
       return
@@ -59,23 +61,31 @@ def render_material_validation_thread(asset_data, api_key):
   template_file_path = os.path.join(current_dir, 'blend_files', 'material_validator_mix.blend')
 
   # Send to background to generate resolutions
-  tempdir = tempfile.mkdtemp()
+  temp_folder = tempfile.mkdtemp()
 
-  # local file path of rendered image
-  result_path = os.path.join(tempdir,
-                             f"{asset_data['author']['firstName']}_{asset_data['author']['lastName']}",
-                             f"{upload_id}_{asset_data['name']}_{asset_data['author']['firstName']}_{asset_data['author']['lastName']}.jpg")
+  # result folder where the stuff for upload to drive goes
+  result_folder = os.path.join(temp_folder, upload_id)
+  os.makedirs(result_folder, exist_ok=True)
 
+  # local file path of main rendered image
+  result_path = os.path.join(temp_folder,
+                             result_folder,
+                             result_file_name)
 
   # send to background to render
   send_to_bg.send_to_bg(asset_data,
                         asset_file_path=file_path,
                         template_file_path=template_file_path,
                         result_path=result_path,
+                        result_folder=result_folder,
+                        temp_folder=temp_folder,
                         script='material_validation_bg.py',
-                        binary_type = 'NEWEST')
+                        binary_type = 'NEWEST',
+                        verbosity_level=2)
+
   # Upload result
-  google_drive.upload_file_to_folder(drive, result_path, folder_id=author_folder_id)
+  drive = google_drive.init_drive()
+  google_drive.upload_folder_to_drive(drive, result_folder, MATERIAL_VALIDATION_FOLDER_ID, GOOGLE_SHARED_DRIVE_ID)
   return
 
 
