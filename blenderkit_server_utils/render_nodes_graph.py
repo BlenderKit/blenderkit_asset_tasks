@@ -36,7 +36,58 @@ def setup_scene(material_name):
 
     return new_scene, camera
 
+line_height = 0.5
+text_scale = 0.25
+line_scale = 2 * text_scale
+
+text_x_offset = 0.1
 class drawNode:
+    def create_node_mesh(self):
+        # Create a plane for each node and name it accordingly
+        self.mesh = bpy.data.meshes.new(name=f"{self.node.name}_Plane")
+        self.plane_obj = bpy.data.objects.new(name=f"{self.node.name}_Plane_Obj", object_data=self.mesh)
+        self.scene.collection.objects.link(self.plane_obj)
+        bpy.context.view_layer.objects.active = self.plane_obj
+        self.plane_obj.location = self.position
+        self.bm = bmesh.new()
+        self.bm.verts.new((0, 0, 0))
+        self.bm.verts.new((0, -self.node_height, 0))
+        self.bm.verts.new((self.node_width, -self.node_height, 0))
+        self.bm.verts.new((self.node_width, 0, 0))
+        self.bm.faces.new(self.bm.verts)
+        self.bm.to_mesh(self.mesh)
+        self.bm.free()
+        # add bevel modifier with vertex option to make the edges round
+        bpy.ops.object.modifier_add(type='BEVEL')
+        bpy.context.object.modifiers["Bevel"].width = 0.2
+        bpy.context.object.modifiers["Bevel"].segments = 10
+        bpy.context.object.modifiers["Bevel"].affect = 'VERTICES'
+        # assign material
+        self.plane_obj.data.materials.append(bpy.data.materials["DarkGrey"])
+
+        # Apply bevel modifier, go to edit mode, slect all, inset by 0.1, invert selection, assign a new material slot and assign it to orange
+        bpy.ops.object.modifier_apply(modifier="Bevel")
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        # set selection to faces
+        bpy.ops.mesh.select_mode(type="FACE")
+        bpy.ops.mesh.inset(thickness=0.02, depth=0)
+        # invert selection
+        bpy.ops.mesh.select_all(action='INVERT')
+        # assign a new material slot
+        bpy.ops.object.material_slot_add()
+        # assign it to orange
+        bpy.context.object.active_material_index = 1
+        bpy.context.object.active_material = bpy.data.materials["Orange"]
+        bpy.ops.object.material_slot_assign()
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    def count_used_inputs(self):
+        i=0
+        for input in self.node.inputs:
+            if len(input.links) > 0:
+                i+=1
+        return i
     def __init__(self, node, scene, scale=0.01):
         self.node = node
         self.scene = scene
@@ -46,63 +97,62 @@ class drawNode:
         if node.parent is not None:
             self.offs_x = node.parent.location.x
             self.offs_y = node.parent.location.y
+
+
+        node_pos_x = (self.offs_x + node.location.x) * scale
+        node_pos_y = (self.offs_y + node.location.y) * scale
+        self.position = Vector((node_pos_x, node_pos_y, 0))
+        # Reroute is special, has no text, no size, no plane
+        if node.type == 'REROUTE':
+            self.node_width = 0
+            self.node_height = 0
+            self.input_pos = Vector((0, 0, 0))
+            self.output_pos = Vector((0, 0, 0))
+            return
+
+        # calculate node width and height
         self.node_width = node.width * scale
         # calculate node height from number of inputs root - stupid approximation but the .dimensions parameter
         # is not available when blender runs from command line
-        self.node_height = len(node.inputs) * 0.2 + 0.6
-        self.node_pos_x = (self.offs_x + node.location.x) * scale
-        self.node_pos_y = (self.offs_y + node.location.y) * scale
 
-        # Create a plane for each node and name it accordingly
-        self.mesh = bpy.data.meshes.new(name=f"{node.name}_Plane")
-        self.plane_obj = bpy.data.objects.new(name=f"{node.name}_Plane_Obj", object_data=self.mesh)
-        self.scene.collection.objects.link(self.plane_obj)
-        bpy.context.view_layer.objects.active = self.plane_obj
-        self.plane_obj.location = (self.node_pos_x, self.node_pos_y, 0)
-        self.bm = bmesh.new()
-        self.bm.verts.new((0, 0, 0))
-        self.bm.verts.new((0, -self.node_height, 0))
-        self.bm.verts.new((self.node_width, -self.node_height, 0))
-        self.bm.verts.new((self.node_width, 0, 0))
-        self.bm.faces.new(self.bm.verts)
-        self.bm.to_mesh(self.mesh)
-        self.bm.free()
-        #add bevel modifier with vertex option to make the edges round
-        bpy.ops.object.modifier_add(type='BEVEL')
-        bpy.context.object.modifiers["Bevel"].width = 0.2
-        bpy.context.object.modifiers["Bevel"].segments = 10
-        bpy.context.object.modifiers["Bevel"].affect = 'VERTICES'
+        # count inputs with links
+        self.node_height = (2 + self.count_used_inputs()) * line_height + 0.6
 
-
-        # Create a text object for the node's name and name it accordingly
-        bpy.ops.object.text_add(location=(0.05, -0.2, 0.05))
-        self.text_obj = bpy.context.object
-        self.text_obj.name = f"{node.name}_Text"
-        self.text_obj.data.name = f"{node.name}_Text_Data"
-        self.text_obj.data.body = node.name
-        self.text_obj.data.align_x = 'LEFT'
-        self.text_obj.data.align_y = 'TOP'
-        self.text_obj.data.size = .3
-        self.text_obj.parent = self.plane_obj
-
-        # For image nodes, create a text object with the image's name
+        # create the mesh
+        self.create_node_mesh()
+        #add texts
+        self.text_obj = self.add_text(node.name, (0, -0.2), 'LEFT', 'TOP', text_scale)
         if node.type == 'TEX_IMAGE':
-            bpy.ops.object.text_add(location=(0.05, -0.5, 0.05))
-            self.text_obj1 = bpy.context.object
-            self.text_obj1.name = f"{node.name}_Imagename"
-            self.text_obj1.data.name = f"{node.name}_Imagename_Data"
-            self.text_obj1.data.body = node.image.filepath.split(os.sep)[-1]
-            self.text_obj1.data.align_x = 'LEFT'
-            self.text_obj1.data.align_y = 'TOP'
-            self.text_obj1.data.size = .3
-            self.text_obj1.parent = self.plane_obj
+            self.text_obj1 = self.add_text(node.image.filepath.split(os.sep)[-1], (0, -0.5), 'LEFT', 'TOP', text_scale)
+        # add start end position for node links:
+        self.output_pos = Vector((self.node_width, - 0.2,0))
+        self.input_pos = Vector((0, - 1,0))
+
+    def add_text(self, text, position, alignment_x='LEFT', alignment_y='TOP', size=0.3):
+        """
+        Adds a text object to the node at the specified position.
+        """
+        # Adjust position to parent first
+        bpy.ops.object.text_add(location=(position[0]+text_x_offset, position[1], 0.05))
+        text_obj = bpy.context.object
+        text_name = f"{self.node.name}_{text.replace(' ', '_')}"
+        text_obj.name = text_name
+        text_obj.data.name = f"{text_name}_Data"
+        text_obj.data.body = text
+        text_obj.data.align_x = alignment_x
+        text_obj.data.align_y = alignment_y
+        text_obj.data.size = size
+        text_obj.parent = self.plane_obj
+        # add material
+        text_obj.data.materials.append(bpy.data.materials["White"])
+        return text_obj
 
 def draw_link(start_pos, end_pos, scene):
     # Create a new curve
     curve_data = bpy.data.curves.new('link_curve', type='CURVE')
     curve_data.dimensions = '3D'
     curve_data.fill_mode = 'FULL'
-    curve_data.bevel_depth = 0.05
+    curve_data.bevel_depth = 0.02
 
     # Add a new spline to the curve
     spline = curve_data.splines.new(type='BEZIER')
@@ -110,31 +160,67 @@ def draw_link(start_pos, end_pos, scene):
 
     # Assign positions to the start and end points
     spline.bezier_points[0].co = start_pos
-    spline.bezier_points[0].handle_right = start_pos+ Vector((1, 0, 0))
-    spline.bezier_points[0].handle_left = start_pos - Vector((1, 0, 0))
+    spline.bezier_points[0].handle_right = start_pos+ Vector((.5, 0, 0))
+    spline.bezier_points[0].handle_left = start_pos - Vector((.5, 0, 0))
     spline.bezier_points[1].co = end_pos
-    spline.bezier_points[1].handle_left = end_pos - Vector((1, 0, 0))
-    spline.bezier_points[1].handle_right = end_pos + Vector((1, 0, 0))
+    spline.bezier_points[1].handle_left = end_pos - Vector((.5, 0, 0))
+    spline.bezier_points[1].handle_right = end_pos + Vector((.5, 0, 0))
 
     # Create a new object with the curve
     curve_obj = bpy.data.objects.new('Link', curve_data)
     scene.collection.objects.link(curve_obj)
+    #set resolution of the curve to 25
+    curve_obj.data.resolution_u = 25
+    #set material
+    curve_obj.data.materials.append(bpy.data.materials["Orange"])
+    #add a small sphere at start and end
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.08, location=start_pos + Vector((0,0,0.1)))
+    bpy.context.object.data.materials.append(bpy.data.materials["Orange"])
+
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.08, location=end_pos + Vector((0,0,0.1)))
+    bpy.context.object.data.materials.append(bpy.data.materials["Orange"])
 
     return curve_obj
 
 
-def visualize_links(node_tree, viz_nodes, scene):
+def visualize_links(node_tree, viz_nodes, scene, scale=0.01):
     links = []
+    scale = 2
     for link in node_tree.links:
-        for n in viz_nodes:
-            if n.node.name == link.from_node.name:
-                from_node = n
-            if n.node.name == link.to_node.name:
-                to_node = n
-        start_pos = Vector((from_node.node_pos_x + from_node.node_width, from_node.node_pos_y - 0.2,0))
-        end_pos = Vector((to_node.node_pos_x, to_node.node_pos_y - to_node.node_height / 2 ,0))
-        link = draw_link(start_pos, end_pos, scene)
-        links.append(link)
+        # Find the corresponding visual nodes
+        from_viz_node = next((n for n in viz_nodes if n.node == link.from_node), None)
+        to_viz_node = next((n for n in viz_nodes if n.node == link.to_node), None)
+
+        if from_viz_node and to_viz_node:
+            # Calculate the vertical offset for the output link start
+            from_socket_index = list(from_viz_node.node.outputs).index(link.from_socket)
+            from_socket_offset = (from_viz_node.node_height / max(len(from_viz_node.node.outputs),
+                                                                  1)) * from_socket_index
+
+            # Calculate the vertical offset for the input link end
+            to_socket_index=0
+            for to_socket in to_viz_node.node.inputs:
+                if to_socket.identifier == link.to_socket.identifier:
+                    break
+                if len(to_socket.links) > 0:
+                    to_socket_index+=1
+
+            #to_socket_offset = (to_viz_node.node_height / max(len(to_viz_node.node.inputs), 1)) * to_socket_index
+            # Calculate the vertical offset for the input link end
+            end_pos = Vector((to_viz_node.input_pos.x,
+                              to_viz_node.input_pos.y - to_socket_index * line_scale , -0.1)) #- to_viz_node.position
+            start_pos = Vector((from_viz_node.output_pos.x, from_viz_node.output_pos.y, -0.1)) #- from_viz_node.position
+            if to_viz_node.node.type == 'REROUTE':
+                end_pos = to_viz_node.input_pos
+            else:
+                input_text = to_viz_node.add_text(link.to_socket.identifier, end_pos, 'LEFT', 'TOP', text_scale)
+            if from_viz_node.node.type == 'REROUTE':
+                start_pos = from_viz_node.output_pos
+
+            offset = Vector((0, - text_scale * line_scale *.5,0))
+            # Draw the link
+            link_obj = draw_link(start_pos + from_viz_node.position, end_pos + to_viz_node.position  + offset, scene)
+            links.append(link_obj)
     return links
 
 
@@ -147,10 +233,23 @@ def create_emit_material(name, color = (1,1,1,1)):
         nodes.remove(n)
     output = nodes.new("ShaderNodeOutputMaterial")
     output.location = (200,0)
+    #emission node
     emission = nodes.new("ShaderNodeEmission")
     emission.location = (0,0)
     emission.inputs[0].default_value = color
-    links.new(emission.outputs[0], output.inputs[0])
+    #transparent shader node with max transparency
+    transparent = nodes.new("ShaderNodeBsdfTransparent")
+    transparent.location = (-200,0)
+    #mix shader node
+    mix = nodes.new("ShaderNodeMixShader")
+    mix.location = (0,-200)
+    #mix ratio to defined alpha from color
+    mix.inputs[0].default_value = color[3]
+    #link nodes
+    links.new(transparent.outputs[0], mix.inputs[1])
+
+    links.new(emission.outputs[0], mix.inputs[2])
+    links.new(mix.outputs[0], output.inputs[0])
     return mat
 
 def visualize_nodes(tempfolder,name, node_tree, scene):
@@ -159,8 +258,8 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
     black = create_emit_material("Black", (0, 0, 0, 1))
     grey = create_emit_material("Grey", (0.5, 0.5, 0.5, 1))
     white = create_emit_material("White", (1, 1, 1, 1))
-    orange = create_emit_material("Orange", (1, 0.5, 0, 1))
-    dark_grey = create_emit_material("DarkGrey", (0.04, 0.04, 0.04, 1))
+    orange = create_emit_material("Orange", (.7, 0.35, 0, 1))
+    dark_grey = create_emit_material("DarkGrey", (0.04, 0.04, 0.04, 0.7))
 
     new_scene, camera = setup_scene(name)
 
@@ -175,21 +274,13 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
 
         nodes.append(viz_node)
         # Update bounds for camera
-        min_x = min(min_x, viz_node.node_pos_x)
-        max_x = max(max_x, viz_node.node_pos_x + viz_node.node_width)
-        min_y = min(min_y, viz_node.node_pos_y)
-        max_y = max(max_y, viz_node.node_pos_y - viz_node.node_height)
+        min_x = min(min_x, viz_node.position.x)
+        max_x = max(max_x, viz_node.position.x + viz_node.node_width)
+        min_y = min(min_y, viz_node.position.y)
+        max_y = max(max_y, viz_node.position.y - viz_node.node_height)
 
     links = visualize_links(node_tree, nodes, new_scene)
 
-    # set materials
-    for n in nodes:
-        n.plane_obj.data.materials.append(dark_grey)
-        n.text_obj.data.materials.append(white)
-        if n.node.type == 'TEX_IMAGE':
-            n.text_obj1.data.materials.append(white)
-    for l in links:
-        l.data.materials.append(orange)
 
     # Adjust the camera to cover all nodes and name it
     center_x = (min_x + max_x) / 2
@@ -217,10 +308,11 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
     bpy.context.scene.render.engine = 'CYCLES'
     bpy.context.scene.cycles.device = 'GPU'
     bpy.context.scene.cycles.samples = 5
+    bpy.context.scene.cycles.use_denoising = False
 
     # set output to square 1024x1024
-    bpy.context.scene.render.resolution_x = 1024
-    bpy.context.scene.render.resolution_y = 1024
+    bpy.context.scene.render.resolution_x = 2048
+    bpy.context.scene.render.resolution_y = 2048
     bpy.context.scene.render.resolution_percentage = 100
     bpy.context.scene.render.image_settings.file_format = 'WEBP'
 
@@ -238,9 +330,8 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
 def visualize_material_nodes(material_name, tempfolder = None):
     # visualize all materials
     # make a copy of the materials, because we add some extra so that it does not mess up the original
-    materials = bpy.data.materials[:]
 
-    if material_name not in materials:
+    if material_name not in bpy.data.materials:
         print(f"Material '{material_name}' not found.")
         return
     material = bpy.data.materials[material_name]
@@ -271,13 +362,14 @@ def visualize_all_nodes(tempfolder = None, objects = None):
     for geometry_nodes in gngroups:
         if geometry_nodes.bl_idname == 'GeometryNodeTree':
             visualize_nodes(tempfolder, geometry_nodes.name, geometry_nodes, bpy.context.scene)
-def activate_object(ob):
+
+
+def activate_object(aob):
     # this deselects everything, selects the object and makes it active
-    #bpy.ops.object.select_all(action='DESELECT')
-    for ob in bpy.context.visible_objects:
-        ob.select_set(False)
-    ob.select_set(True)
-    bpy.context.view_layer.objects.active = ob
+    for obj in bpy.context.visible_objects:
+        obj.select_set(False)
+    aob.select_set(True)
+    bpy.context.view_layer.objects.active = aob
 
 def save_uv_layouts(tempfolder, objects):
     # save uv layouts for all objects
@@ -307,8 +399,11 @@ def save_uv_layouts(tempfolder, objects):
         return
 
     filepath = os.path.join(tempfolder, f"Complete_asset_uv")
+
     #select all mesh elements to render complete uv layout
     activate_object(unique_meshes_obs[0])
+    for obj in unique_meshes_obs:
+        obj.select_set(True)
     bpy.context.scene.update_tag()
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
@@ -320,11 +415,15 @@ def save_uv_layouts(tempfolder, objects):
 
     for obj in unique_meshes_obs:
         activate_object(obj)
-        bpy.context.scene.update_tag()
+        print('export uv layout for', obj.name, obj.data.name)
         bpy.ops.object.mode_set(mode='EDIT')
         bpy.ops.mesh.select_all(action='SELECT')
+        #set back to object mode
+        bpy.ops.object.mode_set(mode='OBJECT')
+        #back to edit mode
+        bpy.ops.object.mode_set(mode='EDIT')
         filepath = os.path.join(tempfolder, f"{obj.name}_uv")
-        bpy.ops.uv.export_layout(filepath=filepath, export_all=True, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=True)
+        bpy.ops.uv.export_layout(filepath=filepath, export_all=True, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=False)
 
 
 def export_all_textures(tempfolder, objects):

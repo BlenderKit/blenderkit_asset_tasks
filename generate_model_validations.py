@@ -95,6 +95,8 @@ def render_model_validation_thread(asset_data, api_key):
     drive = google_drive.init_drive()
     google_drive.upload_folder_to_drive(drive, result_folder, MODEL_VALIDATION_FOLDER_ID, GOOGLE_SHARED_DRIVE_ID)
 
+    # delete the temp folder
+    os.system(f'rm -rf {temp_folder}')
     return
 
 
@@ -117,7 +119,12 @@ def iterate_assets(filepath, thread_function=None, process_count=12, api_key='')
 
 
 def main():
+    # cleanup the drive folder
+    # service = google_drive.init_drive()  # Initialize the Google Drive service
+    # google_drive.delete_empty_folders(service, MODEL_VALIDATION_FOLDER_ID) # Delete empty folders
+    # return
 
+    # Get os temp directory
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, 'assets_for_resolutions.json')
     params = {

@@ -135,4 +135,53 @@ def upload_folder_to_drive(service, folder_path, drive_folder_id, drive_id):
             # This creates/ensures a subfolder on Drive and uploads the contents
             upload_folder_to_drive(service, item_path, drive_subfolder_id)
 
-print("Function 'upload_folder_to_drive' is ready to use.")
+
+def delete_empty_folders(service, folder_id, recursive=True):
+    """
+    Deletes all empty folders within the specified Google Drive folder.
+
+    :param service: Initialized Google Drive service object.
+    :param folder_id: The ID of the Google Drive folder to check for empty subfolders.
+    """
+
+    def get_subfolders(service, folder_id):
+        """ Helper function to retrieve subfolders with pagination """
+        subfolders = []
+        page_token = None
+        while True:
+            response = service.files().list(
+                q=f"mimeType='application/vnd.google-apps.folder' and '{folder_id}' in parents and trashed=false",
+                spaces='drive',
+                fields='nextPageToken, files(id, name)',
+                pageToken=page_token,
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True
+            ).execute()
+            subfolders.extend(response.get('files', []))
+            page_token = response.get('nextPageToken', None)
+            if page_token is None:
+                break
+        return subfolders
+
+    subfolders = get_subfolders(service, folder_id)
+
+    for folder in subfolders:
+        print(f"Checking folder: {folder['name']} ({folder['id']})")
+        # Check if the folder is empty
+        sub_query = f"'{folder['id']}' in parents and trashed=false"
+        sub_response = service.files().list(
+            q=sub_query,
+            fields='files(id)',
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True
+        ).execute()
+        if not sub_response.get('files'):
+            # If the folder is empty, delete it
+            service.files().delete(fileId=folder['id'], supportsAllDrives=True).execute()
+            print(f"Deleted empty folder: {folder['name']} ({folder['id']})")
+        elif recursive:
+            # If the folder is not empty, recursively check its subfolders
+            delete_empty_folders(service, folder['id'])
+
+
+

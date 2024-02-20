@@ -83,6 +83,22 @@ def render_material_validation_thread(asset_data, api_key):
                         binary_type = 'NEWEST',
                         verbosity_level=2)
 
+  # send to background to render turnarounds
+  template_file_path = os.path.join(current_dir, 'blend_files', 'material_turnaround.blend')
+
+  result_path = os.path.join(temp_folder,
+                             result_folder,
+                             upload_id + '_turnaround.mkv')
+  send_to_bg.send_to_bg(asset_data,
+                        asset_file_path=file_path,
+                        template_file_path=template_file_path,
+                        result_path=result_path,
+                        result_folder=result_folder,
+                        temp_folder=temp_folder,
+                        script='material_turnaround_bg.py',
+                        binary_type = 'NEWEST',
+                        verbosity_level=2)
+
   # Upload result
   drive = google_drive.init_drive()
   google_drive.upload_folder_to_drive(drive, result_folder, MATERIAL_VALIDATION_FOLDER_ID, GOOGLE_SHARED_DRIVE_ID)

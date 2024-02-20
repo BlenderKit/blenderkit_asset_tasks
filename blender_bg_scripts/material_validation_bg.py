@@ -177,6 +177,7 @@ def render_uploaded_material(data):
   render_nodes_graph.visualize_nodes(data['result_folder'], mat.name, mat.node_tree, bpy.context.scene)
   render_nodes_graph.export_all_material_textures(data['result_folder'], mat)
 
+
 if __name__ == "__main__":
   print('background resolution generator')
   datafile = sys.argv[-1]
