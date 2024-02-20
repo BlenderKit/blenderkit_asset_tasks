@@ -448,7 +448,7 @@ def make_possible_reductions_on_image(teximage, input_filepath, do_reductions=Fa
   print(teximage.depth)
   print(teximage.channels)
 
-  bpy.context.scene.display_settings.display_device = 'None'
+  # bpy.context.scene.display_settings.display_device = 'None'
 
   image_depth = find_image_depth(teximage)
 
