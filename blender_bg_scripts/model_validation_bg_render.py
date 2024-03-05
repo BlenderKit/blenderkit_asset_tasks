@@ -110,8 +110,9 @@ def scale_cameras(asset_data):
     scaler.scale = (r, r, r)
     scaler.location.z = (maxz + minz) / 2
 
-    floor = bpy.data.objects['floor']
-    floor.location.z = minz
+    # let's keep floor where it should be! so this is commented out:
+    # floor = bpy.data.objects['floor']
+    # floor.location.z = minz
 
     # camZ = s.camera.parent.parent
     # camZ.location.z = (maxz - minz) / 2
@@ -215,6 +216,28 @@ def switch_on_all_modifiers(original_states):
     #switches on all modifiers for render in the scene and restores them to the original state.
     for ob, m, state in original_states:
         m.show_render = state
+
+def add_geometry_nodes_to_all_objects(group = 'wireNodes', dimensions = 1):
+    #takes all visible objects in the scene and adds geometry nodes modifier with the group to them.
+    #avoids objects with more than 300k face.
+    for ob in bpy.context.scene.objects:
+        if ob.type == 'MESH' and ob.visible_get() and len(ob.data.polygons) < 300000:
+            bpy.context.view_layer.objects.active = ob
+            bpy.ops.object.modifier_add(type='NODES')
+            m = bpy.context.object.modifiers[-1]
+            m.node_group = bpy.data.node_groups[group]
+            #asset dimensions needed
+            m["Socket_0"] = float(dimensions)
+
+def remove_geometry_nodes_from_all_objects(group = 'wireNodes'):
+    #takes all visible objects in the scene and removes geometry nodes modifier with the group to them.
+    for ob in bpy.context.scene.objects:
+        if ob.type == 'MESH' and ob.visible_get() and len(ob.data.polygons) < 300000:
+            bpy.context.view_layer.objects.active = ob
+            # check if the modifier is there
+            for m in ob.modifiers:
+                if m.type == 'NODES' and m.node_group.name == group:
+                    bpy.context.object.modifiers.remove(m)
 def render_model_validation( asset_data, filepath):
     # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
@@ -247,19 +270,26 @@ def render_model_validation( asset_data, filepath):
     #switch off modifiers for this one
     set_scene('Mesh_checker_no_modif')
     original_states = switch_off_all_modifiers()
+    dimensionX = utils.get_param(asset_data, 'dimensionX')
+    dimensionY = utils.get_param(asset_data, 'dimensionY')
+    dimensionZ = utils.get_param(asset_data, 'dimensionZ')
+    # Max length is taken as the dimension of the asset
+    dimensions = max(dimensionX, dimensionY, dimensionZ)
+    add_geometry_nodes_to_all_objects(group='wireNodes', dimensions=dimensions)
     bpy.ops.render.render(animation=True)
+    remove_geometry_nodes_from_all_objects(group='wireNodes')
     switch_on_all_modifiers(original_states)
-
     # switch to composite and render video
-    set_scene('Composite')
-
-    bpy.context.scene.render.filepath = filepath
-    print(filepath)
-    # bpy.context.view_layer.update()
-    # bpy.context.scene.update_tag()
-    # bpy.context.view_layer.update()
-    print(f'rendering validation preview for {asset_data["name"]}')
-    bpy.ops.render.render(animation=True, write_still=True)
+    #No video, in this one we render only large stills
+    # set_scene('Composite')
+    #
+    # bpy.context.scene.render.filepath = filepath
+    # print(filepath)
+    # # bpy.context.view_layer.update()
+    # # bpy.context.scene.update_tag()
+    # # bpy.context.view_layer.update()
+    # print(f'rendering validation preview for {asset_data["name"]}')
+    # bpy.ops.render.render(animation=True, write_still=True)
 
 
 def render_asset_bg(data):

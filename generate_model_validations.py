@@ -4,6 +4,7 @@
 
 import json
 import os
+import shutil
 import tempfile
 import threading
 import time
@@ -55,6 +56,7 @@ def render_model_validation_thread(asset_data, api_key):
     drive = google_drive.init_drive()
     f_exists = google_drive.file_exists_partial(drive, result_file_name, folder_id=MODEL_VALIDATION_FOLDER_ID)
 
+    #let's not skip now.
     if f_exists:
         print(f'directory {upload_id} exists, skipping')
         return
@@ -64,7 +66,7 @@ def render_model_validation_thread(asset_data, api_key):
 
     # find template file
     current_dir = pathlib.Path(__file__).parent.resolve()
-    template_file_path = os.path.join(current_dir, 'blend_files', 'model_validation_mix.blend')
+    template_file_path = os.path.join(current_dir, 'blend_files', 'model_validation_static_renders.blend')
 
     # Send to background to generate resolutions
     #generated temp folder
@@ -91,12 +93,20 @@ def render_model_validation_thread(asset_data, api_key):
                           binary_type='NEWEST',
                           verbosity_level=2)
 
+    # part of the results is in temfolder/tmp/Render, so let's move all of it's files to the result folder,
+    # so that there are no subdirectories and everything is in one folder.
+    # and then upload the result folder to drive
+    render_folder = os.path.join(temp_folder, 'tmp', 'Render')
+    file_names = os.listdir(render_folder)
+    for file_name in file_names:
+        shutil.move(os.path.join(render_folder, file_name), result_folder)
+
     # Upload result
     drive = google_drive.init_drive()
     google_drive.upload_folder_to_drive(drive, result_folder, MODEL_VALIDATION_FOLDER_ID, GOOGLE_SHARED_DRIVE_ID)
 
     # delete the temp folder
-    os.system(f'rm -rf {temp_folder}')
+    shutil.rmtree(temp_folder)
     return
 
 

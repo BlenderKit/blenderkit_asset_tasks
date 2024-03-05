@@ -1,3 +1,6 @@
 .venv
 prepare_and_upload_resolutions.bat
 __pycache__
+blend_files/tmp/
+cache/
+blend_files/assets/

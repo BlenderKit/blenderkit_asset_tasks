@@ -128,7 +128,7 @@ def main():
   dpath = tempfile.gettempdir()
   filepath = os.path.join(dpath, 'assets_for_resolutions.json')
   params = {
-      'order': '-created',
+      'order': 'created',
       'asset_type': 'material',
       'verification_status': 'uploaded'
   }

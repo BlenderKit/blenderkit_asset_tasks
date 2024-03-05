@@ -36,11 +36,17 @@ def setup_scene(material_name):
 
     return new_scene, camera
 
-line_height = 0.5
-text_scale = 0.25
+line_height = 0.3
+text_scale = 0.2
 line_scale = 2 * text_scale
+margin = 0.1
 
-text_x_offset = 0.1
+class NodeRow():
+    def __init__(self, textobject, text, position, type = 'input'):
+        self.type = type
+        self.textobject = textobject
+        self.text = text
+        self.position = position
 class drawNode:
     def create_node_mesh(self):
         # Create a plane for each node and name it accordingly
@@ -88,12 +94,24 @@ class drawNode:
             if len(input.links) > 0:
                 i+=1
         return i
+
+    def node_value_to_text(self, input):
+        # returns input default values as strings, with rounded numbers
+        if input.type == 'VALUE':
+            return str(round(input.default_value, 2))
+        elif input.type == 'RGBA':
+            return f"{round(input.default_value[0], 1)}, {round(input.default_value[1], 1)}, {round(input.default_value[2], 1)}, {round(input.default_value[3], 1)}"
+        elif input.type == 'VECTOR':
+            return f"{round(input.default_value[0], 1)}, {round(input.default_value[1], 1)}, {round(input.default_value[2], 1)}"
+        return ''
+
     def __init__(self, node, scene, scale=0.01):
         self.node = node
         self.scene = scene
         self.scale = scale
         self.offs_x = 0
         self.offs_y = 0
+        self.rows = []
         if node.parent is not None:
             self.offs_x = node.parent.location.x
             self.offs_y = node.parent.location.y
@@ -115,25 +133,61 @@ class drawNode:
         # calculate node height from number of inputs root - stupid approximation but the .dimensions parameter
         # is not available when blender runs from command line
 
-        # count inputs with links
-        self.node_height = (2 + self.count_used_inputs()) * line_height + 0.6
 
-        # create the mesh
-        self.create_node_mesh()
         #add texts
-        self.text_obj = self.add_text(node.name, (0, -0.2), 'LEFT', 'TOP', text_scale)
-        if node.type == 'TEX_IMAGE':
-            self.text_obj1 = self.add_text(node.image.filepath.split(os.sep)[-1], (0, -0.5), 'LEFT', 'TOP', text_scale)
-        # add start end position for node links:
-        self.output_pos = Vector((self.node_width, - 0.2,0))
-        self.input_pos = Vector((0, - 1,0))
+        self.add_text(node.name, alignment_x='LEFT', alignment_y='TOP', size=text_scale, color = 'LightBlue')
 
-    def add_text(self, text, position, alignment_x='LEFT', alignment_y='TOP', size=0.3):
+        if node.type == 'TEX_IMAGE':
+            self.add_text(node.image.filepath.split(os.sep)[-1],  alignment_x='LEFT', alignment_y='TOP', size=text_scale)
+            # add colorspace value
+            self.add_text(f"Color space: ", value = node.image.colorspace_settings.name,  alignment_x='LEFT', alignment_y='TOP', size=text_scale)
+
+        # add texts OR values for outputs and inputs
+        for output in node.outputs:
+            #only use outputs with links
+            if len(output.links) > 0:
+                self.add_text(output.identifier, alignment_x='RIGHT', alignment_y='TOP', size=text_scale, type = 'output')
+
+        # list of possible inputs we're interested in:
+        filter_values = ['Alpha', 'Subsurface Weight', 'Emission Strength', #principled
+                         'Scale', 'Midlevel' # Displacement but also some other nodes
+                         'Strength', 'Distance', #Bump but also others
+                         ]
+        for input in node.inputs:
+            if len(input.links) > 0:
+                self.add_text(input.identifier, alignment_x='LEFT', alignment_y='TOP', size=text_scale, type = 'input')
+            elif input.identifier in filter_values:
+                self.add_text(input.identifier, self.node_value_to_text(input),alignment_x='LEFT', alignment_y='TOP', size=text_scale, type = 'input')
+
+
+
+        # count inputs with links
+        self.node_height = (len(self.rows)) * line_height
+
+        # create the mesh in the end, since we need to know how many rows are there.
+        self.create_node_mesh()
+
+        # parent the text objects to the node
+        for row in self.rows:
+            row.textobject.parent = self.plane_obj
+            # row.textobject.location = row.position
+
+    def add_text(self, text, value=None, alignment_x='LEFT', alignment_y='TOP', size=0.3, color = 'White', type = 'input'):
         """
         Adds a text object to the node at the specified position.
         """
         # Adjust position to parent first
-        bpy.ops.object.text_add(location=(position[0]+text_x_offset, position[1], 0.05))
+        if self.node.type == 'REROUTE':
+            return None
+        if alignment_x == 'LEFT':
+            x =  margin
+            link_x = 0
+        elif alignment_x == 'RIGHT':
+            x = self.node_width - margin
+            link_x = self.node_width
+        y = - len(self.rows) * line_height
+        link_y = y - line_height * 0.35
+        bpy.ops.object.text_add(location=(x , y, 0.05))
         text_obj = bpy.context.object
         text_name = f"{self.node.name}_{text.replace(' ', '_')}"
         text_obj.name = text_name
@@ -142,10 +196,26 @@ class drawNode:
         text_obj.data.align_x = alignment_x
         text_obj.data.align_y = alignment_y
         text_obj.data.size = size
-        text_obj.parent = self.plane_obj
+        # in case of non-empty value we want to add a right aligned value text object, that is parented to the main text object
+        if value is not None:
+            bpy.ops.object.text_add(location=(self.node_width - margin, y, 0.05))
+            value_text_obj = bpy.context.object
+            value_text_name = f"{self.node.name}_{text.replace(' ', '_')}_Value"
+            value_text_obj.name = value_text_name
+            value_text_obj.data.name = f"{value_text_name}_Data"
+            value_text_obj.data.body = value
+            value_text_obj.data.align_x = 'RIGHT'
+            value_text_obj.data.align_y = alignment_y
+            value_text_obj.data.size = size
+            value_text_obj.parent = text_obj
+            value_text_obj.location = (self.node_width - 2* margin , 0, 0.05) #position relative to the parent text..
+            value_text_obj.data.materials.append(bpy.data.materials["Red"])
+        node_row = NodeRow(textobject = text_obj, text = text, position = Vector((link_x,link_y, -0.05)), type = type)
+        self.rows.append(node_row)
         # add material
-        text_obj.data.materials.append(bpy.data.materials["White"])
-        return text_obj
+        text_obj.data.materials.append(bpy.data.materials[color])
+
+        return node_row
 
 def draw_link(start_pos, end_pos, scene):
     # Create a new curve
@@ -192,34 +262,26 @@ def visualize_links(node_tree, viz_nodes, scene, scale=0.01):
         to_viz_node = next((n for n in viz_nodes if n.node == link.to_node), None)
 
         if from_viz_node and to_viz_node:
-            # Calculate the vertical offset for the output link start
-            from_socket_index = list(from_viz_node.node.outputs).index(link.from_socket)
-            from_socket_offset = (from_viz_node.node_height / max(len(from_viz_node.node.outputs),
-                                                                  1)) * from_socket_index
-
-            # Calculate the vertical offset for the input link end
-            to_socket_index=0
-            for to_socket in to_viz_node.node.inputs:
-                if to_socket.identifier == link.to_socket.identifier:
-                    break
-                if len(to_socket.links) > 0:
-                    to_socket_index+=1
-
-            #to_socket_offset = (to_viz_node.node_height / max(len(to_viz_node.node.inputs), 1)) * to_socket_index
-            # Calculate the vertical offset for the input link end
-            end_pos = Vector((to_viz_node.input_pos.x,
-                              to_viz_node.input_pos.y - to_socket_index * line_scale , -0.1)) #- to_viz_node.position
-            start_pos = Vector((from_viz_node.output_pos.x, from_viz_node.output_pos.y, -0.1)) #- from_viz_node.position
-            if to_viz_node.node.type == 'REROUTE':
-                end_pos = to_viz_node.input_pos
-            else:
-                input_text = to_viz_node.add_text(link.to_socket.identifier, end_pos, 'LEFT', 'TOP', text_scale)
+            # get positions from existing text rows
             if from_viz_node.node.type == 'REROUTE':
-                start_pos = from_viz_node.output_pos
+                start_pos = from_viz_node.position
+            else:
+                for row in from_viz_node.rows:
+                    if row.text == link.from_socket.identifier and row.type == 'output':
+                        start_pos = row.position + from_viz_node.position
+                        break
+            if to_viz_node.node.type == 'REROUTE':
+                end_pos = to_viz_node.position
+            else:
+                for row in to_viz_node.rows:
+                    if row.text == link.to_socket.identifier and row.type == 'input':
+                        end_pos = row.position + to_viz_node.position
+                        break
+
 
             offset = Vector((0, - text_scale * line_scale *.5,0))
             # Draw the link
-            link_obj = draw_link(start_pos + from_viz_node.position, end_pos + to_viz_node.position  + offset, scene)
+            link_obj = draw_link(start_pos  , end_pos, scene)
             links.append(link_obj)
     return links
 
@@ -257,9 +319,11 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
 
     black = create_emit_material("Black", (0, 0, 0, 1))
     grey = create_emit_material("Grey", (0.5, 0.5, 0.5, 1))
-    white = create_emit_material("White", (1, 1, 1, 1))
+    white = create_emit_material("White", (.9, .9, .9, 1))
     orange = create_emit_material("Orange", (.7, 0.35, 0, 1))
-    dark_grey = create_emit_material("DarkGrey", (0.04, 0.04, 0.04, 0.7))
+    light_blue = create_emit_material("LightBlue", (0.2, 1, .8, 1))
+    dark_grey = create_emit_material("DarkGrey", (0.04, 0.04, 0.04, 0.8))
+    red = create_emit_material("Red", (1, .8, .8, 1))
 
     new_scene, camera = setup_scene(name)
 
@@ -307,7 +371,7 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
     # set fast render settings for quick render with cycles
     bpy.context.scene.render.engine = 'CYCLES'
     bpy.context.scene.cycles.device = 'GPU'
-    bpy.context.scene.cycles.samples = 5
+    bpy.context.scene.cycles.samples = 20
     bpy.context.scene.cycles.use_denoising = False
 
     # set output to square 1024x1024
@@ -318,7 +382,7 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
 
     # set output path
     bpy.context.scene.render.filepath = os.path.join(tempfolder,
-                                                     f"{name}_m")
+                                                     f"Nodes_{name}")
 
     # Render the scene
     bpy.ops.render.render(write_still=True)
@@ -398,7 +462,7 @@ def save_uv_layouts(tempfolder, objects):
     if len(unique_meshes_obs) == 0:
         return
 
-    filepath = os.path.join(tempfolder, f"Complete_asset_uv")
+    filepath = os.path.join(tempfolder, f"UV_Map_Complete_")
 
     #select all mesh elements to render complete uv layout
     activate_object(unique_meshes_obs[0])
@@ -422,7 +486,7 @@ def save_uv_layouts(tempfolder, objects):
         bpy.ops.object.mode_set(mode='OBJECT')
         #back to edit mode
         bpy.ops.object.mode_set(mode='EDIT')
-        filepath = os.path.join(tempfolder, f"{obj.name}_uv")
+        filepath = os.path.join(tempfolder, f"UV_Map_{obj.name}")
         bpy.ops.uv.export_layout(filepath=filepath, export_all=True, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=False)
 
 
@@ -440,7 +504,7 @@ def export_all_textures(tempfolder, objects):
                                 if img not in unique_textures:
                                     unique_textures.append(img)
     for img in unique_textures:
-        img.filepath = os.path.join(tempfolder, f"{img.name}")
+        img.filepath = os.path.join(tempfolder, f"TEXTURE_{img.name}")
         img.save()
 
 def export_all_material_textures(tempfolder, material):
