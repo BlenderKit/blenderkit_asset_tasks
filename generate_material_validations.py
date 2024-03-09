@@ -41,7 +41,7 @@ def render_material_validation_thread(asset_data, api_key):
   # Check if the asset has already been processed
   # stop using author folder
   # Check if the asset has already been processed
-  result_file_name = f"{upload_id}.jpg"
+  result_file_name = f"Render{upload_id}.webp"
 
   drive = google_drive.init_drive()
 
