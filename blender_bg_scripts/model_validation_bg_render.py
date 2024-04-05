@@ -113,8 +113,8 @@ def scale_cameras(asset_data):
     # get scene camera
     s = bpy.context.scene
     cam = s.camera
-    # Set ortho scale to max of dimensions
-    cam.data.ortho_scale = max(dx, dy, dz)
+    # Set ortho scale to max of dimensions, just a tiny bit bigger.
+    cam.data.ortho_scale = max(dx, dy, dz) * 1.1
 
     # let's keep floor where it should be! so this is commented out:
     # floor = bpy.data.objects['floor']
