@@ -64,6 +64,8 @@ def render_model_validation_thread(asset_data, api_key):
 
     #let's not skip now.
     if f_exists:
+        # purge the folder
+        # cloudflare_storage.delete_folder_contents('validation-renders', upload_id)
         print(f'directory {upload_id} exists, skipping')
         return
 

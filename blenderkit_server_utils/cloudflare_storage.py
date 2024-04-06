@@ -91,6 +91,31 @@ class CloudflareStorage:
             json.dump(uploaded_files, index_file)
 
         # Upload the index file
-        self.upload_file(index_file_path, bucket_name, os.path.join(cloudflare_folder_prefix, 'index.json'))
+        cloudflare_object_name = os.path.join(cloudflare_folder_prefix, 'index.json')
+        cloudflare_object_name = cloudflare_object_name.replace('\\', '/')
+        self.upload_file(index_file_path, bucket_name, cloudflare_object_name)
 
         print(f"Uploaded index file to Cloudflare R2 storage at {cloudflare_folder_prefix}index.json")
+
+    def delete_folder_contents(self, bucket_name, folder_prefix):
+        """
+        Deletes all contents of a specified folder within the Cloudflare R2 bucket.
+
+        :param bucket_name: The name of the Cloudflare R2 bucket.
+        :param folder_prefix: The prefix of the folder to delete contents from. Must end with '/'.
+        """
+        # Ensure the folder prefix ends with '/' to avoid accidentally deleting unintended objects
+        if not folder_prefix.endswith('/'):
+            folder_prefix += '/'
+
+        # List all objects in the folder
+        response = self.client.list_objects_v2(Bucket=bucket_name, Prefix=folder_prefix)
+        objects = response.get('Contents', [])
+
+        # If there are objects to delete, prepare and execute the deletion
+        if objects:
+            delete_keys = {'Objects': [{'Key': obj['Key']} for obj in objects]}
+            delete_response = self.client.delete_objects(Bucket=bucket_name, Delete=delete_keys)
+            print(f"Deleted objects: {delete_response}")
+        else:
+            print("No objects found to delete.")

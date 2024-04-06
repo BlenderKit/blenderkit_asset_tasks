@@ -379,6 +379,7 @@ def visualize_nodes(tempfolder,name, node_tree, scene):
     bpy.context.scene.render.resolution_y = 2048
     bpy.context.scene.render.resolution_percentage = 100
     bpy.context.scene.render.image_settings.file_format = 'WEBP'
+    bpy.context.scene.render.image_settings.quality = 20
 
     # set output path
     bpy.context.scene.render.filepath = os.path.join(tempfolder,
@@ -504,8 +505,14 @@ def export_all_textures(tempfolder, objects):
                                 if img not in unique_textures:
                                     unique_textures.append(img)
     for img in unique_textures:
-        img.filepath = os.path.join(tempfolder, f"TEXTURE_{img.name}")
-        img.save()
+        # set to webp with very low quality setting for export...
+        bpy.context.scene.render.image_settings.file_format = 'WEBP'
+        quality = 20
+        #if name of texture contains normal, set it a bit higher
+        if 'normal' in img.name.lower():
+            quality = 60
+        filepath = os.path.join(tempfolder, f"TEXTURE_{img.name}")
+        img.save_render(filepath=bpy.path.ensure_ext(filepath, ".webp"), quality=quality)
 
 def export_all_material_textures(tempfolder, material):
     # export all textures
@@ -517,8 +524,15 @@ def export_all_material_textures(tempfolder, material):
                 if img not in unique_textures:
                     unique_textures.append(img)
     for img in unique_textures:
-        img.filepath = os.path.join(tempfolder, f"{img.name}")
-        img.save()
+        # set to webp with very low quality setting for export...
+        bpy.context.scene.render.image_settings.file_format = 'WEBP'
+        quality = 20
+        # if name of texture contains normal, set it a bit higher
+        if 'normal' in img.name.lower():
+            quality = 60
+        filepath = os.path.join(tempfolder, f"TEXTURE_{img.name}")
+        img.save_render(filepath=bpy.path.ensure_ext(filepath, ".webp"), quality=quality)
+
 def visualize_and_save_all(tempfolder, objects):
     # first let's save all textures
     export_all_textures(tempfolder, objects)

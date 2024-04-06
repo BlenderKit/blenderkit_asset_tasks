@@ -8,8 +8,9 @@ import tempfile
 import threading
 import time
 import pathlib
+from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 
-from blenderkit_server_utils import download, search, paths, upload, send_to_bg, google_drive
+from blenderkit_server_utils import download, search, paths, upload, send_to_bg
 
 results = []
 page_size = 100
@@ -51,9 +52,11 @@ def render_material_validation_thread(asset_data, api_key):
   # check if the directory exists on the drive
   # we check file by file, since the comparison with folder contents is not reliable and would potentially
   # compare with a very long list. main issue was what to set the page size for the search request...
-  f_exists = cloudflare_storage.file_exists('validation-renders', upload_id)
+  f_exists = cloudflare_storage.folder_exists('validation-renders', upload_id)
   if f_exists:
       print('file exists, skipping')
+      #purge the folder
+      #cloudflare_storage.delete_folder_contents('validation-renders', upload_id)
       return
 
   # Download asset
@@ -87,7 +90,7 @@ def render_material_validation_thread(asset_data, api_key):
                         verbosity_level=2)
 
   # send to background to render turnarounds
-  template_file_path = os.path.join(current_dir, 'blend_files', 'material_turnaround.blend')
+  template_file_path = os.path.join(current_dir, 'blend_files', 'material_turnaround_validation.blend')
 
   result_path = os.path.join(temp_folder,
                              result_folder,
