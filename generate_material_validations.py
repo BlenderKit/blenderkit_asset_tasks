@@ -15,8 +15,6 @@ results = []
 page_size = 100
 
 MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
-MATERIAL_VALIDATION_FOLDER_ID = "1L10ngR6vkTjmlzy9CQa2D08slhigBpwe" #changed it to be the same as models now
-GOOGLE_SHARED_DRIVE_ID = "0ABpmYJ3IosxhUk9PVA"
 def render_material_validation_thread(asset_data, api_key):
   '''
   A thread that:
@@ -43,12 +41,17 @@ def render_material_validation_thread(asset_data, api_key):
   # Check if the asset has already been processed
   result_file_name = f"Render{upload_id}.webp"
 
-  drive = google_drive.init_drive()
+  # drive = google_drive.init_drive()
+  cloudflare_storage = CloudflareStorage(
+      access_key=os.getenv('CF_ACCESS_KEY'),
+      secret_key=os.getenv('CF_ACCESS_SECRET'),
+      endpoint_url=os.getenv('CF_ENDPOINT_URL')
+  )
 
   # check if the directory exists on the drive
   # we check file by file, since the comparison with folder contents is not reliable and would potentially
   # compare with a very long list. main issue was what to set the page size for the search request...
-  f_exists = google_drive.file_exists(drive, upload_id, folder_id=MATERIAL_VALIDATION_FOLDER_ID)
+  f_exists = cloudflare_storage.file_exists('validation-renders', upload_id)
   if f_exists:
       print('file exists, skipping')
       return
@@ -100,8 +103,12 @@ def render_material_validation_thread(asset_data, api_key):
                         verbosity_level=2)
 
   # Upload result
-  drive = google_drive.init_drive()
-  google_drive.upload_folder_to_drive(drive, result_folder, MATERIAL_VALIDATION_FOLDER_ID, GOOGLE_SHARED_DRIVE_ID)
+  cloudflare_storage = CloudflareStorage(
+      access_key=os.getenv('CF_ACCESS_KEY'),
+      secret_key=os.getenv('CF_ACCESS_SECRET'),
+      endpoint_url=os.getenv('CF_ENDPOINT_URL')
+  )
+  cloudflare_storage.upload_folder(result_folder, 'validation-renders', upload_id)
   return
 
 

@@ -10,14 +10,15 @@ import threading
 import time
 import pathlib
 
-from blenderkit_server_utils import download, search, paths, upload, send_to_bg, google_drive
+from blenderkit_server_utils import download, search, paths, upload, send_to_bg
+# Assuming necessary imports are done at the top of the script
+from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
+
 
 results = []
 page_size = 100
 
 MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
-MODEL_VALIDATION_FOLDER_ID = "1L10ngR6vkTjmlzy9CQa2D08slhigBpwe"
-GOOGLE_SHARED_DRIVE_ID = "0ABpmYJ3IosxhUk9PVA"
 
 
 def render_model_validation_thread(asset_data, api_key):
@@ -53,8 +54,13 @@ def render_model_validation_thread(asset_data, api_key):
     # check if the directory exists on the drive
     # we check file by file, since the comparison with folder contents is not reliable and would potentially
     # compare with a very long list. main issue was what to set the page size for the search request...
-    drive = google_drive.init_drive()
-    f_exists = google_drive.file_exists_partial(drive, result_file_name, folder_id=MODEL_VALIDATION_FOLDER_ID)
+    # Initialize Cloudflare Storage with your credentials
+    cloudflare_storage = CloudflareStorage(
+        access_key=os.getenv('CF_ACCESS_KEY'),
+        secret_key=os.getenv('CF_ACCESS_SECRET'),
+        endpoint_url=os.getenv('CF_ENDPOINT_URL')
+    )
+    f_exists = cloudflare_storage.folder_exists(bucket_name='validation-renders', folder_name=result_file_name)
 
     #let's not skip now.
     if f_exists:
@@ -102,10 +108,14 @@ def render_model_validation_thread(asset_data, api_key):
         shutil.move(os.path.join(render_folder, file_name), result_folder)
 
     # Upload result
-    drive = google_drive.init_drive()
-    google_drive.upload_folder_to_drive(drive, result_folder, MODEL_VALIDATION_FOLDER_ID, GOOGLE_SHARED_DRIVE_ID)
-
-    # delete the temp folder
+    # # Instead of using Google Drive for upload, use Cloudflare Storage
+    # Initialize the CloudFlare service
+    cloudflare_storage = CloudflareStorage(
+        access_key=os.getenv('CF_ACCESS_KEY'),
+        secret_key=os.getenv('CF_ACCESS_SECRET'),
+        endpoint_url=os.getenv('CF_ENDPOINT_URL')
+    )
+    cloudflare_storage.upload_folder(result_folder, bucket_name='validation-renders', cloudflare_folder_prefix=result_file_name)
     shutil.rmtree(temp_folder)
     return
 
@@ -130,9 +140,6 @@ def iterate_assets(filepath, thread_function=None, process_count=12, api_key='')
 
 def main():
     # cleanup the drive folder
-    # service = google_drive.init_drive()  # Initialize the Google Drive service
-    # google_drive.delete_empty_folders(service, MODEL_VALIDATION_FOLDER_ID) # Delete empty folders
-    # return
 
     # Get os temp directory
     dpath = tempfile.gettempdir()
