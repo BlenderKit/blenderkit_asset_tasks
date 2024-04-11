@@ -1,6 +1,5 @@
 # GPL License
 # (c) BlenderKit 2021
-# This script is a modified version of the original script from BlenderKit
 #
 # This script is used to visualize the node graph of a material in Blender.
 # It creates a new scene with a camera and a plane for each node in the material's node tree.
@@ -15,7 +14,8 @@ import bmesh
 from mathutils import *
 import os
 import tempfile
-# from . import utils
+from . import utils
+from . import render_UVs
 def setup_scene(material_name):
     # Create a new scene with a clear name indicating it's for visualizing material nodes
     new_scene = bpy.data.scenes.new(name=f"{material_name}_Node_Visualization")
@@ -470,9 +470,12 @@ def save_uv_layouts(tempfolder, objects):
     for obj in unique_meshes_obs:
         obj.select_set(True)
     bpy.context.scene.update_tag()
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.uv.export_layout(filepath=filepath, export_all=False, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=True)
+    # bpy.ops.object.mode_set(mode='EDIT')
+    # bpy.ops.mesh.select_all(action='SELECT')
+    # bpy.ops.uv.export_layout(filepath=filepath, export_all=False, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=True)
+    # let's use the render_UVs instead of the built-in operator
+    render_UVs.export_uvs_as_webps(unique_meshes_obs, filepath)
+
     #now let's save all uv layouts separately for all mesh type objects in the asset:
     # we only need the 'common' UV layout when this happens
     if len(unique_meshes_obs) == 1:
@@ -481,15 +484,16 @@ def save_uv_layouts(tempfolder, objects):
     for obj in unique_meshes_obs:
         activate_object(obj)
         print('export uv layout for', obj.name, obj.data.name)
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.select_all(action='SELECT')
-        #set back to object mode
-        bpy.ops.object.mode_set(mode='OBJECT')
-        #back to edit mode
-        bpy.ops.object.mode_set(mode='EDIT')
+        # bpy.ops.object.mode_set(mode='EDIT')
+        # bpy.ops.mesh.select_all(action='SELECT')
+        # #set back to object mode
+        # bpy.ops.object.mode_set(mode='OBJECT')
+        # #back to edit mode
+        # bpy.ops.object.mode_set(mode='EDIT')
         filepath = os.path.join(tempfolder, f"UV_Map_{obj.name}")
-        bpy.ops.uv.export_layout(filepath=filepath, export_all=True, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=False)
-
+        # bpy.ops.uv.export_layout(filepath=filepath, export_all=True, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=False)
+        # let's use the render_UVs instead of the built-in operator
+        render_UVs.export_uvs_as_webps([obj], filepath)
 
 def export_all_textures(tempfolder, objects):
     # export all textures
