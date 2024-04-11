@@ -10,7 +10,7 @@ import threading
 import time
 import pathlib
 
-from blenderkit_server_utils import download, search, paths, upload, send_to_bg
+from blenderkit_server_utils import download, search, paths, upload, send_to_bg, utils
 # Assuming necessary imports are done at the top of the script
 from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 
@@ -147,7 +147,7 @@ def main():
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, 'assets_for_resolutions.json')
     params = {
-        'order': 'created',
+        'order': 'last_blend_upload',
         'asset_type': 'model',
         'verification_status': 'uploaded'
     }

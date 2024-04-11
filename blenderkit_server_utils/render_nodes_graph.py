@@ -516,6 +516,10 @@ def export_all_textures(tempfolder, objects):
         if 'normal' in img.name.lower():
             quality = 60
         filepath = os.path.join(tempfolder, f"TEXTURE_{img.name}")
+        # scale down textures larger than 2048
+        if img.size[0] > 2048 or img.size[1] > 2048:
+            scale = 2048 / max(img.size[0], img.size[1])
+            img.scale(round(img.size[0] * scale), round(img.size[1] * scale))
         img.save_render(filepath=bpy.path.ensure_ext(filepath, ".webp"), quality=quality)
 
 def export_all_material_textures(tempfolder, material):
@@ -535,6 +539,10 @@ def export_all_material_textures(tempfolder, material):
         if 'normal' in img.name.lower():
             quality = 60
         filepath = os.path.join(tempfolder, f"TEXTURE_{img.name}")
+        # scale down textures larger than 2048
+        if img.size[0] > 2048 or img.size[1] > 2048:
+            scale = 2048 / max(img.size[0], img.size[1])
+            img.scale(round(img.size[0] * scale), round(img.size[1] * scale))
         img.save_render(filepath=bpy.path.ensure_ext(filepath, ".webp"), quality=quality)
 
 def visualize_and_save_all(tempfolder, objects):
