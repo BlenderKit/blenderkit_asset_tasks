@@ -1,4 +1,5 @@
 # cloudflare_storage.py
+from datetime import datetime, timezone, timedelta
 import os
 import json
 import boto3
@@ -119,3 +120,34 @@ class CloudflareStorage:
             print(f"Deleted objects: {delete_response}")
         else:
             print("No objects found to delete.")
+
+    def delete_old_files(self, bucket_name, x_days):
+        """
+        Deletes files that are older than x_days in the specified bucket.
+
+        :param bucket_name: The name of the Cloudflare R2 bucket.
+        :param x_days: The age threshold in days for deleting files.
+        """
+        paginator = self.client.get_paginator('list_objects_v2')
+        delete_before_date = datetime.now(timezone.utc) - timedelta(days=x_days)
+
+        # Prepare a batch delete operation
+        delete_batch = {'Objects': []}
+
+        # Iterate through all objects in the bucket
+        for page in paginator.paginate(Bucket=bucket_name):
+            for obj in page.get('Contents', []):
+                # If the object is older than the specified days, mark it for deletion
+                if obj['LastModified'] < delete_before_date:
+                    delete_batch['Objects'].append({'Key': obj['Key']})
+
+                    # Perform the deletion in batches of 1000 (S3 limit)
+                    if len(delete_batch['Objects']) >= 1000:
+                        self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+                        delete_batch = {'Objects': []}  # Reset batch
+
+        # Delete any remaining objects in the last batch
+        if delete_batch['Objects']:
+            self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+
+        print("Old files deleted.")
