@@ -160,6 +160,10 @@ def main():
         endpoint_url=os.getenv('CF_ENDPOINT_URL')
     )
     ALL_FOLDERS = cloudflare_storage.list_all_folders(bucket_name='validation-renders')
+    # print('deleting old files')
+    # cloudflare_storage.delete_old_files(bucket_name='validation-renders', x_days=2)
+    # return
+
     # Get os temp directory
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, 'assets_for_validation.json')
