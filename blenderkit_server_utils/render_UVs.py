@@ -108,11 +108,12 @@ def build_uv_meshes(obs, scene):
     i = 0  # Counter to slightly offset each UV mesh object for visibility.
 
     for ob in obs:
+        me = ob.data  # The mesh data of the object.
+
         # Skip objects without UV layers.
-        if len(ob.data.uv_layers) == 0:
+        if len(ob.data.uv_layers) == 0 or ob.data.uv_layers.active is None or len(ob.data.uv_layers.active.data) == 0:
             continue
 
-        me = ob.data  # The mesh data of the object.
         uv_layer = me.uv_layers.active  # The active UV layer of the mesh.
 
         # Retrieve UV coordinates.

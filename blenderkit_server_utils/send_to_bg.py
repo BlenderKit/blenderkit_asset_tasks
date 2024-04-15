@@ -117,6 +117,10 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path='', temp_folde
 
     binary_path = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
 
+    own_temp_folder = False
+    if temp_folder == '':
+        temp_folder = tempfile.mkdtemp()
+        own_temp_folder = True
     data = {
         'file_path': asset_file_path,
         'result_filepath': result_path,
@@ -125,8 +129,7 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path='', temp_folde
         'api_key': api_key,
         'temp_folder': temp_folder,
     }
-    temp_folder = tempfile.mkdtemp()
-    datafile = os.path.join(temp_folder + 'resdata.json').replace('\\', '\\\\')
+    datafile = os.path.join(temp_folder, 'resdata.json').replace('\\', '\\\\')
     script_path = os.path.dirname(os.path.realpath(__file__))
     with open(datafile, 'w', encoding='utf-8') as s:
         json.dump(data, s, ensure_ascii=False, indent=4)
@@ -183,30 +186,7 @@ def send_to_bg(asset_data, asset_file_path='', template_file_path='', temp_folde
         print("Error while running command: ", command)
         print("Return code: ", returncode)
 
-
-    # # Setup subprocess stdout and stderr
-    # if verbosity_level == 0:
-    #     stdout_val = stderr_val = subprocess.PIPE
-    # elif verbosity_level in {1, 2}:
-    #     stdout_val = stderr_val = subprocess.PIPE
-    # else:
-    #     raise ValueError(
-    #         "Invalid verbosity level. It must be 0 (silent mode), 1 (only print errors), or 2 (print everything).")
-    #
-    #
-    # with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
-    #     try:
-    #         for line in proc.stdout:
-    #             if verbosity_level == 2:
-    #                 print('STDOUT:', line.decode().strip())
-    #         for line in proc.stderr:
-    #             if verbosity_level in {1, 2}:
-    #                 print('STDERR:', line.decode().strip())
-    #     except Exception as e:
-    #         print("Error while reading stdout/stderr: ", str(e))
-    #     returncode = proc.wait()
-    #
-    # if returncode != 0:
-    #     print("Error while running command: ", command)
-    #     print("Return code: ", returncode)
-    #     # raise subprocess.CalledProcessError(returncode, command)
+    # cleanup
+    os.remove(datafile)
+    if own_temp_folder:
+        os.rmdir(temp_folder)
