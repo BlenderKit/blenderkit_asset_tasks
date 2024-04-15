@@ -44,6 +44,22 @@ class CloudflareStorage:
             print(f"Failed to upload {file_name}: {e}")
             return False
 
+    def list_all_folders(self, bucket_name):
+        """
+        List all unique folder prefixes in the bucket.
+
+        :param bucket_name: Name of the Cloudflare R2 bucket.
+        :return: A set of all folder prefixes.
+        """
+        paginator = self.client.get_paginator('list_objects_v2')
+        folders = set()
+
+        # Use a paginator to fetch all objects
+        for page in paginator.paginate(Bucket=bucket_name, Delimiter='/'):
+            for prefix in page.get('CommonPrefixes', []):
+                folders.add(prefix['Prefix'])
+
+        return folders
     def folder_exists(self, bucket_name, folder_name):
         """
         Check if a folder exists in a specified bucket.

@@ -447,8 +447,7 @@ def save_uv_layouts(tempfolder, objects):
         if obj.type == 'MESH':
             bpy.context.view_layer.objects.active = obj
             break
-    # go to edit mode
-    bpy.ops.object.mode_set(mode='EDIT')
+
     # select all
     for ob in objects:
         ob.select_set(True)
@@ -456,7 +455,8 @@ def save_uv_layouts(tempfolder, objects):
     unique_meshes_obs = []
     for obj in objects:
         #check if object is mesh and has uv layers
-        if obj.type == 'MESH' and obj.data.uv_layers.active is not None:
+        if obj.type == 'MESH' and len(ob.data.uv_layers) != 0 and obj.data.uv_layers.active is not None and len(
+                    ob.data.uv_layers.active.data) != 0:
             if obj.data not in [o.data for o in unique_meshes_obs]:
                 unique_meshes_obs.append(obj)
     # No UV = no svg
@@ -470,9 +470,6 @@ def save_uv_layouts(tempfolder, objects):
     for obj in unique_meshes_obs:
         obj.select_set(True)
     bpy.context.scene.update_tag()
-    # bpy.ops.object.mode_set(mode='EDIT')
-    # bpy.ops.mesh.select_all(action='SELECT')
-    # bpy.ops.uv.export_layout(filepath=filepath, export_all=False, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=True)
     # let's use the render_UVs instead of the built-in operator
     render_UVs.export_uvs_as_webps(unique_meshes_obs, filepath)
 
@@ -484,12 +481,6 @@ def save_uv_layouts(tempfolder, objects):
     for obj in unique_meshes_obs:
         activate_object(obj)
         print('export uv layout for', obj.name, obj.data.name)
-        # bpy.ops.object.mode_set(mode='EDIT')
-        # bpy.ops.mesh.select_all(action='SELECT')
-        # #set back to object mode
-        # bpy.ops.object.mode_set(mode='OBJECT')
-        # #back to edit mode
-        # bpy.ops.object.mode_set(mode='EDIT')
         filepath = os.path.join(tempfolder, f"UV_Map_{obj.name}")
         # bpy.ops.uv.export_layout(filepath=filepath, export_all=True, modified=False, mode='SVG', size=(1024, 1024), opacity=0.25, check_existing=False)
         # let's use the render_UVs instead of the built-in operator
