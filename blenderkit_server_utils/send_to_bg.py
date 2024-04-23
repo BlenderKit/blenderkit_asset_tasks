@@ -85,8 +85,12 @@ def get_process_flags():
 
     return flags
 
-def send_to_bg(asset_data, asset_file_path='', template_file_path='', temp_folder='', result_path='', result_folder='', api_key='', script='', addons='',
-               binary_type='CLOSEST', verbosity_level=2):
+def send_to_bg(asset_data: object, asset_file_path: object = '', template_file_path: object = '', temp_folder: object = '', result_path: object = '',
+               result_folder: object = '',
+               api_key: object = '',
+               script: object = '',
+               addons: object = '',
+               binary_type: object = 'CLOSEST', verbosity_level: object = 2) -> object:
     '''
     Send varioust task to a new blender instance that runs and closes after finishing the task.
     This function waits until the process finishes.

@@ -95,6 +95,7 @@ def render_material_validation_thread(asset_data, api_key):
   result_path = os.path.join(temp_folder,
                              result_folder,
                              upload_id + '_turnaround.mkv')
+
   send_to_bg.send_to_bg(asset_data,
                         asset_file_path=file_path,
                         template_file_path=template_file_path,

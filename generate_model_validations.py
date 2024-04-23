@@ -22,7 +22,7 @@ MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
 
 DONE_ASSETS_COUNT = 0
 
-DO_ASSETS=100
+DO_ASSETS=200
 ALL_FOLDERS = set()
 def render_model_validation_thread(asset_data, api_key):
     '''
@@ -58,13 +58,13 @@ def render_model_validation_thread(asset_data, api_key):
     # we check file by file, since the comparison with folder contents is not reliable and would potentially
     # compare with a very long list. main issue was what to set the page size for the search request...
     # Initialize Cloudflare Storage with your credentials
-    # cloudflare_storage = CloudflareStorage(
-    #     access_key=os.getenv('CF_ACCESS_KEY'),
-    #     secret_key=os.getenv('CF_ACCESS_SECRET'),
-    #     endpoint_url=os.getenv('CF_ENDPOINT_URL')
-    # )
-    # f_exists = cloudflare_storage.folder_exists(bucket_name='validation-renders', folder_name=result_file_name)
-    f_exists = result_file_name in ALL_FOLDERS
+    # f_exists = result_file_name in ALL_FOLDERS
+    cloudflare_storage = CloudflareStorage(
+        access_key=os.getenv('CF_ACCESS_KEY'),
+        secret_key=os.getenv('CF_ACCESS_SECRET'),
+        endpoint_url=os.getenv('CF_ENDPOINT_URL')
+    )
+    f_exists = cloudflare_storage.folder_exists('validation-renders', upload_id)
     #let's not skip now.
     if f_exists:
         # purge the folder
@@ -73,7 +73,10 @@ def render_model_validation_thread(asset_data, api_key):
         return
 
     # Download asset
-    file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+
+    # Unpack asset
+    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py')
 
     # find template file
     current_dir = pathlib.Path(__file__).parent.resolve()
@@ -95,7 +98,7 @@ def render_model_validation_thread(asset_data, api_key):
 
     # send to background to render
     send_to_bg.send_to_bg(asset_data,
-                          asset_file_path=file_path,
+                          asset_file_path=asset_file_path,
                           template_file_path=template_file_path,
                           result_path=result_path,
                           result_folder=result_folder,
@@ -103,14 +106,37 @@ def render_model_validation_thread(asset_data, api_key):
                           script='model_validation_bg_render.py',
                           binary_type='NEWEST',
                           verbosity_level=2)
+
+    # generate gltf:
+    # result is a json...
+    result_path = os.path.join(temp_folder, asset_data['assetBaseId'] + '_resdata.json')
+
+    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
+                          result_path=result_path,
+                          script='gltf_bg_blender.py')
+
+    # gltf is a .glb in the same dir as the .blend asset file
+    gltf_path = asset_file_path.replace('.blend', '.glb')
+    # move gltf to result folder
+    try:
+        shutil.move(gltf_path, result_folder)
+    except Exception as e:
+        print(f'Error while moving {gltf_path} to {result_folder}: {e}')
+
     DONE_ASSETS_COUNT += 1
     # part of the results is in temfolder/tmp/Render, so let's move all of it's files to the result folder,
     # so that there are no subdirectories and everything is in one folder.
     # and then upload the result folder to drive
+
     render_folder = os.path.join(temp_folder, 'tmp', 'Render')
-    file_names = os.listdir(render_folder)
-    for file_name in file_names:
-        shutil.move(os.path.join(render_folder, file_name), result_folder)
+    try:
+
+        file_names = os.listdir(render_folder)
+        for file_name in file_names:
+                shutil.move(os.path.join(render_folder, file_name), result_folder)
+    except Exception as e:
+        print(f'Error while moving files from {render_folder} to {result_folder}: {e}')
+
     # Upload result
     # # Instead of using Google Drive for upload, use Cloudflare Storage
     # Initialize the CloudFlare service
@@ -119,7 +145,6 @@ def render_model_validation_thread(asset_data, api_key):
         secret_key=os.getenv('CF_ACCESS_SECRET'),
         endpoint_url=os.getenv('CF_ENDPOINT_URL')
     )
-
     cloudflare_storage.upload_folder(result_folder, bucket_name='validation-renders', cloudflare_folder_prefix=result_file_name)
 
     #cleanup
@@ -159,7 +184,7 @@ def main():
         secret_key=os.getenv('CF_ACCESS_SECRET'),
         endpoint_url=os.getenv('CF_ENDPOINT_URL')
     )
-    ALL_FOLDERS = cloudflare_storage.list_all_folders(bucket_name='validation-renders')
+    # ALL_FOLDERS = cloudflare_storage.list_all_folders(bucket_name='validation-renders')
     # print('deleting old files')
     # cloudflare_storage.delete_old_files(bucket_name='validation-renders', x_days=2)
     # return
