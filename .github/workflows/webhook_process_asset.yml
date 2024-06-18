@@ -1,5 +1,5 @@
 name: Process Asset
-run-name: Process ${{github.event.inputs.asset_type || github.event.client_payload.asset_type}} - ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
+run-name: Process ${{github.event.inputs.asset_type || github.event.client_payload.asset_type}} | ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }}
 
 on:
   workflow_dispatch:
