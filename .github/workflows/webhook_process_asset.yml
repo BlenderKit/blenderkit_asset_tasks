@@ -47,7 +47,7 @@ jobs:
     if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: blenderkit/headless-blender:4.2
+    container: blenderkit/headless-blender:blender-4.2
     steps:
       - uses: actions/checkout@v4
       - name: Install pip
