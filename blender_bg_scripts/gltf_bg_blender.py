@@ -19,7 +19,7 @@ def export_gltf_detailed_settings(filepath):
                                   export_draco_position_quantization=14, export_draco_normal_quantization=10,
                                   export_draco_texcoord_quantization=12, export_draco_color_quantization=10,
                                   export_draco_generic_quantization=12, export_tangents=False, export_materials='EXPORT',
-                                  export_colors=True, export_attributes=False, use_mesh_edges=False,
+                                  export_attributes=False, use_mesh_edges=False,
                                   use_mesh_vertices=False,
                                   export_cameras=False, use_selection=False, use_visible=False, use_renderable=False,
                                   use_active_collection_with_nested=True, use_active_collection=False,

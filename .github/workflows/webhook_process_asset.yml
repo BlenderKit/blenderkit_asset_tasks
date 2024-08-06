@@ -22,7 +22,7 @@ env:
   BLENDERKIT_SERVER: 'https://www.blenderkit.com'
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
   BLENDERS_PATH: '/home/headless/blenders'
-  BLENDERKIT_RESOLUTIONS_SEARCH_ID: ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
+  ASSET_BASE_ID: ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
 
 jobs:
   RESOLUTIONS:
@@ -40,3 +40,21 @@ jobs:
         run: pip install -r requirements.txt
       - name: Generate resolutions
         run: python3 generate_resolutions.py
+
+  GLTF:
+    name: Public, Validated and Model -> generate GLTF
+    runs-on: ubuntu-latest
+    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
+      (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
+      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
+    container: blenderkit/headless-blender:4.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pip
+        run: sudo apt-get install python3-pip -y
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Set BLENDER_PATH
+        run: echo "BLENDER_PATH=/home/headless/blender" >> $GITHUB_ENV
+      - name: Generate resolutions
+        run: python3 generate_gltf_new.py

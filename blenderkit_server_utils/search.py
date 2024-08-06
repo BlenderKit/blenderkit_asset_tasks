@@ -1,8 +1,8 @@
 import requests
-import platform
 import math
 import json
 import os
+import pprint
 
 from . import utils, paths
 
@@ -24,6 +24,17 @@ def get_search_simple(parameters, filepath=None, page_size=100, max_results=1000
   Returns search results as a list, and optionally saves to filepath
 
   '''
+  results = get_search_without_bullshit(parameters, page_size=page_size, max_results=max_results, api_key=api_key)
+  if not filepath:
+    return results
+
+  with open(filepath, 'w', encoding='utf-8') as s:
+    json.dump(results, s, ensure_ascii=False, indent=4)
+  print(f'retrieved {len(results)} assets from elastic search')
+  return results
+
+
+def get_search_without_bullshit(parameters, page_size=100, max_results=100000000, api_key='') -> list:
   headers = utils.get_headers(api_key)
   url = paths.get_api_url() + '/search/'
   requeststring = url + '?query='
@@ -31,14 +42,10 @@ def get_search_simple(parameters, filepath=None, page_size=100, max_results=1000
     requeststring += f'+{p}:{parameters[p]}'
 
   requeststring += '&page_size=' + str(page_size)
-  # requeststring += '&addon_version_gte=' + '2.8.0'
-  # requeststring += '&blender_version_gte=' + '2.8.0'
   requeststring += '&dict_parameters=1'
 
   print(requeststring)
   response = requests.get(requeststring, headers=headers)  # , params = rparameters)
-  # print(response.json())
-  # print(response.text)
   search_results = response.json()
 
   results = []
@@ -49,16 +56,8 @@ def get_search_simple(parameters, filepath=None, page_size=100, max_results=1000
     print(f'getting page {page_index} , total pages {page_count}')
     response = requests.get(search_results['next'], headers=headers)  # , params = rparameters)
     search_results = response.json()
-    # print(search_results)
     results.extend(search_results['results'])
     page_index += 1
-
-  if not filepath:
-    return results
-
-  with open(filepath, 'w', encoding='utf-8') as s:
-    json.dump(results, s, ensure_ascii=False, indent=4)
-  print(f'retrieved {len(results)} assets from elastic search')
   return results
 
 

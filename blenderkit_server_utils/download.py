@@ -227,10 +227,10 @@ def download_asset(asset_data, resolution='blend', api_key='', directory=None):
   path to the resulting asset file or None if asset isn't accessible
   '''
 
-  has_url = get_download_url(asset_data, SCENE_UUID, api_key, tcom=None,
-                             resolution='blend')
-  if has_url:
-    fpath = download_asset_file(asset_data, api_key=api_key, directory=directory)
-    return fpath
+  has_url = get_download_url(asset_data, SCENE_UUID, api_key, tcom=None, resolution='blend') # Resolution does not have any effect
+  if not has_url:
+    print("Could not get URL for the asset")
+    return None
 
-  return None
+  fpath = download_asset_file(asset_data, api_key=api_key, directory=directory)
+  return fpath

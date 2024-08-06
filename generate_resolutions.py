@@ -3,7 +3,7 @@ Required environment variables:
 BLENDERKIT_API_KEY - API key to be used
 BLENDERS_PATH - path to the folder with blender versions
 
-For single asset processing, set BLENDERKIT_RESOLUTIONS_SEARCH_ID to the asset_base_id.
+For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 """
 
 import json
@@ -19,7 +19,7 @@ from blenderkit_server_utils import download, search, paths, upload, send_to_bg
 results = []
 page_size = 100
 
-BLENDERKIT_RESOLUTIONS_SEARCH_ID = os.environ.get('BLENDERKIT_RESOLUTIONS_SEARCH_ID', None)
+ASSET_BASE_ID = os.environ.get('ASSET_BASE_ID', None)
 MAX_ASSETS = int(os.environ.get('MAX_ASSET_COUNT', '100'))
 SKIP_UPLOAD = os.environ.get('SKIP_UPLOAD', False) == "True"
 
@@ -155,9 +155,9 @@ def main():
     'last_resolution_upload_isnull': True
   }
 
-  # if BLENDERKIT_RESOLUTIONS_SEARCH_ID was provided, get just a single asset
-  if BLENDERKIT_RESOLUTIONS_SEARCH_ID is not None:
-    params = {'asset_base_id': BLENDERKIT_RESOLUTIONS_SEARCH_ID, }
+  # if ASSET_BASE_ID was provided, get just a single asset
+  if ASSET_BASE_ID is not None:
+    params = {'asset_base_id': ASSET_BASE_ID, }
 
   assets = search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
                            api_key=paths.API_KEY)

@@ -90,7 +90,10 @@ def send_to_bg(asset_data: object, asset_file_path: object = '', template_file_p
                api_key: object = '',
                script: object = '',
                addons: object = '',
-               binary_type: object = 'CLOSEST', verbosity_level: object = 2) -> object:
+               binary_type: object = 'CLOSEST',
+               verbosity_level: object = 2,
+               binary_path: str = "",
+               ) -> object:
     '''
     Send varioust task to a new blender instance that runs and closes after finishing the task.
     This function waits until the process finishes.
@@ -119,7 +122,10 @@ def send_to_bg(asset_data: object, asset_file_path: object = '', template_file_p
             func(line.decode().strip())
         pipe.close()
 
-    binary_path = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
+    if binary_path != "":
+        print(f"Blender binary path: {binary_path}")
+    else:
+        binary_path = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type) 
 
     own_temp_folder = False
     if temp_folder == '':
