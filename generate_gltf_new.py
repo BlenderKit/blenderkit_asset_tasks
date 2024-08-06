@@ -85,7 +85,7 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
 
 def iterate_assets(assets: list, api_key: str='', binary_path:str=''):
   for i, asset_data in enumerate(assets):
-    print(f'\n\n=== {i+1} downloading and generating GLTF files for {asset_data['name']}')
+    print(f"\n\n=== {i+1} downloading and generating GLTF files for {asset_data['name']}")
     if asset_data is None:
       print("---> skipping, asset_data are None")
       continue
