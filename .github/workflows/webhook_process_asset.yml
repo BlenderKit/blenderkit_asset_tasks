@@ -55,6 +55,6 @@ jobs:
       - name: Install requirements
         run: pip install -r requirements.txt
       - name: Set BLENDER_PATH
-        run: echo "BLENDER_PATH=/home/headless/blender" >> $GITHUB_ENV
+        run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
       - name: Generate resolutions
         run: python3 generate_gltf_new.py
