@@ -1,4 +1,4 @@
-name: Resolutions - NIGHTLY 
+name: nightly GLTF
 
 on:
   schedule:
