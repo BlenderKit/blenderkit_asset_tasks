@@ -34,10 +34,12 @@ jobs:
     container: blenderkit/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v4
-      - name: Install pip
-        run: sudo apt-get install python3-pip -y
-      - name: Install requirements
-        run: pip install -r requirements.txt
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
       - name: Generate resolutions
         run: python3 generate_resolutions.py
 
@@ -50,10 +52,12 @@ jobs:
     container: blenderkit/headless-blender:blender-4.2 # LATEST STABLE
     steps:
       - uses: actions/checkout@v4
-      - name: Install pip
-        run: sudo apt-get install python3-pip -y
-      - name: Install requirements
-        run: pip install -r requirements.txt
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
       - name: Set BLENDER_PATH
         run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
       - name: Generate GLTF
