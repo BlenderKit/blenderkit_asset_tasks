@@ -19,10 +19,12 @@ jobs:
       BLENDERKIT_RESOLUTIONS_SEARCH_ID: '67f55944-a088-48de-8a60-6132547cbf75'
     steps:
       - uses: actions/checkout@v4
-      - name: Install pip
-        run: sudo apt-get install python3-pip -y
-      - name: Install requirements
-        run: pip install -r requirements.txt
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
       - name: Generate resolutions
         run: python3 generate_resolutions.py
 
@@ -34,10 +36,12 @@ jobs:
       BLENDERKIT_RESOLUTIONS_SEARCH_ID: 'f2389247-c173-4a33-ae88-e4a2682cb91e'
     steps:
       - uses: actions/checkout@v4
-      - name: Install pip
-        run: sudo apt-get install python3-pip -y
-      - name: Install requirements
-        run: pip install -r requirements.txt
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
       - name: Generate resolutions
         run: python3 generate_resolutions.py
 
@@ -49,9 +53,11 @@ jobs:
       BLENDERKIT_RESOLUTIONS_SEARCH_ID: '066aa61d-6eb9-4e9a-8188-8f34c0b4d030'
     steps:
       - uses: actions/checkout@v4
-      - name: Install pip
-        run: sudo apt-get install python3-pip -y
-      - name: Install requirements
-        run: pip install -r requirements.txt
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
       - name: Generate resolutions
         run: python3 generate_resolutions.py
