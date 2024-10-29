@@ -2,7 +2,7 @@ import requests
 import math
 import json
 import os
-import pprint
+import time
 
 from . import utils, paths
 
@@ -45,8 +45,29 @@ def get_search_without_bullshit(parameters, page_size=100, max_results=100000000
   requeststring += '&dict_parameters=1'
 
   print(requeststring)
-  response = requests.get(requeststring, headers=headers)  # , params = rparameters)
-  search_results = response.json()
+  for count in range(1,6): # retry 5 times
+    try:
+      response = requests.get(requeststring, headers=headers)  # , params = rparameters)
+      response.raise_for_status()
+      search_results = response.json()
+      break # success, lets continue after the for loop
+    except requests.exceptions.HTTPError as e:
+      print(f"HTTP error occurred: {e} \nStatus Code: {response.status_code}, Response Content: {response.text}")
+    except requests.exceptions.ConnectionError:
+        print("Connection error occurred. Check network connection.")
+    except requests.exceptions.Timeout:
+        print("Request timed out. The server might be busy or unresponsive.")
+    except requests.exceptions.JSONDecodeError as e:
+      print(f"Failed to decode JSON. Response content is not valid JSON.\nResponse Content: {response.text}")
+    except requests.exceptions.RequestException as e:
+      print(f"Unexpected request exception: {e}")
+    if count == 5:
+      raise RuntimeError("Could not get search results 5 times, retry depleted, probably broken connection.")
+
+    delay = count**2 # retry fast, then slowdown
+    print(f"retrying no. {count} in {delay} seconds")
+    time.sleep(delay) 
+        
 
   results = []
   results.extend(search_results['results'])
