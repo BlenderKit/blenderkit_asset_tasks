@@ -9,7 +9,7 @@ Scripts to do automatic processing of Blender assets in the database.
 - `blender_server_utils` - python module containing code shared between multiple scripts in root dir.
 - `./` - root of the project contains standalone scripts to do the job.
 
-Scripts in the root are standalone scripts which does, prefferebly one, task.
+Scripts in the root are standalone scripts which does, prefferably one, task.
 They can import from `blender_server_utils`, but should not import from one another.
 If some code is to be shared, it should be placed in `blender_server_utils`.
 Standalone scripts in root often need do some stuff right inside Blender.
@@ -21,7 +21,7 @@ All code which has to be run inside Blender should be in `blender_bg_utils`.
 Assets tasks have to start a Blender to make the job and the questions is which version?
 Basically there are 2 types of scripts in this repo:
 - requiring multiple versions of Blender (we want to target closest to original)
-- requiring one target version of Blender (we are ok with just one version, preferebly latest)
+- requiring one target version of Blender (we know the version in advance, or we are ok with just one version, preferebly latest)
 
 #### Multiple versions
 There are tasks where we need the asset to be processed in the same Blender version as original to keep compatibility with as old Blender as possible.
@@ -59,26 +59,3 @@ For example: `BLENDER_PATH=/Applications/Blender420/Contents/MacOS/Blender`
 
 For single versions scripts you can use docker image `blenderkit/headless-blender:blender-x.y`.
 It has the blender executable placed at: `/home/headless/blender/blender`.
-
-
-
-
-## Old
-This is some old and probably deprecated information:
-
-by now needs a directory with all possible blender versions, look like this:
-![image](https://user-images.githubusercontent.com/6907354/203579508-952ba12e-6a83-49dd-bca2-b3d33dd1ad36.png)
-
-generate resolutions is currently run from a .bat file with a .bat command like this:
-
-:: server to use  
-set BLENDERKIT_SERVER https://www.blenderkit.com  
-:: api key  
-set BLENDERKIT_API_KEY avcdasdfaienlksdfoasih  
-:: blenders folder, see above  
-set BLENDERS_PATH=F:\blender_processors  
-:: asset id, if not submitted, uses default search for resolutions  
-set BLENDERKIT_RESOLUTIONS_SEARCH_ID=3e34afef-31e6-4729-af9c-c181950640ad  
-:: check if asset needs resolutions - doesn't reupload for assets that already have resolutions files.  
-set BLENDERKIT_CHECK_NEEDS_RESOLUTION=0  
-%~dp0blender_processors\2.93.8\2.93\python\bin\python.exe %~dp0blenderkit_server_tools\generate_resolutions_update.py
