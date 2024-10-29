@@ -159,8 +159,13 @@ def main():
   if ASSET_BASE_ID is not None:
     params = {'asset_base_id': ASSET_BASE_ID, }
 
-  assets = search.get_search_simple(params, filepath, page_size=min(MAX_ASSETS, 100), max_results=MAX_ASSETS,
-                           api_key=paths.API_KEY)
+  assets = search.get_search_simple(
+    params,
+    filepath,
+    page_size=min(MAX_ASSETS, 100),
+    max_results=MAX_ASSETS,
+    api_key=paths.API_KEY,
+  )
 
   print('COUNT OF ASSETS TO BE PROCESSED ', len(assets))
   for i, a in enumerate(assets):
