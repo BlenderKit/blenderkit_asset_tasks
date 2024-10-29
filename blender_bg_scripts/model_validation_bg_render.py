@@ -21,14 +21,14 @@ def getNode(mat, type):
 
 
 def link_collection(
-        file_name, obnames=[], location=(0, 0, 0), link=False, parent=None, **kwargs
+    file_name, obnames=[], location=(0, 0, 0), link=False, parent=None, **kwargs
 ):
     """link an instanced group - model type asset"""
     sel = utils.selection_get()
 
     with bpy.data.libraries.load(file_name, link=link, relative=True) as (
-            data_from,
-            data_to,
+        data_from,
+        data_to,
     ):
         scols = []
         for col in data_from.collections:
@@ -76,13 +76,15 @@ def link_collection(
 
 
 def add_text_line(strip, text):
-    bpy.data.scenes["Composite"].sequence_editor.sequences_all[strip].text += text + 10 * '    '
+    bpy.data.scenes["Composite"].sequence_editor.sequences_all[strip].text += (
+        text + 10 * "    "
+    )
 
 
 def writeout_param(asset_data, param_name):
     pl = utils.get_param(asset_data, param_name)
     if pl is not None:
-        add_text_line('asset', f'{param_name}:{pl}')
+        add_text_line("asset", f"{param_name}:{pl}")
 
 
 def set_text(strip, text):
@@ -90,28 +92,28 @@ def set_text(strip, text):
 
 
 def scale_cameras(asset_data):
-    params = asset_data['dictParameters']
-    minx = params['boundBoxMinX']
-    miny = params['boundBoxMinY']
-    minz = params['boundBoxMinZ']
-    maxx = params['boundBoxMaxX']
-    maxy = params['boundBoxMaxY']
-    maxz = params['boundBoxMaxZ']
+    params = asset_data["dictParameters"]
+    minx = params["boundBoxMinX"]
+    miny = params["boundBoxMinY"]
+    minz = params["boundBoxMinZ"]
+    maxx = params["boundBoxMaxX"]
+    maxy = params["boundBoxMaxY"]
+    maxz = params["boundBoxMaxZ"]
 
-    dx = (maxx - minx)
-    dy = (maxy - miny)
-    dz = (maxz - minz)
+    dx = maxx - minx
+    dy = maxy - miny
+    dz = maxz - minz
 
     print(dx, dy, dz)
 
     r = math.sqrt(dx * dx + dy * dy + dz * dz)
     r *= 1.2
-    scaler = bpy.data.objects['scaler']
+    scaler = bpy.data.objects["scaler"]
     scaler.scale = (r, r, r)
     scaler.location.z = (maxz + minz) / 2
 
     # get scene camera
-    cam = bpy.data.objects['Camera']
+    cam = bpy.data.objects["Camera"]
     # Set ortho scale to max of dimensions
     cam.data.ortho_scale = max(dx, dy, dz) * 1.1
 
@@ -136,7 +138,7 @@ def scale_cameras(asset_data):
 
 def check_for_flat_faces():
     for ob in bpy.context.scene.objects:
-        if ob.type == 'MESH':
+        if ob.type == "MESH":
             for f in ob.data.polygons:
                 if not f.use_smooth:
                     return True
@@ -150,49 +152,49 @@ def mark_freestyle_edges():
 
 
 def set_asset_data_texts(asset_data):
-    set_text('asset', '')
-    add_text_line('asset', asset_data['name'])
-    dx = utils.get_param(asset_data, 'dimensionX')
-    dy = utils.get_param(asset_data, 'dimensionY')
-    dz = utils.get_param(asset_data, 'dimensionZ')
+    set_text("asset", "")
+    add_text_line("asset", asset_data["name"])
+    dx = utils.get_param(asset_data, "dimensionX")
+    dy = utils.get_param(asset_data, "dimensionY")
+    dz = utils.get_param(asset_data, "dimensionZ")
     dim_text = f"Dimensions:{dx}x{dy}x{dz}m"
-    add_text_line('asset', dim_text)
-    fc = utils.get_param(asset_data, 'faceCount', 1)
-    fcr = utils.get_param(asset_data, 'faceCountRender', 1)
+    add_text_line("asset", dim_text)
+    fc = utils.get_param(asset_data, "faceCount", 1)
+    fcr = utils.get_param(asset_data, "faceCountRender", 1)
 
-    add_text_line('asset', f"fcount {fc} render {fcr}")
+    add_text_line("asset", f"fcount {fc} render {fcr}")
 
     if check_for_flat_faces():
-        add_text_line('asset', 'Flat faces detected')
+        add_text_line("asset", "Flat faces detected")
 
-    writeout_param(asset_data, 'productionLevel')
-    writeout_param(asset_data, 'shaders')
-    writeout_param(asset_data, 'modifiers')
-    writeout_param(asset_data, 'meshPolyType')
-    writeout_param(asset_data, 'manifold')
-    writeout_param(asset_data, 'objectCount')
-    writeout_param(asset_data, 'nodeCount')
-    writeout_param(asset_data, 'textureCount')
-    writeout_param(asset_data, 'textureResolutionMax')
+    writeout_param(asset_data, "productionLevel")
+    writeout_param(asset_data, "shaders")
+    writeout_param(asset_data, "modifiers")
+    writeout_param(asset_data, "meshPolyType")
+    writeout_param(asset_data, "manifold")
+    writeout_param(asset_data, "objectCount")
+    writeout_param(asset_data, "nodeCount")
+    writeout_param(asset_data, "textureCount")
+    writeout_param(asset_data, "textureResolutionMax")
 
 
-def set_scene(name=''):
-    print(f'setting scene {name}')
+def set_scene(name=""):
+    print(f"setting scene {name}")
     bpy.context.window.scene = bpy.data.scenes[name]
-    c = bpy.context.scene.objects.get('Camera')
+    c = bpy.context.scene.objects.get("Camera")
     if c is not None:
         bpy.context.scene.camera = c
     bpy.context.view_layer.update()
     # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 
-def set_view_shading(shading_type='RENDERED', face_orientation=False, wireframe=False):
+def set_view_shading(shading_type="RENDERED", face_orientation=False, wireframe=False):
     # bpy.data.workspaces['Layout'].screens['Layout'].areas[4].spaces[0].shading
     for w in bpy.data.workspaces:
         for a in w.screens[0].areas:
-            if a.type == 'VIEW_3D':
+            if a.type == "VIEW_3D":
                 for s in a.spaces:
-                    if s.type == 'VIEW_3D':
+                    if s.type == "VIEW_3D":
                         s.shading.type = shading_type
                         s.overlay.show_wireframes = wireframe
                         s.overlay.show_face_orientation = face_orientation
@@ -200,67 +202,77 @@ def set_view_shading(shading_type='RENDERED', face_orientation=False, wireframe=
     # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 
-def set_workspace(name='Layout'):
+def set_workspace(name="Layout"):
     for a in range(0, 2):
         bpy.context.window.workspace = bpy.data.workspaces[name]
         bpy.context.workspace.update_tag()
         bpy.context.view_layer.update()
         # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
+
 def switch_off_all_modifiers():
-    #switches off all modifiers for render in the scene and stores and returns them in a list with original state.
+    # switches off all modifiers for render in the scene and stores and returns them in a list with original state.
     original_states = []
     for ob in bpy.context.scene.objects:
-        if ob.type == 'MESH':
+        if ob.type == "MESH":
             for m in ob.modifiers:
                 original_states.append((ob, m, m.show_render))
                 m.show_render = False
     return original_states
 
+
 def switch_on_all_modifiers(original_states):
-    #switches on all modifiers for render in the scene and restores them to the original state.
+    # switches on all modifiers for render in the scene and restores them to the original state.
     for ob, m, state in original_states:
         m.show_render = state
 
-def add_geometry_nodes_to_all_objects(group = 'wireNodes', dimensions = 1):
-    #takes all visible objects in the scene and adds geometry nodes modifier with the group to them.
-    #avoids objects with more than 300k face.
+
+def add_geometry_nodes_to_all_objects(group="wireNodes", dimensions=1):
+    # takes all visible objects in the scene and adds geometry nodes modifier with the group to them.
+    # avoids objects with more than 300k face.
     for ob in bpy.context.scene.objects:
-        if ob.type == 'MESH' and ob.visible_get() and len(ob.data.polygons) < 300000:
+        if ob.type == "MESH" and ob.visible_get() and len(ob.data.polygons) < 300000:
             bpy.context.view_layer.objects.active = ob
-            bpy.ops.object.modifier_add(type='NODES')
+            bpy.ops.object.modifier_add(type="NODES")
             m = bpy.context.object.modifiers[-1]
             m.node_group = bpy.data.node_groups[group]
-            #asset dimensions needed
+            # asset dimensions needed
             m["Socket_0"] = float(dimensions)
 
-def remove_geometry_nodes_from_all_objects(group = 'wireNodes'):
-    #takes all visible objects in the scene and removes geometry nodes modifier with the group to them.
+
+def remove_geometry_nodes_from_all_objects(group="wireNodes"):
+    # takes all visible objects in the scene and removes geometry nodes modifier with the group to them.
     for ob in bpy.context.scene.objects:
-        if ob.type == 'MESH' and ob.visible_get() and len(ob.data.polygons) < 300000:
+        if ob.type == "MESH" and ob.visible_get() and len(ob.data.polygons) < 300000:
             bpy.context.view_layer.objects.active = ob
             # check if the modifier is there
             for m in ob.modifiers:
-                if m.type == 'NODES' and m.node_group.name == group:
+                if m.type == "NODES" and m.node_group.name == group:
                     bpy.context.object.modifiers.remove(m)
-def render_model_validation( asset_data, filepath):
+
+
+def render_model_validation(asset_data, filepath):
     # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
     # render basic render
-    set_scene('Render')
+    set_scene("Render")
     # set_view_shading(shading_type='RENDERED')
     # set_workspace('Render')
+    # set samples to just 1 for speed
+    # bpy.context.scene.cycles.samples = 1
+
     bpy.ops.render.render(animation=True)
     # bpy.ops.render.opengl(animation=True, view_context=True)
 
     # render the Mesh checker
     # now in render
-    set_scene('Mesh_checker')
+    set_scene("Mesh_checker")
     # freestyle is crazy slow. Need better edge render :(
     # mark_freestyle_edges()
 
     # set_view_shading(shading_type='MATERIAL', wireframe = True, face_orientation=True)
     # set_workspace('Mesh_checker')
+
     bpy.ops.render.render(animation=True)
     # bpy.ops.render.opengl(animation=True, view_context=False)
 
@@ -272,20 +284,20 @@ def render_model_validation( asset_data, filepath):
     # set_scene('UV_checker')
     # bpy.ops.render.render(animation=True, write_still=True)
 
-    #switch off modifiers for this one
-    set_scene('Mesh_checker_no_modif')
+    # switch off modifiers for this one
+    set_scene("Mesh_checker_no_modif")
     original_states = switch_off_all_modifiers()
-    dimensionX = utils.get_param(asset_data, 'dimensionX')
-    dimensionY = utils.get_param(asset_data, 'dimensionY')
-    dimensionZ = utils.get_param(asset_data, 'dimensionZ')
+    dimensionX = utils.get_param(asset_data, "dimensionX")
+    dimensionY = utils.get_param(asset_data, "dimensionY")
+    dimensionZ = utils.get_param(asset_data, "dimensionZ")
     # Max length is taken as the dimension of the asset
     dimensions = max(dimensionX, dimensionY, dimensionZ)
-    add_geometry_nodes_to_all_objects(group='wireNodes', dimensions=dimensions)
+    add_geometry_nodes_to_all_objects(group="wireNodes", dimensions=dimensions)
     bpy.ops.render.render(animation=True)
-    remove_geometry_nodes_from_all_objects(group='wireNodes')
+    remove_geometry_nodes_from_all_objects(group="wireNodes")
     switch_on_all_modifiers(original_states)
     # switch to composite and render video
-    #No video, in this one we render only large stills
+    # No video, in this one we render only large stills
     # set_scene('Composite')
     #
     # bpy.context.scene.render.filepath = filepath
@@ -296,42 +308,88 @@ def render_model_validation( asset_data, filepath):
     # print(f'rendering validation preview for {asset_data["name"]}')
     # bpy.ops.render.render(animation=True, write_still=True)
 
-def export_gltf(filepath=''):
+
+def export_gltf(filepath=""):
     # print all selected objects names first
     for ob in bpy.context.selected_objects:
         print(ob.name)
-    bpy.ops.export_scene.gltf(filepath=filepath,  export_format='GLB', export_copyright="",
-                              export_image_format='WEBP', export_image_add_webp=True, export_image_webp_fallback=False,
-                              export_texture_dir="", export_jpeg_quality=50, export_image_quality=50,
-                              export_keep_originals=False, export_texcoords=True, export_normals=True,
-                              export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6,
-                              export_draco_position_quantization=14, export_draco_normal_quantization=10,
-                              export_draco_texcoord_quantization=12, export_draco_color_quantization=10,
-                              export_draco_generic_quantization=12, export_tangents=False, export_materials='EXPORT',
-                              export_colors=True, export_attributes=False, use_mesh_edges=False,
-                              use_mesh_vertices=False,
-                              export_cameras=False, use_selection=True, use_visible=False, use_renderable=False,
-                              use_active_collection_with_nested=True, use_active_collection=False,
-                              use_active_scene=False, export_extras=False, export_yup=True, export_apply=False,
-                              export_animations=True, export_frame_range=False, export_frame_step=1,
-                              export_force_sampling=True, export_animation_mode='ACTIONS',
-                              export_nla_strips_merged_animation_name="Animation", export_def_bones=False,
-                              export_hierarchy_flatten_bones=False, export_optimize_animation_size=True,
-                              export_optimize_animation_keep_anim_armature=True,
-                              export_optimize_animation_keep_anim_object=False, export_negative_frame='SLIDE',
-                              export_anim_slide_to_zero=False, export_bake_animation=False,
-                              export_anim_single_armature=True, export_reset_pose_bones=True,
-                              export_current_frame=False,
-                              export_rest_position_armature=True, export_anim_scene_split_object=True,
-                              export_skins=True,
-                              export_influence_nb=4, export_all_influences=False, export_morph=True,
-                              export_morph_normal=True, export_morph_tangent=False, export_morph_animation=True,
-                              export_morph_reset_sk_data=True, export_lights=False, export_try_sparse_sk=True,
-                              export_try_omit_sparse_sk=False, export_gpu_instances=False, export_nla_strips=True,
-                              export_original_specular=False, will_save_settings=False, filter_glob="*.glb")
+    bpy.ops.export_scene.gltf(
+        filepath=filepath,
+        export_format="GLB",
+        export_copyright="",
+        export_image_format="WEBP",
+        export_image_add_webp=True,
+        export_image_webp_fallback=False,
+        export_texture_dir="",
+        export_jpeg_quality=50,
+        export_image_quality=50,
+        export_keep_originals=False,
+        export_texcoords=True,
+        export_normals=True,
+        export_draco_mesh_compression_enable=True,
+        export_draco_mesh_compression_level=6,
+        export_draco_position_quantization=14,
+        export_draco_normal_quantization=10,
+        export_draco_texcoord_quantization=12,
+        export_draco_color_quantization=10,
+        export_draco_generic_quantization=12,
+        export_tangents=False,
+        export_materials="EXPORT",
+        export_colors=True,
+        export_attributes=False,
+        use_mesh_edges=False,
+        use_mesh_vertices=False,
+        export_cameras=False,
+        use_selection=True,
+        use_visible=False,
+        use_renderable=False,
+        use_active_collection_with_nested=True,
+        use_active_collection=False,
+        use_active_scene=False,
+        export_extras=False,
+        export_yup=True,
+        export_apply=False,
+        export_animations=True,
+        export_frame_range=False,
+        export_frame_step=1,
+        export_force_sampling=True,
+        export_animation_mode="ACTIONS",
+        export_nla_strips_merged_animation_name="Animation",
+        export_def_bones=False,
+        export_hierarchy_flatten_bones=False,
+        export_optimize_animation_size=True,
+        export_optimize_animation_keep_anim_armature=True,
+        export_optimize_animation_keep_anim_object=False,
+        export_negative_frame="SLIDE",
+        export_anim_slide_to_zero=False,
+        export_bake_animation=False,
+        export_anim_single_armature=True,
+        export_reset_pose_bones=True,
+        export_current_frame=False,
+        export_rest_position_armature=True,
+        export_anim_scene_split_object=True,
+        export_skins=True,
+        export_influence_nb=4,
+        export_all_influences=False,
+        export_morph=True,
+        export_morph_normal=True,
+        export_morph_tangent=False,
+        export_morph_animation=True,
+        export_morph_reset_sk_data=True,
+        export_lights=False,
+        export_try_sparse_sk=True,
+        export_try_omit_sparse_sk=False,
+        export_gpu_instances=False,
+        export_nla_strips=True,
+        export_original_specular=False,
+        will_save_settings=False,
+        filter_glob="*.glb",
+    )
+
+
 def render_asset_bg(data):
-    asset_data = data['asset_data']
-    set_scene('Empty_start')
+    asset_data = data["asset_data"]
+    set_scene("Empty_start")
 
     # first lets build the filepath and find out if its already rendered?
     s = bpy.context.scene
@@ -356,28 +414,32 @@ def render_asset_bg(data):
     fpath = data["file_path"]
     if fpath:
         try:
-            parent, new_obs = link_collection(fpath,
-                                                          location=(0, 0, 0),
-                                                          rotation=(0, 0, 0),
-                                                          link=True,
-                                                          name=asset_data['name'],
-                                                          parent=None)
+            parent, new_obs = link_collection(
+                fpath,
+                location=(0, 0, 0),
+                rotation=(0, 0, 0),
+                link=True,
+                name=asset_data["name"],
+                parent=None,
+            )
 
             # we need to realize for UV , texture, and nodegraph exports here..
             utils.activate_object(parent)
 
-            bpy.ops.object.duplicates_make_real(use_base_parent=True, use_hierarchy=True)
+            bpy.ops.object.duplicates_make_real(
+                use_base_parent=True, use_hierarchy=True
+            )
             all_obs = bpy.context.selected_objects[:]
-            bpy.ops.object.make_local(type='ALL')
+            bpy.ops.object.make_local(type="ALL")
 
         except Exception as e:
             print(e)
-            print('failed to append asset')
+            print("failed to append asset")
             return
         for s in bpy.data.scenes:
             if s != bpy.context.scene:
                 # s.collection.objects.link(parent)
-                #try link all already realized.
+                # try link all already realized.
                 for ob in all_obs:
                     s.collection.objects.link(ob)
 
@@ -385,19 +447,25 @@ def render_asset_bg(data):
 
         scale_cameras(asset_data)
 
-        #save the file to temp folder, so all files go there.
-        blend_file_path = os.path.join((data['temp_folder']), f"{asset_data['name']}.blend")
-        bpy.ops.wm.save_as_mainfile(filepath=blend_file_path, compress=False, copy=False, relative_remap=False)
+        # save the file to temp folder, so all files go there.
+        blend_file_path = os.path.join(
+            (data["temp_folder"]), f"{asset_data['name']}.blend"
+        )
+        bpy.ops.wm.save_as_mainfile(
+            filepath=blend_file_path, compress=False, copy=False, relative_remap=False
+        )
 
-        #first render the video
-        render_model_validation( asset_data, data['result_filepath'])
-        #then render the rest, since that makes total mess in the file...
-        render_nodes_graph.visualize_and_save_all(tempfolder=data['result_folder'], objects=all_obs)
+        # first render the video
+        render_model_validation(asset_data, data["result_filepath"])
+        # then render the rest, since that makes total mess in the file...
+        render_nodes_graph.visualize_and_save_all(
+            tempfolder=data["result_folder"], objects=all_obs
+        )
 
 
 if __name__ == "__main__":
-    print('background resolution generator')
+    print("background resolution generator")
     datafile = sys.argv[-1]
-    with open(datafile, 'r', encoding='utf-8') as f:
+    with open(datafile, "r", encoding="utf-8") as f:
         data = json.load(f)
     render_asset_bg(data)
