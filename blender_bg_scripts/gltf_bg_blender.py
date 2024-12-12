@@ -119,8 +119,8 @@ def generate_gltf(data):
 
 if __name__ == "__main__":
     addon_utils.enable("io_scene_gltf2")
-    print('background gltf generator started')
     datafile = sys.argv[-1]
+    print('background gltf generator started')
     with open(datafile, 'r', encoding='utf-8') as f:
         data = json.load(f)
     generate_gltf(data)
