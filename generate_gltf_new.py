@@ -34,8 +34,9 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
   send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py', binary_path=binary_path)
 
   if not asset_file_path:
+    print(f"Asset file not found on path {asset_file_path}")
     # fail message?
-    return;
+    return False
 
   # Send to background to generate GLTF
   temp_folder = tempfile.mkdtemp()
