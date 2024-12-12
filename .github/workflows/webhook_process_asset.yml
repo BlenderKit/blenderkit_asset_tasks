@@ -61,4 +61,4 @@ jobs:
       - name: Set BLENDER_PATH
         run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
       - name: Generate GLTF
-        run: python3 generate_gltf_new.py
+        run: python3 generate_gltf.py
