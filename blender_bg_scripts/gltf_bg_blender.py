@@ -44,14 +44,14 @@ def generate_gltf(json_result_path: str, target_format: str):
                 continue    
             mod.show_viewport = False
     
-    # CHOOSE EXPORT OPTIONS - based on target_format (gltf/gltf-godot)
+    # CHOOSE EXPORT OPTIONS - based on target_format (gltf/gltf_godot)
     print(f"Gonna generate GLTF for target format: {target_format}")
     if target_format == "gltf": # Optimize for web presentation - adding draco compression
         options = [["maximal",maximalGLTF | dracoMeshCompression], ["minimal", minimalGLTF | dracoMeshCompression]]
-    elif target_format == "gltf-godot": # Optimize for use in Godot
+    elif target_format == "gltf_godot": # Optimize for use in Godot
         options = [["maximal",maximalGLTF], ["minimal", minimalGLTF]]
     else:
-        print("target_format needs to be gltf/gltf-godot!")
+        print("target_format needs to be gltf/gltf_godot!")
         exit(10)
 
     # TRY EXPORT - go from ideal to minimal export settings
@@ -86,12 +86,12 @@ if __name__ == "__main__":
 
     json_result_path = data.get('result_filepath') # Output data JSON
     if not json_result_path:
-        print("You need to specify json_result_path (gltf/gltf-godot) for GLTF generation")
+        print("You need to specify json_result_path (gltf/gltf_godot) for GLTF generation")
         exit(10)
 
     target_format = data.get('target_format')
     if not target_format:
-        print("You need to specify target_format (gltf/gltf-godot) for GLTF generation")
+        print("You need to specify target_format (gltf/gltf_godot) for GLTF generation")
         exit(10)
 
     generate_gltf(json_result_path, target_format)

@@ -12,7 +12,7 @@ env:
   MAX_ASSET_COUNT: 200
 
 jobs:
-  GLTF-Godot:
+  GLTF_Godot:
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.2 # LATEST STABLE
     steps:

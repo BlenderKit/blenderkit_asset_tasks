@@ -115,7 +115,7 @@ def send_to_bg(
     api_key - api key for the server
     script - script that should be run in background
     addons - addons that should be enabled in the background instance
-    target_format - which file format we want to export, e.g.: gltf, gltf-godot
+    target_format - which file format we want to export, e.g.: gltf, gltf_godot
 
     command - command which should be run in background.
     verbosity_level - level of verbosity: 0 for silent mode, 1 to only print errors, 2 to print everything

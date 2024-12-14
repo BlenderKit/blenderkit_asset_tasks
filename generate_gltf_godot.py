@@ -51,7 +51,7 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
     result_path=result_path,
     script='gltf_bg_blender.py',
     binary_path=binary_path,
-    target_format="gltf-godot"
+    target_format="gltf_godot"
     )
 
   files = None
