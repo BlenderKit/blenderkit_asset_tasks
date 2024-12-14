@@ -62,3 +62,23 @@ jobs:
         run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
       - name: Generate GLTF
         run: python3 generate_gltf.py
+
+  GLTF_GODOT:
+    name: Public, Validated and Model -> generate GLTF
+    runs-on: ubuntu-latest
+    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
+      (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
+      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
+    container: blenderkit/headless-blender:blender-4.2 # LATEST STABLE
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
+      - name: Set BLENDER_PATH
+        run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
+      - name: Generate GLTF
+        run: python3 generate_gltf_godot.py
