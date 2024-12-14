@@ -32,16 +32,15 @@ class upload_in_chunks(object):
 def upload_file(upload_data, f):
     headers = utils.get_headers(upload_data['token'])
     version_id = upload_data['id']
-
-    message = f"uploading {f['type']} {os.path.basename(f['file_path'])}"
-    print(message)
-
+    print(f"\n----> UPLOADING {f['type']} {os.path.basename(f['file_path'])}")
     upload_info = {
         'assetId': version_id,
         'fileType': f['type'],
         'fileIndex': f['index'],
         'originalFilename': os.path.basename(f['file_path'])
     }
+    print(f" -  data:{upload_info}")
+    
     upload_create_url = paths.get_api_url() + '/uploads/'
     upload = requests.post(upload_create_url, json=upload_info, headers=headers, verify=True)
     upload = upload.json()
@@ -54,9 +53,13 @@ def upload_file(upload_data, f):
         try:
             session = requests.Session()
             session.trust_env = True
-            upload_response = session.put(upload['s3UploadUrl'],
-                                            data=upload_in_chunks(f['file_path'], chunk_size, f['type']),
-                                            stream=True, verify=True)
+            upload_response = session.put(
+                upload['s3UploadUrl'],
+                data=upload_in_chunks(f['file_path'],
+                chunk_size, f['type']),
+                stream=True,
+                verify=True
+                )
 
             if 250 > upload_response.status_code > 199:
                 upload_done_url = paths.get_api_url() + '/uploads_s3/' + upload['id'] + '/upload-file/'

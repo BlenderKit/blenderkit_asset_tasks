@@ -85,15 +85,21 @@ def get_process_flags():
 
     return flags
 
-def send_to_bg(asset_data: object, asset_file_path: object = '', template_file_path: object = '', temp_folder: object = '', result_path: object = '',
-               result_folder: object = '',
-               api_key: object = '',
-               script: object = '',
-               addons: object = '',
-               binary_type: object = 'CLOSEST',
-               verbosity_level: object = 2,
-               binary_path: str = "",
-               ) -> object:
+def send_to_bg(
+        asset_data: dict,
+        asset_file_path: str = '',
+        template_file_path: str = '',
+        temp_folder: str = '',
+        result_path: str = '',
+        result_folder: str = '',
+        api_key: str = '',
+        script: str = '',
+        addons: str = '',
+        binary_type: str = 'CLOSEST',
+        verbosity_level: int = 2,
+        binary_path: str = "",
+        target_format: str = ""
+        ):
     '''
     Send varioust task to a new blender instance that runs and closes after finishing the task.
     This function waits until the process finishes.
@@ -109,6 +115,7 @@ def send_to_bg(asset_data: object, asset_file_path: object = '', template_file_p
     api_key - api key for the server
     script - script that should be run in background
     addons - addons that should be enabled in the background instance
+    target_format - which file format we want to export, e.g.: gltf, gltf-godot
 
     command - command which should be run in background.
     verbosity_level - level of verbosity: 0 for silent mode, 1 to only print errors, 2 to print everything
@@ -138,9 +145,9 @@ def send_to_bg(asset_data: object, asset_file_path: object = '', template_file_p
         'asset_data': asset_data,
         'api_key': api_key,
         'temp_folder': temp_folder,
+        'target_format': target_format,
     }
     datafile = os.path.join(temp_folder, 'resdata.json').replace('\\', '\\\\')
-    script_path = os.path.dirname(os.path.realpath(__file__))
     with open(datafile, 'w', encoding='utf-8') as s:
         json.dump(data, s, ensure_ascii=False, indent=4)
 
@@ -163,13 +170,8 @@ def send_to_bg(asset_data: object, asset_file_path: object = '', template_file_p
         addons = f'--addons {addons}'
         command.insert(3, addons)
 
-
-
     # Other code remains the same ...
-
-
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
-
 
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
         if verbosity_level == 2:

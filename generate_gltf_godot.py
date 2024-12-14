@@ -1,3 +1,6 @@
+"""Generate GLTF file for Godot. This is an optimized version for Godot engine (no Draco compression enabled)."""
+
+
 import json
 import os
 import tempfile
@@ -48,7 +51,7 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
     result_path=result_path,
     script='gltf_bg_blender.py',
     binary_path=binary_path,
-    target_format="gltf"
+    target_format="gltf-godot"
     )
 
   files = None
@@ -59,24 +62,24 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
     print(f"---> Error reading result JSON {result_path}: {e}")
     error += f" {e}"
 
-  if files is None:
+  if files == None:
     error += " Files are None"
-  elif len(files) > 0:
+  elif len(files) == 0:
+    error += f" len(files)={len(files)}"
+  else:
     # there are no actual resolutions
     print("Files are:", files)
     upload.upload_resolutions(files, asset_data, api_key=api_key)
     today = datetime.today().strftime('%Y-%m-%d')
-    param = 'gltfGeneratedDate'
+    param = 'gltfGodotGeneratedDate'
     upload.patch_individual_parameter(asset_data['id'], param_name=param, param_value=today, api_key=api_key)
     upload.get_individual_parameter(asset_data['id'], param_name=param, api_key=api_key)
     print(f"---> Asset parameter {param} successfully patched with value {today}")
-    # TODO: Remove gltfGeneratedError if it was filled by previous runs
+    # TODO: Remove gltfGodotGeneratedError if it was filled by previous runs
     return True
-  else:
-    error += f" len(files)={len(files)}"
   
   print('---> GLTF generation failed')
-  param = "gltfGeneratedError"
+  param = "gltfGodotGeneratedError"
   value = error.strip()
   upload.patch_individual_parameter(asset_data['id'], param_name=param, param_value=value, api_key=api_key)
   upload.get_individual_parameter(asset_data['id'], param_name=param, api_key=api_key)
@@ -94,9 +97,9 @@ def iterate_assets(assets: list, api_key: str='', binary_path:str=''):
       continue
     ok = generate_gltf(asset_data, api_key, binary_path=binary_path)
     if ok:
-      print("===> GLTF SUCCESS")
+      print("===> GLTF GODOT SUCCESS")
     else:
-      print("===> GLTF FAILED")
+      print("===> GLTF GODOT FAILED")
 
 
 def main():
