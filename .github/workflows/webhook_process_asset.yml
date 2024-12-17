@@ -64,7 +64,7 @@ jobs:
         run: python3 generate_gltf.py
 
   GLTF_GODOT:
-    name: Public, Validated and Model -> generate GLTF
+    name: Public, Validated and Model -> generate Godot GLTF
     runs-on: ubuntu-latest
     if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
