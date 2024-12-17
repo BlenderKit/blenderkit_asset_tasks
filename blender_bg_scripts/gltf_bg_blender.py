@@ -89,7 +89,97 @@ def make_active_UV_first(obj):
     make_UV_active(obj, orig_name) #move_UV_to_bottom() plays with active, so we set it here to originally active UV
     print(f"----- UVs before order: {[uv for uv in uvs]} ({uvs.active.name} is active)")
 
+
+# MARK: BAKE PROCEDURAL TEXTURES
+def is_procedural_material(mat):
+    """Determine if a material is procedural.
+    Here, procedural is defined as using nodes without any Image Texture nodes.
+    """
+    if not mat.use_nodes:
+        return False
+    for node in mat.node_tree.nodes:
+        if node.type == 'TEX_IMAGE':
+            return False
+    return True
+
+
+def bake_all_procedural_textures(obj):
+    """Bake all procedural textures on a mesh object, storing the baked images within the Blender project."""
     
+    procedural_materials = [mat for mat in obj.data.materials if mat and is_procedural_material(mat)]
+    if not procedural_materials:
+        print(f"----- procedural materials not found on '{obj.name}'. Skipping bake.")
+        return
+
+    # Configure bake settings
+    bpy.context.scene.render.engine = 'CYCLES'
+    bpy.context.scene.cycles.bake_type = 'DIFFUSE'
+    bpy.context.scene.cycles.use_pass_color = True
+    bpy.context.scene.cycles.bake_margin = 16
+
+    # Select the object and make it active
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+
+    # Ensure the object is in Object Mode
+    if obj.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    # Prepare materials for baking
+    for mat in procedural_materials:
+        if not mat.use_nodes:
+            mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+
+        # Create a new Image Texture node
+        img_node = nodes.new(type='ShaderNodeTexImage')
+        img_node.location = (-300, 0)
+
+        # Create a new image for baking
+        bake_image = bpy.data.images.new(
+            name=f"{obj.name}_{mat.name}_Bake",
+            width=1024,
+            height=1024
+        )
+        img_node.image = bake_image
+        bake_image.generated_color = (0, 0, 0, 1)  # Initialize with black
+
+        # Set the image as active for baking
+        img_node.select = True
+        mat.node_tree.nodes.active = img_node
+
+    # Perform the bake
+    bpy.ops.object.bake(
+        type='DIFFUSE',
+        pass_filter={'COLOR'},
+        use_selected_to_active=False,
+        margin=16
+    )
+    print(f"----- baked procedural textures {procedural_materials}")
+
+    # Assign baked textures to materials
+    for mat in procedural_materials:
+        nodes = mat.node_tree.nodes
+        img_node = next((node for node in nodes if node.type == 'TEX_IMAGE' and node.image.name == f"{obj.name}_{mat.name}_Bake"), None)
+        if not img_node:
+            continue
+        # Find the Principled BSDF node
+        bsdf = next((node for node in nodes if node.type == 'BSDF_PRINCIPLED'), None)
+        if bsdf:
+            # Remove existing connections to Base Color
+            for link in list(bsdf.inputs['Base Color'].links):
+                mat.node_tree.links.remove(link)
+            # Connect the Image Texture node to Base Color
+            mat.node_tree.links.new(img_node.outputs['Color'], bsdf.inputs['Base Color'])
+        # Pack the image into the Blender file
+        if not img_node.image.packed_file:
+            img_node.image.pack()
+            print(f"Packed image '{img_node.image.name}' into the Blender project.")
+
+    print(f"----- baked textures assigned")
+
+
 # MARK: GENERATE
 # ACCEPT different formats - like WEB (compressed GLTF), GODOT (uncompressed)
 def generate_gltf(json_result_path: str, target_format: str):
@@ -106,7 +196,7 @@ def generate_gltf(json_result_path: str, target_format: str):
         if obj.type != 'MESH':
             continue        
         disable_subsurf_modifiers(obj)
-        #remove_inactive_uv_maps(obj)
+        bake_all_procedural_textures(obj)
         make_active_UV_first(obj)
 
     print("=== PRE-PROCESSING FINISHED ===")
