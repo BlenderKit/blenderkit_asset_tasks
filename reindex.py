@@ -25,12 +25,16 @@ def get_asset_id(server: str, asset_base_id: str) -> str:
 
     results = resp_json.get("results")
     if results is None:
-        print(f"results not present in response: {resp_json}")
+        print(f"results not present in response: {resp_json} on {url}")
+        exit(10)
+
+    if len(results) == 0:
+        print(f"results length is 0 in response: {resp_json} on {url}")
         exit(10)
 
     asset_id = results[0].get("id")
     if not asset_id:
-        print(f"unexpected asset id: {asset_id}")
+        print(f"unexpected asset id: {asset_id} in response: {resp_json} on {url}")
         exit(10)
 
     return asset_id
