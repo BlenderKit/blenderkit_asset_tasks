@@ -72,6 +72,7 @@ def render_model_validation_thread(asset_data, api_key):
     if f_exists:
         # check if the result folder is empty only with index.json, if yes, purge it and continue. Otherwise skip
         files = cloudflare_storage.list_folder_contents("validation-renders", upload_id)
+
         if len(files) == 1 and files[0] == "index.json":
             # purge the folder
             cloudflare_storage.delete_folder_contents("validation-renders", upload_id)
@@ -211,15 +212,17 @@ def main():
         endpoint_url=os.getenv("CF_ENDPOINT_URL"),
     )
     # ALL_FOLDERS = cloudflare_storage.list_all_folders(bucket_name='validation-renders')
-    # print('deleting old files')
-    # cloudflare_storage.delete_old_files(bucket_name='validation-renders', x_days=2)
+    # print("deleting old files")
+    # cloudflare_storage.delete_old_files(bucket_name="validation-renders", x_days=30)
+    # cloudflare_storage.delete_new_files(bucket_name="validation-renders", x_days=30)
+
     # return
 
     # Get os temp directory
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, "assets_for_validation.json")
     params = {
-        "order": "last_blend_upload",
+        "order": "-last_blend_upload",
         "asset_type": "model",
         "verification_status": "uploaded",
     }

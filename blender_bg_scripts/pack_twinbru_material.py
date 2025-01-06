@@ -61,7 +61,10 @@ if __name__ == "__main__":
     links.new(principled_bsdf.outputs[0], output_node.inputs[0])
 
     # Get the texture file names
-    texture_directory = os.path.join(temp_folder, "pbr-pol")
+    # texture_directory = os.path.join(temp_folder, "pbr-pol")
+
+    # the final file TwinBru sent doesn't have subfolders
+    texture_directory = temp_folder
     texture_files = os.listdir(texture_directory)
     mapping_substrings = {
         "BASE": "Base Color",
@@ -69,6 +72,13 @@ if __name__ == "__main__":
         "ROUGH": "Roughness",
         "ALPHA": "Alpha",
         "NRM": "Normal",
+    }
+    mapping_substrings = {
+        "col": "Base Color",
+        "met": "Metallic",
+        "rough": "Roughness",
+        "alpha": "Alpha",
+        "nrm": "Normal",
     }
     index = 0
     texture_nodes = []

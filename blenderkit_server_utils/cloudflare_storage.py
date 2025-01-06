@@ -65,6 +65,21 @@ class CloudflareStorage:
 
         return folders
 
+    def list_folder_contents(self, bucket_name, folder_name):
+        """
+        List all objects in a specified folder within the Cloudflare R2 bucket.
+
+        :param bucket_name: The name of the Cloudflare R2 bucket.
+        :param folder_name: The prefix of the folder to list contents from. Must end with '/'.
+        :return: A list of objects in the folder.
+        """
+        # Ensure the folder name ends with '/' to accurately match the folder structure
+        if not folder_name.endswith("/"):
+            folder_name += "/"
+
+        response = self.client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
+        return response.get("Contents", [])
+
     def folder_exists(self, bucket_name, folder_name):
         """
         Check if a folder exists in a specified bucket.
@@ -191,3 +206,36 @@ class CloudflareStorage:
             self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
 
         print("Old files deleted.")
+
+    def delete_new_files(self, bucket_name, x_days):
+        """
+        Deletes files that are younger than x_days in the specified bucket.
+
+        :param bucket_name: The name of the Cloudflare R2 bucket.
+        :param x_days: The age threshold in days for deleting files.
+        """
+        paginator = self.client.get_paginator("list_objects_v2")
+        delete_after_date = datetime.now(timezone.utc) - timedelta(days=x_days)
+
+        # Prepare a batch delete operation
+        delete_batch = {"Objects": []}
+
+        # Iterate through all objects in the bucket
+        for page in paginator.paginate(Bucket=bucket_name):
+            for obj in page.get("Contents", []):
+                # If the object is older than the specified days, mark it for deletion
+                if obj["LastModified"] < delete_after_date:
+                    delete_batch["Objects"].append({"Key": obj["Key"]})
+
+                    # Perform the deletion in batches of 1000 (S3 limit)
+                    if len(delete_batch["Objects"]) >= 1000:
+                        self.client.delete_objects(
+                            Bucket=bucket_name, Delete=delete_batch
+                        )
+                        delete_batch = {"Objects": []}  # Reset batch
+
+        # Delete any remaining objects in the last batch
+        if delete_batch["Objects"]:
+            self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+
+        print("New files deleted.")
