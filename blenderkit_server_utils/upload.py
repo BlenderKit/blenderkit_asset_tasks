@@ -145,7 +145,10 @@ def patch_individual_parameter(asset_id="", param_name="", param_value="", api_k
     )  # files = files,
     print(r.text)
     print(r.status_code)
-
+    if r.status_code == 200 or r.status_code == 201:
+        return True
+    else:
+        return False
 
 def delete_individual_parameter(asset_id="", param_name="", param_value="", api_key=""):
     # changes individual parameter in the parameters dictionary of the assets
@@ -158,6 +161,10 @@ def delete_individual_parameter(asset_id="", param_name="", param_value="", api_
     )  # files = files,
     print(r.text)
     print(r.status_code)
+    if r.status_code == 200 or r.status_code == 201 or r.status_code == 204:
+        return True
+    else:
+        return False
 
 
 def patch_asset_empty(asset_id, api_key):

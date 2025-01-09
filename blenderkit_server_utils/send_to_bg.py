@@ -42,7 +42,18 @@ def get_blender_binary(asset_data, file_path="", binary_type="CLOSEST"):
     blenders = []
     # Get available blender versions
     for fn in os.listdir(blenders_path):
-        blenders.append((version_to_float(fn), fn))
+        # Skip hidden files and non-version directories
+        if fn.startswith('.') or not any(c.isdigit() for c in fn):
+            continue
+        try:
+            version = version_to_float(fn)
+            blenders.append((version, fn))
+        except ValueError:
+            continue
+
+    if len(blenders) == 0:
+        raise RuntimeError(f"No valid Blender versions found in {blenders_path}")
+
     if binary_type == "CLOSEST":
         # get asset's blender upload version
         asset_blender_version = version_to_float(asset_data["sourceAppVersion"])
@@ -67,9 +78,24 @@ def get_blender_binary(asset_data, file_path="", binary_type="CLOSEST"):
         blender_target = blenders[-1]
 
     print(blender_target)
-    ext = ".exe" if sys.platform == "win32" else ""
-    binary = os.path.join(blenders_path, blender_target[1], f"blender{ext}")
-    print(binary)
+    
+    # Handle different OS paths
+    if sys.platform == "darwin":  # macOS
+        binary = os.path.join(
+            blenders_path,
+            blender_target[1],
+            "Contents",
+            "MacOS",
+            "Blender"
+        )
+    else:  # Windows and Linux
+        ext = ".exe" if sys.platform == "win32" else ""
+        binary = os.path.join(blenders_path, blender_target[1], f"blender{ext}")
+
+    print(f"Using Blender binary: {binary}")
+    if not os.path.exists(binary):
+        raise RuntimeError(f"Blender binary not found at {binary}")
+        
     return binary
 
 
@@ -119,7 +145,7 @@ def send_to_bg(
     api_key - api key for the server
     script - script that should be run in background
     addons - addons that should be enabled in the background instance
-
+    
     command - command which should be run in background.
     verbosity_level - level of verbosity: 0 for silent mode, 1 to only print errors, 2 to print everything
     Returns
