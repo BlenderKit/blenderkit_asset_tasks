@@ -91,7 +91,7 @@ if __name__ == "__main__":
                 texture_path = os.path.join(texture_directory, texture_file)
                 texture_node = nodes.new(type="ShaderNodeTexImage")
                 texture_node.location = (
-                    -2 * node_gap_x,
+                    -4 * node_gap_x,
                     node_gap_y * 2 - index * node_gap_y,
                 )
                 texture_node.image = bpy.data.images.load(texture_path)
@@ -102,10 +102,30 @@ if __name__ == "__main__":
                 if mapping == "Normal":
                     normal_map = nodes.new(type="ShaderNodeNormalMap")
                     normal_map.location = (
-                        -node_gap_x,
+                        -1 *node_gap_x,
                         texture_node.location[1],
                     )
-                    links.new(texture_node.outputs[0], normal_map.inputs["Color"])
+                    # Convert DX normal map to OpenGL
+                    separate_xyz = nodes.new(type="ShaderNodeSeparateXYZ")
+                    separate_xyz.location = (-2.5 * node_gap_x, texture_node.location[1])
+                    
+                    # Invert Y channel
+                    invert_y = nodes.new(type="ShaderNodeMath")
+                    invert_y.operation = 'SUBTRACT'
+                    invert_y.inputs[0].default_value = 1.0
+                    invert_y.location = (-2 * node_gap_x, texture_node.location[1] - 50)
+                    
+                    # Recombine channels
+                    combine_xyz = nodes.new(type="ShaderNodeCombineXYZ")
+                    combine_xyz.location = (-1.5 * node_gap_x, texture_node.location[1] - 100)
+                    
+                    # Link nodes
+                    links.new(texture_node.outputs[0], separate_xyz.inputs[0])
+                    links.new(separate_xyz.outputs[0], combine_xyz.inputs[0]) # X
+                    links.new(separate_xyz.outputs[1], invert_y.inputs[1]) # Y
+                    links.new(invert_y.outputs[0], combine_xyz.inputs[1]) # Inverted Y
+                    links.new(separate_xyz.outputs[2], combine_xyz.inputs[2]) # Z
+                    links.new(combine_xyz.outputs[0], normal_map.inputs["Color"])
                     links.new(normal_map.outputs[0], principled_bsdf.inputs[mapping])
                 else:
                     links.new(texture_node.outputs[0], principled_bsdf.inputs[mapping])
