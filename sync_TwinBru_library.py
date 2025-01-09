@@ -236,76 +236,6 @@ import tempfile
 import os
 from blenderkit_server_utils import paths
 
-
-# def generate_material_thumbnail(
-#     asset_name,
-#     thumbnail_generator_type,
-#     thumbnail_scale,
-#     thumbnail_background,
-#     thumbnail_background_lightness,
-#     thumbnail_resolution,
-#     thumbnail_samples,
-#     thumbnail_denoising,
-#     adaptive_subdivision,
-#     texture_size_meters,
-# ):
-#     asset = bpy.context.active_object.active_material
-#     tempdir = tempfile.mkdtemp()
-#     filepath = os.path.join(tempdir, "material_thumbnailer_cycles.blend")
-
-#     # if this isn't here, blender crashes.
-#     if bpy.app.version >= (3, 0, 0):
-#         bpy.context.preferences.filepaths.file_preview_type = "NONE"
-
-#     # save a copy of actual scene but don't interfere with the users models
-#     bpy.ops.wm.save_as_mainfile(filepath=filepath, compress=False, copy=True)
-
-#     path_can_be_relative = True
-#     thumb_dir = os.path.dirname(bpy.data.filepath)
-#     if thumb_dir == "":  # file not saved
-#         thumb_dir = tempdir
-#         path_can_be_relative = False
-#     an_slug = paths.slugify(asset_name)
-
-#     thumb_path = os.path.join(thumb_dir, an_slug)
-
-#     if path_can_be_relative:
-#         rel_thumb_path = os.path.join("//", an_slug)
-#     else:
-#         rel_thumb_path = thumb_path
-
-#     # auto increase number of the generated thumbnail.
-#     i = 0
-#     while os.path.isfile(thumb_path + ".png"):
-#         thumb_path = os.path.join(thumb_dir, an_slug + "_" + str(i).zfill(4))
-#         rel_thumb_path = os.path.join("//", an_slug + "_" + str(i).zfill(4))
-#         i += 1
-
-#     asset.blenderkit.thumbnail = rel_thumb_path + ".png"
-#     bkit = asset.blenderkit
-
-#     args_dict = {
-#         "type": "material",
-#         "asset_name": asset_name,
-#         "filepath": filepath,
-#         "thumbnail_path": thumb_path,
-#         "tempdir": tempdir,
-#     }
-
-#     thumbnail_args = {
-#         "thumbnail_type": thumbnail_generator_type,
-#         "thumbnail_scale": thumbnail_scale,
-#         "thumbnail_background": thumbnail_background,
-#         "thumbnail_background_lightness": thumbnail_background_lightness,
-#         "thumbnail_resolution": thumbnail_resolution,
-#         "thumbnail_samples": thumbnail_samples,
-#         "thumbnail_denoising": thumbnail_denoising,
-#         "adaptive_subdivision": adaptive_subdivision,
-#         "texture_size_meters": texture_size_meters,
-#     }
-#     args_dict.update(thumbnail_args)
-
-
 def sync_TwinBru_library(file_path):
     """
     Sync the TwinBru library to blenderkit.
@@ -319,7 +249,7 @@ def sync_TwinBru_library(file_path):
       2.6. run a pack_twinbru_material.py script to create a material in Blender 3D,
       write the asset_base_id and other blenderkit props on the material.
       2.7. Upload the material to blenderkit
-      2.8. Patch the asset data with a new parameter.
+      2.8. Mark the asset for thumbnail generation
     """
 
     assets = read_csv_file(file_path)
@@ -394,28 +324,8 @@ def sync_TwinBru_library(file_path):
                 temp_folder=temp_folder,
                 verbosity_level=2,
             )
-            # render the thumbnail as in blenderkit.
-            # Example usage
-            # generate_material_thumbnail(
-            #     asset_name="ExampleMaterial",
-            #     thumbnail_generator_type="FABRIC    ",
-            #     thumbnail_scale=1.0,
-            #     thumbnail_background=True,
-            #     thumbnail_background_lightness=1.0,
-            #     thumbnail_resolution=512,
-            #     thumbnail_samples=128,
-            #     thumbnail_denoising=True,
-            #     adaptive_subdivision=True,
-            #     texture_size_meters=1.0,
-            # )
             # Upload the asset to blenderkit
-            thumbnail_path = get_thumbnail_path(temp_folder, twinbru_asset)
             files = [
-                {
-                    "type": "thumbnail",
-                    "index": 0,
-                    "file_path": thumbnail_path,
-                },
                 {
                     "type": "blend",
                     "index": 0,
@@ -424,7 +334,7 @@ def sync_TwinBru_library(file_path):
             ]
             upload_data = {
                 "name": asset_data["name"],
-                "displayName": upload_data["displayName"],
+                "displayName": upload_data["name"],
                 "token": paths.API_KEY,
                 "id": asset_data["id"],
             }
@@ -432,15 +342,37 @@ def sync_TwinBru_library(file_path):
 
             if uploaded:
                 print(f"Successfully uploaded asset: {asset_data['name']}")
+                # Mark the asset for thumbnail generation with material-specific settings
+                ok = upload.mark_for_thumbnail(
+                    asset_id=asset_data["id"],
+                    api_key=paths.API_KEY,
+                    # Common parameters
+                    use_gpu=True,
+                    samples=100,
+                    resolution=2048,
+                    denoising=True,
+                    background_lightness=0.5,
+                    # Material-specific parameters
+                    thumbnail_type='CLOTH',  # Using BALL_COMPLEX for fabric materials
+                    scale= 2* float(twinbru_asset["texture_width_cm"]) * 0.01, # scale the scene to be 2x the width of the texture
+                    background=False,  # Enable background for better fabric visibility
+                    adaptive_subdivision=False,  # Enable for better fabric detail
+                )
+                if ok:
+                    print(f"Successfully marked asset for thumbnail generation: {asset_data['name']}")
+                else:
+                    print(f"Failed to mark asset for thumbnail generation: {asset_data['name']}")
             else:
                 print(f"Failed to upload asset: {asset_data['name']}")
             # mark asset as uploaded
+            # this will return error since the thumbnail is not generated yet
+
             upload.patch_asset_metadata(
                 asset_data["id"], paths.API_KEY, data={"verificationStatus": "uploaded"}
             )
 
-            # Add a delay noto to overwhelm the server
-            time.sleep(60)
+            # Add a delay not to overwhelm the server
+            time.sleep(10)
 
 
 def iterate_assets(filepath, thread_function=None, process_count=12, api_key=""):
@@ -464,9 +396,21 @@ def iterate_assets(filepath, thread_function=None, process_count=12, api_key="")
 
 
 def main():
-    dpath = tempfile.gettempdir()
+    """Main entry point for the script.
+    Reads the CSV file path from TWINBRU_CSV_PATH environment variable.
+    If not set, prints an error message and exits.
+    """
+    csv_path = os.environ.get('TWINBRU_CSV_PATH')
+    if not csv_path:
+        print("Error: TWINBRU_CSV_PATH environment variable not set")
+        return
+    
+    if not os.path.exists(csv_path):
+        print(f"Error: CSV file not found at path: {csv_path}")
+        return
 
-    sync_TwinBru_library("converted twinbreu.csv")
+    print(f"Processing TwinBru CSV file: {csv_path}")
+    sync_TwinBru_library(csv_path)
 
 
 if __name__ == "__main__":

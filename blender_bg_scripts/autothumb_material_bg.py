@@ -74,6 +74,14 @@ if __name__ == "__main__":
         utils.activate_object(scaler)
         bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
+        # find any object with solidify and scale the thickness accordingly 
+        # this currently involves only cloth preview, but might also others or other scale depended modifiers
+        for ob in bpy.context.visible_objects:
+            if ob.name[:15] == "MaterialPreview":
+                for m in ob.modifiers:
+                    if m.type == "SOLIDIFY":
+                        m.thickness *= tscale
+
         bpy.context.view_layer.update()
 
         for ob in bpy.context.visible_objects:
@@ -96,12 +104,13 @@ if __name__ == "__main__":
                 ob.data.texspace_size.x = 1  # / tscale
                 ob.data.texspace_size.y = 1  # / tscale
                 ob.data.texspace_size.z = 1  # / tscale
-                if data["asset_data"]["adaptive_subdivision"] == True:
+                if data["asset_data"]["thumbnail_adaptive_subdivision"] == True:
                     ob.cycles.use_adaptive_subdivision = True
 
                 else:
                     ob.cycles.use_adaptive_subdivision = False
-                ts = data["asset_data"]["texture_size_meters"]
+                # Get texture size from dictParameters
+                ts = data["asset_data"]["dictParameters"].get("textureSizeMeters", 1.0)
                 if data["asset_data"]["thumbnail_type"] in ["BALL", "BALL_COMPLEX", "CLOTH"]:
                     utils.automap(
                         ob.name,

@@ -26,15 +26,17 @@ if __name__ == "__main__":
     print(f"temp_folder: {temp_folder}")
 
     # convert name - remove _ and remove the number that comes last in name
-    readable_name = twinbru_asset["name"].split("_")
+    # readable_name = twinbru_asset["name"].split("_")
     # capitalize the first letter of each word
-    readable_name = " ".join(word.capitalize() for word in readable_name[:-1])
+    # readable_name = " ".join(word.capitalize() for word in readable_name[:-1])
+    readable_name = twinbru_asset["name"]
 
     # create a new material
     material = bpy.data.materials.new(name=readable_name)
+    material.name = readable_name
     material.use_nodes = True
     material.blend_method = "BLEND"
-    material.shadow_method = "HASHED"
+    # material.shadow_method = "HASHED"
     material.diffuse_color = (1, 1, 1, 1)
     # ensure the material is saved
     material.use_fake_user = True
@@ -110,6 +112,11 @@ if __name__ == "__main__":
                 index += 1
                 texture_nodes.append(texture_node)
 
+    # Mark the material as asset for Belnder's asset manager
+    material.asset_mark()
+    material.asset_generate_preview()
+    material.name = twinbru_asset["name"] # not sure why but this works here but not before.
+    print(f"processed material {material.name}")
     # Pack all .blend textures
     bpy.ops.file.pack_all()
     # save the material

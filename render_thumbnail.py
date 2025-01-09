@@ -84,8 +84,18 @@ def parse_json_params(json_str):
     if not json_str:
         return {}
         
-    try:
+    if 1:
         params = json.loads(json_str)
+        # String params
+        string_params = [
+            'thumbnail_type',
+            'thumbnail_angle',
+            'thumbnail_snap_to',
+        ]
+        for param in string_params:
+            if param in params and isinstance(params[param], str):
+                params[param] = params[param]
+        
         # Convert string boolean values to actual booleans
         bool_params = [
             'thumbnail_use_gpu', 
@@ -113,11 +123,11 @@ def parse_json_params(json_str):
                         params[param] = int(params[param])
                 except (ValueError, TypeError):
                     del params[param]  # Remove invalid numeric values
-                    
+        print(params)
         return params
-    except json.JSONDecodeError:
-        print(f"Warning: Invalid JSON in markThumbnailRender parameter")
-        return {}
+    # except json.JSONDecodeError:
+    #     print(f"Warning: Invalid JSON in markThumbnailRender parameter")
+    #     return {}
 
 def get_thumbnail_params(asset_type, mark_thumbnail_render=None):
     """Get thumbnail parameters from environment variables or defaults.
@@ -148,6 +158,7 @@ def get_thumbnail_params(asset_type, mark_thumbnail_render=None):
     json_params = parse_json_params(mark_thumbnail_render)
     if json_params:
         params.update(json_params)
+    
     
     # Update with environment variables (highest priority)
     env_updates = {
@@ -194,6 +205,11 @@ def render_thumbnail_thread(asset_data, api_key):
     """
     destination_directory = tempfile.gettempdir()
     
+    # Get thumbnail parameters based on asset type and markThumbnailRender
+    thumbnail_params = get_thumbnail_params(
+        asset_data['assetType'].lower(),
+        mark_thumbnail_render=asset_data['dictParameters'].get('markThumbnailRender')
+    )
     # Download asset
     asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
     
@@ -205,11 +221,6 @@ def render_thumbnail_thread(asset_data, api_key):
     temp_folder = tempfile.mkdtemp()
     result_filepath = os.path.join(temp_folder, f"{asset_data['assetBaseId']}_thumb.{'jpg' if asset_data['assetType'] == 'model' else 'png'}")
     
-    # Get thumbnail parameters based on asset type and markThumbnailRender
-    thumbnail_params = get_thumbnail_params(
-        asset_data['assetType'].lower(),
-        mark_thumbnail_render=asset_data.get('markThumbnailRender')
-    )
     
     # Update asset_data with thumbnail parameters
     asset_data.update(thumbnail_params)
@@ -263,9 +274,9 @@ def render_thumbnail_thread(asset_data, api_key):
             print(f"Successfully uploaded new thumbnail for {asset_data['name']}")
             # Clear the markThumbnailRender parameter
             clear_ok = upload.delete_individual_parameter(
-                asset_data['id'],
+                asset_id=asset_data['id'],
                 param_name='markThumbnailRender',
-                param_value='',  # Empty string to clear the parameter
+                param_value='',
                 api_key=api_key
             )
             if clear_ok:
