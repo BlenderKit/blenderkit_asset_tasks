@@ -1,4 +1,4 @@
-name: nightly GLTF
+name: nightly GLTF for Godot
 
 on:
   schedule:
@@ -12,7 +12,7 @@ env:
   MAX_ASSET_COUNT: 200
 
 jobs:
-  GLTF:
+  GLTF_Godot:
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.2 # LATEST STABLE
     steps:
@@ -23,5 +23,5 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
-      - name: Generate GLTFs
-        run: python3 generate_gltf.py
+      - name: Generate GLTFs for Godot
+        run: python3 generate_gltf_godot.py

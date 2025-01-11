@@ -1,3 +1,6 @@
+"""Generate GLTF file for Godot. This is an optimized version for Godot engine (no Draco compression enabled)."""
+
+
 import json
 import os
 import tempfile
@@ -34,8 +37,9 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
   send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py', binary_path=binary_path)
 
   if not asset_file_path:
+    print(f"Asset file not found on path {asset_file_path}")
     # fail message?
-    return;
+    return False
 
   # Send to background to generate GLTF
   temp_folder = tempfile.mkdtemp()
@@ -46,7 +50,8 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
     asset_file_path=asset_file_path,
     result_path=result_path,
     script='gltf_bg_blender.py',
-    binary_path=binary_path
+    binary_path=binary_path,
+    target_format="gltf_godot"
     )
 
   files = None
@@ -59,21 +64,22 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
 
   if files == None:
     error += " Files are None"
-  elif len(files) > 0:
+  elif len(files) == 0:
+    error += f" len(files)={len(files)}"
+  else:
     # there are no actual resolutions
     print("Files are:", files)
     upload.upload_resolutions(files, asset_data, api_key=api_key)
     today = datetime.today().strftime('%Y-%m-%d')
-    param = 'gltfGeneratedDate'
+    param = 'gltfGodotGeneratedDate'
     upload.patch_individual_parameter(asset_data['id'], param_name=param, param_value=today, api_key=api_key)
     upload.get_individual_parameter(asset_data['id'], param_name=param, api_key=api_key)
     print(f"---> Asset parameter {param} successfully patched with value {today}")
+    # TODO: Remove gltfGodotGeneratedError if it was filled by previous runs
     return True
-  else:
-    error += f" len(files)={len(files)}"
   
   print('---> GLTF generation failed')
-  param = "gltfGeneratedError"
+  param = "gltfGodotGeneratedError"
   value = error.strip()
   upload.patch_individual_parameter(asset_data['id'], param_name=param, param_value=value, api_key=api_key)
   upload.get_individual_parameter(asset_data['id'], param_name=param, api_key=api_key)
@@ -91,9 +97,9 @@ def iterate_assets(assets: list, api_key: str='', binary_path:str=''):
       continue
     ok = generate_gltf(asset_data, api_key, binary_path=binary_path)
     if ok:
-      print("===> GLTF SUCCESS")
+      print("===> GLTF GODOT SUCCESS")
     else:
-      print("===> GLTF FAILED")
+      print("===> GLTF GODOT FAILED")
 
 
 def main():
