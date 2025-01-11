@@ -349,7 +349,7 @@ def main():
     else:
         params = {
             'asset_type': 'model,material',
-            'order': '-created',
+            'order': 'created',
             'markThumbnailRender_isnull': False,
         }
     
