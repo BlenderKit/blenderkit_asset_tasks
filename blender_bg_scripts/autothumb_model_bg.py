@@ -18,6 +18,7 @@ import bpy
 import os
 import sys
 import json
+import math
 import traceback
 from pathlib import Path
 # Add parent directory to Python path so we can import blenderkit_server_utils
