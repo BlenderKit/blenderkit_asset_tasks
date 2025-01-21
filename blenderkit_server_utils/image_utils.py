@@ -418,6 +418,7 @@ def make_possible_reductions_on_image(teximage, input_filepath, do_reductions=Fa
   currently implemented file type conversions:
   PNG->JPG
   '''
+  print(f"make_possible_reductions_on_image teximage={teximage}, input_filepath={input_filepath}, do_reductions={do_reductions}, do_downscale={do_downscale}")
   colorspace = teximage.colorspace_settings.name
   teximage.colorspace_settings.name = 'Non-Color'
   # teximage.colorspace_settings.name = 'sRGB' color correction mambo jambo.
@@ -444,17 +445,15 @@ def make_possible_reductions_on_image(teximage, input_filepath, do_reductions=Fa
   # setup  image depth, 8 or 16 bit.
   # this should normally divide depth with number of channels, but blender always states that number of channels is 4, even if there are only 3
 
-  print(teximage.name)
-  print(teximage.depth)
-  print(teximage.channels)
+  print(f"image name={teximage.name}, depth={teximage.depth}, channels={teximage.channels}")
 
   # bpy.context.scene.display_settings.display_device = 'None'
 
   image_depth = find_image_depth(teximage)
-
+  print(f"found image depth: {image_depth}")
   ims.color_mode = find_color_mode(teximage)
   # image_depth = str(max(min(int(teximage.depth / 3), 16), 8))
-  print('resulting depth set to:', image_depth)
+  print(f"found color mode: {ims.color_mode}")
 
   fp = input_filepath
   if do_reductions:
