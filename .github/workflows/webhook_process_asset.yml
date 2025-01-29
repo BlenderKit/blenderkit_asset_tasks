@@ -15,6 +15,10 @@ on:
       is_private:
         description: 'Asset Is Private'
         type: boolean
+      source_app_version:
+        description: 'Version of Blender in which the asset was created'
+        required: false
+        
   repository_dispatch:
     types: [process-asset]
 
@@ -26,7 +30,7 @@ env:
 
 jobs:
   RESOLUTIONS:
-    name: Public & Validated -> generate resolutions
+    name: Public & Validated -> generate resolutions (Blender ${{ github.event.inputs.source_app_version || github.event.client_payload.source_app_version }})
     runs-on: ubuntu-latest
     if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
         (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
