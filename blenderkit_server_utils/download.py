@@ -25,13 +25,11 @@ def files_size_to_text(size):
         return f"{round(fsmb, 1)}MB"
 
 
-def get_core_file(asset_data, resolution, find_closest_with_url=False):
-    """
-    Returns core blend file.
-    """
-    for f in asset_data["files"]:
-        if f["fileType"] == "blend":
-            orig = f
+def get_file_type(asset_data, filetype="blend"):
+    """Iterates through asset_data["files"] and returns the item which fileType equals argument filetype."""
+    for file in asset_data["files"]:
+        if file["fileType"] == filetype:
+            orig = file
             return orig, "blend"
 
 
@@ -44,7 +42,7 @@ def get_download_url(asset_data, scene_id, api_key, tcom=None, resolution="blend
     data = {"scene_uuid": scene_id}
     r = None
 
-    res_file_info, resolution = get_core_file(asset_data, resolution)
+    res_file_info, resolution = get_file_type(asset_data, resolution)
     print(res_file_info)
     try:
         r = requests.get(res_file_info["downloadUrl"], params=data, headers=headers)
@@ -72,16 +70,14 @@ def get_download_url(asset_data, scene_id, api_key, tcom=None, resolution="blend
 
 
 def get_download_filepath(
-    asset_data, resolution="blend", can_return_others=False, directory=None
+    asset_data, resolution="blend", directory=None
 ):
     """Get all possible paths of the asset and resolution. Usually global and local directory."""
     windows_path_limit = 250
     if directory is None:
         directory = paths.get_download_dir(asset_data["assetType"])
 
-    res_file, resolution = get_core_file(
-        asset_data, resolution, find_closest_with_url=can_return_others
-    )
+    res_file, resolution = get_file_type(asset_data, resolution)
     name_slug = paths.slugify(asset_data["name"])
     if len(name_slug) > 16:
         name_slug = name_slug[:16]
@@ -112,7 +108,7 @@ def get_download_filepath(
 
 
 def check_existing(
-    asset_data, resolution="blend", can_return_others=False, directory=None
+    asset_data, resolution="blend", directory=None
 ):
     """check if the object exists on the hard drive"""
     fexists = False
@@ -121,10 +117,7 @@ def check_existing(
         # this is because of some very odl files where asset data had no files structure.
         return False
 
-    file_names = get_download_filepath(
-        asset_data, resolution, can_return_others=can_return_others, directory=directory
-    )
-
+    file_names = get_download_filepath(asset_data, resolution, directory=directory)
     print("check if file already exists" + str(file_names))
     if len(file_names) == 2:
         # TODO this should check also for failed or running downloads.
@@ -164,7 +157,7 @@ def delete_unfinished_file(file_name):
 
 
 def download_asset_file(asset_data, resolution="blend", api_key="", directory=None):
-    # this is a simple non-threaded way to download files for background resolution genenration tool
+    # this is a simple non-threaded way to download files for background resolution generation tool
     file_names = get_download_filepath(
         asset_data, resolution, directory=directory
     )  # prefer global dir if possible.
@@ -183,7 +176,7 @@ def download_asset_file(asset_data, resolution="blend", api_key="", directory=No
     with open(file_name, "wb") as f:
         print("Downloading %s" % file_name)
         headers = utils.get_headers(api_key)
-        res_file_info, resolution = get_core_file(asset_data, resolution)
+        res_file_info, resolution = get_file_type(asset_data, resolution)
         session = requests.Session()
 
         response = session.get(res_file_info["url"], stream=True)
@@ -222,24 +215,26 @@ def download_asset_file(asset_data, resolution="blend", api_key="", directory=No
     return file_name
 
 
-def download_asset(asset_data, resolution="blend", api_key="", directory=None):
+def download_asset(asset_data:dict, filetype:str="blend", api_key:str="", directory=None):
     """
     Download an asset non-threaded way.
+    
     Parameters
     ----------
-    asset_data - search result from elastic or assets endpoints from API
+    - asset_data: search result from elastic or assets endpoints from API
+    - filetype: (prev resolution) which of asset_data['files'] to download, e.g.: blend, resolution_0_5K, resolution_1K, gltf
+    - api_key: used for auth on the server API
+    - directory: the path to which the file will be downloaded
 
     Returns
     -------
     path to the resulting asset file or None if asset isn't accessible
     """
 
-    has_url = get_download_url(
-        asset_data, SCENE_UUID, api_key, tcom=None, resolution="blend"
-    )  # Resolution does not have any effect
+    has_url = get_download_url(asset_data, SCENE_UUID, api_key, tcom=None, resolution=filetype)
     if not has_url:
         print("Could not get URL for the asset")
         return None
 
-    fpath = download_asset_file(asset_data, api_key=api_key, directory=directory)
+    fpath = download_asset_file(asset_data, resolution=filetype, api_key=api_key, directory=directory)
     return fpath

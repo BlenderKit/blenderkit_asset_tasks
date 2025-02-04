@@ -31,7 +31,7 @@ def generate_gltf(asset_data, api_key, binary_path: str) -> bool:
   destination_directory = tempfile.gettempdir()
 
   # Download asset
-  asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory, resolution='2k')
+  asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory, filetype='resolution_2K')
 
   # Unpack asset
   send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py', binary_path=binary_path)

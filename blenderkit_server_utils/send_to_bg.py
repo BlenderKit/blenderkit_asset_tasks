@@ -132,7 +132,7 @@ def send_to_bg(
         target_format: str = ""
         ):
     '''
-    Send varioust task to a new blender instance that runs and closes after finishing the task.
+    Send various task to a new blender instance that runs and closes after finishing the task.
     This function waits until the process finishes.
     The function tries to set the same bpy.app.debug_value in the instance of Blender that is run.
     Parameters
@@ -144,7 +144,7 @@ def send_to_bg(
     result_path - path where the result of the processing will be stored
     result_folder - path where only things for possible upload can get stored if there is more than one outpit file
     api_key - api key for the server
-    script - script that should be run in background
+    script - script that should be run in background, has to be in directory blender_bg_scripts which gets appended to path automatically
     addons - addons that should be enabled in the background instance
     target_format - which file format we want to export, e.g.: gltf, gltf_godot
     '''
