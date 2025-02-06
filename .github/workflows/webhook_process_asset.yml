@@ -1,5 +1,5 @@
 name: Process Asset
-run-name: Process ${{github.event.inputs.asset_type || github.event.client_payload.asset_type}} | ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }} | ${{ github.event.inputs.source_app_version || github.event.client_payload.source_app_version }}
+run-name: Process ${{github.event.inputs.asset_type || github.event.client_payload.asset_type}} | ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }} | ${{ github.event.inputs.source_app_version_array || github.event.client_payload.source_app_version_array }} <- ${{ github.event.inputs.source_app_version || github.event.client_payload.source_app_version }}
 
 on:
   workflow_dispatch:
