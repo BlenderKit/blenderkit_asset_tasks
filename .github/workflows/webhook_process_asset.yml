@@ -17,7 +17,8 @@ on:
         type: boolean
       source_app_version:
         description: 'Source app version'
-        required: true
+      source_app_version_array:
+        description: 'Source app version as array'
   
   repository_dispatch:
     types: [process-asset]
@@ -26,10 +27,11 @@ env:
   BLENDERKIT_SERVER: 'https://www.blenderkit.com'
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
   ASSET_BASE_ID: ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
+  BVER_ARRAY: ${{ github.event.inputs.source_app_version_array || github.event.client_payload.source_app_version_array }}
 
 jobs:
   RESOLUTIONS:
-    name: Public & Validated -> generate resolutions (Blender ${{ github.event.inputs.source_app_version || github.event.client_payload.source_app_version }})
+    name: Public & Validated -> generate resolutions (Blender ${{ env.BVER_ARRAY }})
     runs-on: ubuntu-latest
     env:
       BLENDERS_PATH: '/home/headless/blenders'
