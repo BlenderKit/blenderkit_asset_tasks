@@ -31,7 +31,7 @@ env:
 
 jobs:
   RESOLUTIONS:
-    name: Public & Validated -> generate resolutions (Blender ${{ env.BVER_ARRAY }})
+    name: Public & Validated -> generate resolutions (Blender ${{ github.event.inputs.source_app_version_array || github.event.client_payload.source_app_version_array }})
     runs-on: ubuntu-latest
     env:
       BLENDERS_PATH: '/home/headless/blenders'
