@@ -155,11 +155,10 @@ def send_to_bg(
         pipe.close()
 
     if binary_path != "":
-        print(f"Blender binary path: {binary_path}")
+        print(f"Send_to_BG: using predefined Blender binary path: {binary_path}")
     else:
-        binary_path = get_blender_binary(
-            asset_data, file_path=asset_file_path, binary_type=binary_type
-        )
+        binary_path = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
+        print(f"Send_to_BG: using detected Blender binary path: {binary_path}")
 
     own_temp_folder = False
     if temp_folder == "":

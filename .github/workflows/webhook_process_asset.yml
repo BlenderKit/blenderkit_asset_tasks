@@ -1,5 +1,5 @@
 name: Process Asset
-run-name: Process ${{github.event.inputs.asset_type || github.event.client_payload.asset_type}} | ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }} | ${{ github.event.inputs.source_app_version_array || github.event.client_payload.source_app_version_array }} <- ${{ github.event.inputs.source_app_version || github.event.client_payload.source_app_version }}
+run-name: Process ${{github.event.inputs.asset_type || github.event.client_payload.asset_type}} | ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }} | ${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy }}
 
 on:
   workflow_dispatch:
@@ -15,10 +15,9 @@ on:
       is_private:
         description: 'Asset Is Private'
         type: boolean
-      source_app_version:
-        description: 'Source app version'
-      source_app_version_array:
-        description: 'Source app version as array'
+      source_app_version_xy:
+        description: 'Source app version X.Y'
+        required: true
   
   repository_dispatch:
     types: [process-asset]
@@ -27,18 +26,17 @@ env:
   BLENDERKIT_SERVER: 'https://www.blenderkit.com'
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
   ASSET_BASE_ID: '${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}'
-  SOURCE_APP_VERSION_XY: '${{ github.event.inputs.source_app_version_array[0] || github.event.client_payload.source_app_version_array[0] }}.${{ github.event.inputs.source_app_version_array[1] || github.event.client_payload.source_app_version_array[1] }}'
 
 jobs:
   RESOLUTIONS:
-    name: Public & Validated -> generate resolutions (Blender ${{ github.event.inputs.source_app_version_array[0] || github.event.client_payload.source_app_version_array[0] }}.${{ github.event.inputs.source_app_version_array[1] || github.event.client_payload.source_app_version_array[1] }})
+    name: Public & Validated -> generate resolutions
     runs-on: ubuntu-latest
     env:
-      BLENDERS_PATH: '/home/headless/blenders'
+      BLENDER_PATH: /home/headless/blender/blender
     if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
         (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
         (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:multi-version
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy }}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release

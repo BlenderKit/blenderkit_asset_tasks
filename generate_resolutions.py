@@ -1,7 +1,8 @@
 """Script to generate resolutions for assets that don't have them yet.
 Required environment variables:
 BLENDERKIT_API_KEY - API key to be used
-BLENDERS_PATH - path to the folder with blender versions
+BLENDERS_PATH - path to the folder with multiple blender versions
+or BLENDER_PATH - to one executable, this will force this one version
 
 For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 """
@@ -42,19 +43,20 @@ def generate_resolution_thread(asset_data, api_key):
   '''
   # data gets saved into the default temp directory
   destination_directory = tempfile.gettempdir()
+  blender_binary_path = os.environ.get('BLENDER_PATH', '')
 
   # Download asset into temp directory
   asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
   # Unpack asset
   if asset_file_path and asset_data['assetType'] != 'hdr':
-    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py')
+    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script='unpack_asset_bg.py', binary_path=blender_binary_path)
 
   if not asset_file_path:
     #this could probably happen when wrong api_key with wrong plan was submitted,
     # or e.g. a private asset was submitted.
     # fail message?
-    return;
+    return
 
   # Send to background to generate resolutions
   temp_folder = tempfile.mkdtemp()
@@ -68,11 +70,13 @@ def generate_resolution_thread(asset_data, api_key):
     send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
                           template_file_path=os.path.join(current_dir,'blend_files', 'empty.blend'),
                           result_path=result_path,
-                          script='resolutions_bg_blender_hdr.py')
+                          script='resolutions_bg_blender_hdr.py',
+                          binary_path=blender_binary_path)
   else:
     send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path,
                           result_path=result_path,
-                          script='resolutions_bg_blender.py')
+                          script='resolutions_bg_blender.py',
+                          binary_path=blender_binary_path)
 
 
 
