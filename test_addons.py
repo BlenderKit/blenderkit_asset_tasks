@@ -1,9 +1,14 @@
+"""Script to smoke test single add-on extension.
+
+"""
+
 import json
 import os
 import tempfile
 import sys
+import json
 
-from blenderkit_server_utils import download, search, upload, send_to_bg
+from blenderkit_server_utils import download, search, send_to_bg
 
 results = []
 page_size = 100
@@ -13,14 +18,11 @@ def test_addon(addon_data, api_key, binary_path: str) -> bool:
   error = ""
   destination_directory = tempfile.gettempdir()
 
-  # Download addon
   addon_file_path = download.download_asset(addon_data, api_key=api_key, directory=destination_directory, filetype='zip_file')
-
   if not addon_file_path:
     print(f"Asset file not found on path {addon_file_path}")
     return False # fail message?
 
-  # Send to background to generate GLTF
   temp_folder = tempfile.mkdtemp()
   result_path = os.path.join(temp_folder, addon_data['assetBaseId'] + '_resdata.json')
 
@@ -47,37 +49,24 @@ def test_addon(addon_data, api_key, binary_path: str) -> bool:
 
   return test_ok
 
-def iterate_addons(addons: list, api_key: str='', binary_path:str='') -> bool:
-  all_ok = True
-  for i, addon_data in enumerate(addons):
-    print(f"\n\n=== {i+1} downloading and generating GLTF files for {addon_data['name']} ===")
-    if addon_data is None:
-      print("---> skipping, asset_data are None")
-      continue
-    ok = test_addon(addon_data, api_key, binary_path=binary_path)
-    if ok:
-      print("===> TEST SUCCESS")
-    else:
-      print("===> TEST FAILED")
-      all_ok = False
-  return all_ok
-
 
 if __name__ == '__main__':
   BLENDER_PATH = os.environ.get('BLENDER_PATH','')
   API_KEY = os.environ.get('BLENDERKIT_API_KEY', '')
-  ADDON_BASE_ID = os.environ.get('ADDON_BASE_ID')
+  ADDON_BASE_ID = os.environ.get('ADDON_BASE_ID', '')
   
-  params = {
-    'asset_base_id': ADDON_BASE_ID,
-    'asset_type': 'addon',
-  }
-
+  params = {'asset_base_id': ADDON_BASE_ID, 'asset_type': 'addon'}
   addons = search.get_search_without_bullshit(params, api_key=API_KEY)
-  print(f"--- Found {len(addons)} addon for testing: ---")
-  for i, asset in enumerate(addons):
+  if len(addons) == 0:
+    raise Exception("Addon not found in the database")
+
+  for i, asset in enumerate(addons): # One result is expected, but for transparency..
     print(f"{i+1}. {asset['assetType']}: {asset['name']}")
 
-  all_ok = iterate_addons(addons, api_key=API_KEY, binary_path=BLENDER_PATH)
-  if not all_ok:
+  # We just take 1st result
+  ok = test_addon(addons[0], API_KEY, binary_path=BLENDER_PATH)
+
+  if ok:
+    sys.exit(0)
+  else: # Signal job failure
     sys.exit(1)

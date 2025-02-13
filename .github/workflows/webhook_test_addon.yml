@@ -22,8 +22,8 @@ env:
   ADDON_BASE_ID: ${{ github.event.inputs.addon_base_id || github.event.client_payload.addon_base_id }}
 
 jobs:
-  SMOKE:
-    name: Addon -> smoke test
+  TEST_ADDON_B43:
+    name: Addon -> smoke test Blender 4.3
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.3
     steps:
@@ -34,5 +34,35 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
-      #- name: Test add-on
-      #  run: python3 generate_resolutions.py
+      - name: Test add-on
+        run: python3 test_addon.py
+
+  TEST_ADDON_B44:
+    name: Addon -> smoke test Blender 4.4
+    runs-on: ubuntu-latest
+    container: blenderkit/headless-blender:blender-4.4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
+      - name: Test add-on
+        run: python3 test_addon.py
+
+  TEST_ADDON_B45:
+    name: Addon -> smoke test Blender 4.5
+    runs-on: ubuntu-latest
+    container: blenderkit/headless-blender:blender-4.5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
+      - name: Test add-on
+        run: python3 test_addon.py
