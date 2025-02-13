@@ -1,5 +1,6 @@
 """Script to smoke test single add-on extension.
-
+TODO: add running command `blender --command extension validate`
+TODO: figure out, how to pass the success/error message outside to aggregating Github workflow which will then comment on the asset.
 """
 
 import json
@@ -48,6 +49,9 @@ def test_addon(addon_data, api_key, binary_path: str) -> bool:
       test_ok = False
 
   return test_ok
+
+def blender_validate_extension():
+  pass
 
 
 if __name__ == '__main__':
