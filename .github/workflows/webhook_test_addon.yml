@@ -37,7 +37,7 @@ jobs:
       - name: Run test script and generate results
         run: python test_addon.py
       - name: Upload results as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "results-${{ matrix.version }}"
           path: "temp/test_addon_results.json"
@@ -50,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Download all test artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: results
       - name: Install Python dependencies
