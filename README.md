@@ -12,7 +12,8 @@ Scripts to do automatic processing of Blender assets in the database.
 
 Scripts in the root are standalone scripts which does, prefferably one, task.
 They can import from `blender_server_utils`, but should not import from one another.
-If some code is to be shared, it should be placed in `blender_server_utils`.
+If some code is to be shared, it should be placed in `blender_server_utils`!
+
 Standalone scripts in root often need do some stuff right inside Blender.
 For this they should start Blender with some script from `blender_bg_utils`.
 All code which has to be run inside Blender should be in `blender_bg_utils`.
@@ -63,7 +64,7 @@ It has the blender executable placed at: `/home/headless/blender/blender`.
 
 ## CI
 
-## Developing
+### Developing
 
 ### Trigger job via webhook
 
@@ -84,3 +85,15 @@ curl -X POST -H "Accept: application/vnd.github.v3+json" \
        }
      }'
 ```
+
+### JOBS
+
+#### test_addon.py & webhook_test_addon.yml
+
+Workflow to do smoke tests of add-ons.
+Script test_addon.py prints informations about progress to console, and also at the end generates a .JSON file containing the test results.
+Test results are saved into `./temp/test_addon_results.json`.
+
+In the workflow the file is echoed into `>> $GITHUB_OUTPUT` so it can be retrieved from following jobs.
+The following final job `RESULTS` waits for all test_addons.py on different versions of Blender.
+Once all jobs are finished, `RESULTS` takes the JSON results, combines them and comment on the add-on via API.

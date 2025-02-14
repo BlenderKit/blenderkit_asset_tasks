@@ -15,14 +15,16 @@ from blenderkit_server_utils import download, search, send_to_bg
 page_size = 100
 
 
-def test_addon(addon_data, api_key, binary_path: str) -> bool:
-  error = ""
-  destination_directory = tempfile.gettempdir()
-
-  addon_file_path = download.download_asset(addon_data, api_key=api_key, directory=destination_directory, filetype='zip_file')
+def test_addon(addon_data, api_key, binary_path: str) -> tuple[bool, dict]:
+  """Test the add-on with multiple smoke steps defined in test_addon_bg.py.
+  Returns bool if all tests passed. And dict containing key=test_name and value=error if any.
+  This dict comes from the test_addon_bg.py.
+  """
+  addon_file_path = download.download_asset(addon_data, api_key=api_key, directory=tempfile.gettempdir(), filetype='zip_file')
   if not addon_file_path:
-    print(f"Asset file not found on path {addon_file_path}")
-    return False # fail message?
+    msg = f"Asset file not found on path {addon_file_path}"
+    print(msg)
+    return False, {} # no fail message - we do not want to spam this to users in comment
 
   temp_folder = tempfile.mkdtemp()
   result_path = os.path.join(temp_folder, addon_data['assetBaseId'] + '_resdata.json')
@@ -41,14 +43,15 @@ def test_addon(addon_data, api_key, binary_path: str) -> bool:
       bg_results = json.load(f)
   except Exception as e:
     print(f"---> Error reading result JSON {result_path}: {e}")
-    error += f" {e}"
+    return False, {} # just fail it, when JSON is not present, it means something went wrong
 
-  test_ok = True
+  tests_ok = True
   for key in bg_results:
     if bg_results[key] != "": #empty error string
-      test_ok = False
+      tests_ok = False
 
-  return test_ok
+  return tests_ok, bg_results
+
 
 def blender_validate_extension():
   pass
@@ -68,15 +71,12 @@ if __name__ == '__main__':
     print(f"{i+1}. {asset['assetType']}: {asset['name']}")
 
   # We just take 1st result
-  ok = test_addon(addons[0], API_KEY, binary_path=BLENDER_PATH)
+  test_ok, test_results = test_addon(addons[0], API_KEY, binary_path=BLENDER_PATH)
 
   output_file = Path("temp/test_addon_results.json")
   output_file.parent.mkdir(exist_ok=True)
-  if ok:
-    results = {"passed": True, "messages": ""}
-    output_file.write_text(json.dumps(results))
+  output_file.write_text(json.dumps(test_results))
+  if test_ok:
     sys.exit(0)
   else: # Signal job failure
-    results = {"passed": False, "messages": "Something went wrong"}
-    output_file.write_text(json.dumps(results))
     sys.exit(1)
