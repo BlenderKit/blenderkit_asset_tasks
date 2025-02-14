@@ -37,7 +37,7 @@ jobs:
           echo "B45: ${{ needs.TEST_ADDON_B45.outputs.test_results }}"
 
   TEST_ADDON_B43:
-    name: Addon -> smoke test Blender 4.3
+    name: Addon test Blender-4.3
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.3
     outputs:
@@ -54,10 +54,10 @@ jobs:
         run: python3 test_addon.py
       - name: Post Results
         id: post_results
-        run: echo temp/test_addon_results.json >> $GITHUB_OUTPUT
+        run: echo "test_results=$(cat temp/test_addon_results.json)" >> $GITHUB_OUTPUT
 
   TEST_ADDON_B44:
-    name: Addon -> smoke test Blender 4.4
+    name: Addon test Blender-4.4
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.4
     outputs:
@@ -74,10 +74,10 @@ jobs:
         run: python3 test_addon.py
       - name: Post Results
         id: post_results
-        run: echo temp/test_addon_results.json >> $GITHUB_OUTPUT
+        run: echo "test_results=$(cat temp/test_addon_results.json)" >> $GITHUB_OUTPUT
 
   TEST_ADDON_B45:
-    name: Addon -> smoke test Blender 4.5
+    name: Addon test Blender-4.5
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.5
     outputs:
@@ -94,4 +94,4 @@ jobs:
         run: python3 test_addon.py
       - name: Post Results
         id: post_results
-        run: echo temp/test_addon_results.json >> $GITHUB_OUTPUT
+        run: echo "test_results=$(cat temp/test_addon_results.json)" >> $GITHUB_OUTPUT
