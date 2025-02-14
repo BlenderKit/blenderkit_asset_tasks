@@ -1,100 +1,41 @@
-name: Test Addon
-run-name: Test addon | ${{ github.event.inputs.addon_base_id || github.event.client_payload.addon_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }}
+name: Test Addon (Multiple Blender Versions)
 
 on:
   workflow_dispatch:
-    inputs:
-      addon_base_id:
-        description: 'Addon Base ID'
-        required: true
-      verification_status:
-        description: 'Verification Status of the Asset'
-      is_private:
-        description: 'Asset Is Private'
-        type: boolean
-  repository_dispatch:
-    types: [test-addon]
-
-env:
-  BLENDERKIT_SERVER: 'https://www.blenderkit.com'
-  BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
-  BLENDER_PATH: /home/headless/blender/blender
-  ADDON_BASE_ID: ${{ github.event.inputs.addon_base_id || github.event.client_payload.addon_base_id }}
 
 jobs:
-  RESULTS:
-    name: Collect & Post Results
+  test_matrix:
     runs-on: ubuntu-latest
-    needs: 
-      - TEST_ADDON_B43
-      - TEST_ADDON_B44
-      - TEST_ADDON_B45
+    strategy:
+      matrix:
+        version: [4.3, 4.4, 4.5]
+    container: blenderkit/headless-blender:blender-${{ matrix.version }}
     steps:
-      - name: Print raw JSON from each job
+      - uses: actions/checkout@v4
+      - name: Install dependencies
         run: |
-          echo "B43: ${{ needs.TEST_ADDON_B43.outputs.test_results }}"
-          echo "B44: ${{ needs.TEST_ADDON_B44.outputs.test_results }}"
-          echo "B45: ${{ needs.TEST_ADDON_B45.outputs.test_results }}"
+          apt-get update && apt-get install -y python3-pip
+          pip install -r requirements.txt
+      - name: Run test script and generate results
+        run: python test_addon.py
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: "results-${{ matrix.version }}"
+          path: "temp/test_addon_results.json"
 
-  TEST_ADDON_B43:
-    name: Addon test Blender-4.3
+  # 3) Aggregator job
+  aggregator:
+    name: Collect & Post Combined Results
+    needs: test_matrix
     runs-on: ubuntu-latest
-    container: blenderkit/headless-blender:blender-4.3
-    outputs:
-      test_results: ${{ steps.post_results.outputs.test_results }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install lsb-release
-        run: apt-get update && apt-get install -y lsb-release python3-pip
-      - uses: actions/setup-python@v5
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v3
         with:
-          python-version: '3.12'
-      - run: python3 -m pip install -r requirements.txt
-      - name: Test Add-on
-        continue-on-error: true
-        run: python3 test_addon.py
-      - name: Post Results
-        id: post_results
-        run: echo "test_results=$(cat temp/test_addon_results.json)" >> $GITHUB_OUTPUT
-
-  TEST_ADDON_B44:
-    name: Addon test Blender-4.4
-    runs-on: ubuntu-latest
-    container: blenderkit/headless-blender:blender-4.4
-    outputs:
-      test_results: ${{ steps.post_results.outputs.test_results }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install lsb-release
-        run: apt-get update && apt-get install -y lsb-release python3-pip
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python3 -m pip install -r requirements.txt
-      - name: Test Add-on
-        continue-on-error: true
-        run: python3 test_addon.py
-      - name: Post Results
-        id: post_results
-        run: echo "test_results=$(cat temp/test_addon_results.json)" >> $GITHUB_OUTPUT
-
-  TEST_ADDON_B45:
-    name: Addon test Blender-4.5
-    runs-on: ubuntu-latest
-    container: blenderkit/headless-blender:blender-4.5
-    outputs:
-      test_results: ${{ steps.post_results.outputs.test_results }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install lsb-release
-        run: apt-get update && apt-get install -y lsb-release python3-pip
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python3 -m pip install -r requirements.txt
-      - name: Test Add-on
-        continue-on-error: true
-        run: python3 test_addon.py
-      - name: Post Results
-        id: post_results
-        run: echo "test_results=$(cat temp/test_addon_results.json)" >> $GITHUB_OUTPUT
+          path: results
+      - name: Install Python dependencies
+        run: pip install requests
+      - name: Tree files
+        run: tree results
