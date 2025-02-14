@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.3
     outputs:
-      test_results: ${{ steps.test_addon.outputs.test_results }}
+      test_results: ${{ steps.post_results.outputs.test_results }}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -51,15 +51,17 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
       - name: Test Add-on
-        id: test_addon
-        run: python3 test_addon.py >> $GITHUB_OUTPUT
+        run: python3 test_addon.py
+      - name: Post Results
+        id: post_results
+        run: echo temp/test_addon_results.json >> $GITHUB_OUTPUT
 
   TEST_ADDON_B44:
     name: Addon -> smoke test Blender 4.4
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.4
     outputs:
-      test_results: ${{ steps.test_addon.outputs.test_results }}
+      test_results: ${{ steps.post_results.outputs.test_results }}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -69,15 +71,17 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
       - name: Test Add-on
-        id: test_addon
-        run: python3 test_addon.py >> $GITHUB_OUTPUT
+        run: python3 test_addon.py
+      - name: Post Results
+        id: post_results
+        run: echo temp/test_addon_results.json >> $GITHUB_OUTPUT
 
   TEST_ADDON_B45:
     name: Addon -> smoke test Blender 4.5
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:blender-4.5
     outputs:
-      test_results: ${{ steps.test_addon.outputs.test_results }}
+      test_results: ${{ steps.post_results.outputs.test_results }}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -87,5 +91,7 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
       - name: Test Add-on
-        id: test_addon
-        run: python3 test_addon.py >> $GITHUB_OUTPUT
+        run: python3 test_addon.py
+      - name: Post Results
+        id: post_results
+        run: echo temp/test_addon_results.json >> $GITHUB_OUTPUT

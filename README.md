@@ -8,6 +8,7 @@ Scripts to do automatic processing of Blender assets in the database.
 - `blender_bg_scripts` - contains scripts which gets executed inside the Blender instance.
 - `blender_server_utils` - python module containing code shared between multiple scripts in root dir.
 - `./` - root of the project contains standalone scripts to do the job.
+- `temp` - directory to which some test scripts writes results in .json format.
 
 Scripts in the root are standalone scripts which does, prefferably one, task.
 They can import from `blender_server_utils`, but should not import from one another.

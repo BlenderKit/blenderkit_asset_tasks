@@ -8,10 +8,10 @@ import os
 import tempfile
 import sys
 import json
+from pathlib import Path
 
 from blenderkit_server_utils import download, search, send_to_bg
 
-results = []
 page_size = 100
 
 
@@ -70,7 +70,13 @@ if __name__ == '__main__':
   # We just take 1st result
   ok = test_addon(addons[0], API_KEY, binary_path=BLENDER_PATH)
 
+  output_file = Path("temp/test_addon_results.json")
+  output_file.parent.mkdir(exist_ok=True)
   if ok:
+    results = {"passed": True, "messages": ""}
+    output_file.write_text(json.dumps(results))
     sys.exit(0)
   else: # Signal job failure
+    results = {"passed": False, "messages": "Something went wrong"}
+    output_file.write_text(json.dumps(results))
     sys.exit(1)
