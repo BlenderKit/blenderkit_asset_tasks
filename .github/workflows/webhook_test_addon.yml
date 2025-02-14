@@ -30,12 +30,14 @@ jobs:
     container: blenderkit/headless-blender:blender-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y python3-pip
-          pip install -r requirements.txt
-      - name: Run test script and generate results
-        run: python test_addon.py
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
+      - name: Run TEST script
+        run: python3 test_addon.py
       - name: Upload results as artifact
         uses: actions/upload-artifact@v4
         with:
