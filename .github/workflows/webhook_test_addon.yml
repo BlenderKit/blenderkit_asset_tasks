@@ -54,9 +54,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: results
+      - name: list results
+        run: tree results
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
-      - name: Tree files
-        run: tree results
+      - name: Report test results
+        run: python test_addon_report.py
