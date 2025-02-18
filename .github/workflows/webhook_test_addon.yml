@@ -54,8 +54,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: results
-      - name: Install lsb-release
-        run: apt-get update && apt-get install -y lsb-release python3-pip
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
