@@ -27,7 +27,8 @@ def read_result_files() -> OrderedDict[str, dict]:
 def generate_comment(results: OrderedDict[str, dict]) -> str:
   if len(results) == 0:
     raise Exception("Results are expected to be not empty")
-  comment = "# Automated test results"
+  comment = "We have automatically tested your add-on. Below are the results:"
+  all_ok = True
   for rkey, release in results.items():
     release_ok = True
     message = ""
@@ -35,18 +36,23 @@ def generate_comment(results: OrderedDict[str, dict]) -> str:
       if test == "": #empty error -> test OK
         continue
       release_ok = False
+      all_ok = False
       message += f"\n- test '{tkey}' failed: {test}"
     if release_ok:
       message = "OK"
     else:
       message = f"FAIL{message}"
-    comment += f"\n\n**{rkey}**: {message}"
+    comment += f"\n***\n**{rkey}**: {message}"
+
+  if not all_ok:
+    comment += "\n***\nSome tests has failed. Please check your add-on in the failed versions of Blender. It is possible there is a problem."
 
   return comment
 
 
 results = read_result_files()
 comment = generate_comment(results)
+print(f"comment generated:\n{comment}")
 
 api_nice.create_comment(
   comment=comment,
