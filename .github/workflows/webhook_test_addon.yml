@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        version: [4.3, 4.4, 4.5]
+        version: [4.2, 4.3, 4.4, 4.5]
     container: blenderkit/headless-blender:blender-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
@@ -41,10 +41,9 @@ jobs:
       - name: Upload results as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: "results-${{ matrix.version }}"
+          name: "blender-${{ matrix.version }}"
           path: "temp/test_addon_results.json"
 
-  # 3) Aggregator job
   aggregator:
     name: Collect & Post Combined Results
     needs: test_matrix
@@ -55,7 +54,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: results
-      - name: Install Python dependencies
-        run: pip install requests
+      - name: Install lsb-release
+        run: apt-get update && apt-get install -y lsb-release python3-pip
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install -r requirements.txt
       - name: Tree files
         run: tree results

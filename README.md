@@ -88,12 +88,15 @@ curl -X POST -H "Accept: application/vnd.github.v3+json" \
 
 ### JOBS
 
-#### test_addon.py & webhook_test_addon.yml
+#### webhook_process_asset.yml
+This job handles generation of resolutions and gltf files.
 
+#### webhook_test_addon.yml - test_addon.py & test_addon_report.py
 Workflow to do smoke tests of add-ons.
 Script test_addon.py prints informations about progress to console, and also at the end generates a .JSON file containing the test results.
 Test results are saved into `./temp/test_addon_results.json`.
 
-In the workflow the file is echoed into `>> $GITHUB_OUTPUT` so it can be retrieved from following jobs.
-The following final job `RESULTS` waits for all test_addons.py on different versions of Blender.
-Once all jobs are finished, `RESULTS` takes the JSON results, combines them and comment on the add-on via API.
+In the Github workflow the results file is uploaded and saved as an artifact into `./temp/blender-{blender_version_X_Y}/test_addon_results.json`.
+Once the jobs for every minor Blender release finish, then final reporting job is started.
+This job downloads all artifacts and starts `test_addon_report.py` script which parses all the JSON files into an informative comment and uploads it to blenderkit.com.
+

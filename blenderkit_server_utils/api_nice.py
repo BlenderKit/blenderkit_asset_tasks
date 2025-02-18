@@ -37,6 +37,7 @@ def create_comment(
       timestamp = comments_data["form"]["timestamp"]
       security_hash = comments_data["form"]["securityHash"]
     except Exception as e:
+      print(f"comments_data are: {comments_data}")
       raise Exception(f"Could not get required data from asset-comment: {e}")
 
     # 2) Build the POST payload using form data from the GET response
