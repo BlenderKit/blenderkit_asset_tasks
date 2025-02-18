@@ -53,9 +53,9 @@ jobs:
       - name: Download all test artifacts
         uses: actions/download-artifact@v4
         with:
-          path: results
+          path: temp
       - name: list results
-        run: tree results
+        run: tree temp
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
