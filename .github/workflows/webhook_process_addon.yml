@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       asset_base_id:
-        description: 'Addon Base ID'
+        description: 'Asset Base ID'
         required: true
       verification_status:
         description: 'Verification Status of the Asset'
@@ -13,7 +13,7 @@ on:
         description: 'Asset Is Private'
         type: boolean
   repository_dispatch:
-    types: [test-addon]
+    types: [process-addon]
 
 env:
   BLENDERKIT_SERVER: 'https://www.blenderkit.com'
