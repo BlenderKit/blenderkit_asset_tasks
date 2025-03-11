@@ -1,10 +1,10 @@
-name: Test Addon
-run-name: Test addon | ${{ github.event.inputs.addon_base_id || github.event.client_payload.addon_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }}
+name: Process Addon
+run-name: Process Add-on | ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }} | ${{ github.event.inputs.verification_status || github.event.client_payload.verification_status }} | ${{ github.event.inputs.is_private || github.event.client_payload.is_private }}
 
 on:
   workflow_dispatch:
     inputs:
-      addon_base_id:
+      asset_base_id:
         description: 'Addon Base ID'
         required: true
       verification_status:
@@ -20,7 +20,7 @@ env:
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
   TEXTYBOT_API_KEY: '${{ secrets.TEXTYBOT_API_KEY }}' # for commenting
   BLENDER_PATH: /home/headless/blender/blender
-  ADDON_BASE_ID: ${{ github.event.inputs.addon_base_id || github.event.client_payload.addon_base_id }}
+  ASSET_BASE_ID: ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
 
 jobs:
   test_matrix:

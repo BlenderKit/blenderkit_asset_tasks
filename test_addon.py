@@ -60,15 +60,15 @@ def blender_validate_extension():
 if __name__ == '__main__':
   BLENDER_PATH = os.environ.get('BLENDER_PATH','')
   API_KEY = os.environ.get('BLENDERKIT_API_KEY', '')
-  ADDON_BASE_ID = os.environ.get('ADDON_BASE_ID', '')
+  ASSET_BASE_ID = os.environ.get('ASSET_BASE_ID', '')
   
-  params = {'asset_base_id': ADDON_BASE_ID, 'asset_type': 'addon'}
+  params = {'asset_base_id': ASSET_BASE_ID, 'asset_type': 'addon'}
   addons = search.get_search_without_bullshit(params, api_key=API_KEY)
   if len(addons) == 0:
     raise Exception("Addon not found in the database")
 
   for i, asset in enumerate(addons): # One result is expected, but for transparency..
-    print(f"{i+1}. {asset['assetType']}: {asset['name']}")
+    print(f"{i+1}. {asset['assetType']}: {asset['name']} ({asset['url']})")
 
   # We just take 1st result
   test_ok, test_results = test_addon(addons[0], API_KEY, binary_path=BLENDER_PATH)

@@ -56,7 +56,8 @@ print(f"comment generated:\n{comment}")
 
 api_nice.create_comment(
   comment=comment,
-  asset_base_id=environ.get('ADDON_BASE_ID', ''),
+  asset_base_id=environ.get('ASSET_BASE_ID', ''),
   api_key=environ.get('TEXTYBOT_API_KEY', environ.get('BLENDERKIT_API_KEY', '')), # prefer KEY for account of specialized commenting bot
   server_url=environ.get('BLENDERKIT_SERVER', '')
 )
+print(f"comment uploaded")
