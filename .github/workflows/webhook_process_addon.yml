@@ -25,6 +25,7 @@ env:
 jobs:
   test_addon_in_blender:
     runs-on: ubuntu-latest
+    continue-on-error: true
     if: (github.event.inputs.verification_status == 'uploaded' || github.event.client_payload.verification_status == 'uploaded') && (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
     strategy:
       matrix:
@@ -49,6 +50,7 @@ jobs:
   aggregate_results:
     name: Collect & Post Combined Results
     needs: test_addon_in_blender
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
