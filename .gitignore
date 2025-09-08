@@ -6,3 +6,5 @@ cache/
 blend_files/assets/
 *.blend1
 temp
+
+.ruff_cache

@@ -1,0 +1,151 @@
+[project]
+name = "blenderkit-asset_tasks"
+version = "0.9.1"
+description = "BlenderKit asset tasks"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "python-dotenv>=1.0.1",
+    "certifi==2025.8.3",
+    "charset-normalizer==3.4.3",
+    "idna==3.10",
+    "requests==2.32.5",
+    "urllib3==2.5.0",
+    "openai>=1.107.0",
+    "google-api-python-client>=2.181.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-auth-oauthlib>=1.2.2",
+
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.8.2",
+    "coverage>=7.6.10",
+    "pre-commit>=4.1.0",
+    "pre-commit-hooks>=5.0.0",
+    "ruff==0.12.12",
+    "pydoclint>=0.6.11",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
+
+[tool.setuptools.package-data]
+blenderkit_asset_tasks = [
+    "**/*.ui",
+    "**/*.jpg",
+]
+
+[tool.bandit]
+skips = [
+    "B404", # https://bandit.readthedocs.io/en/1.7.10/blacklists/blacklist_imports.html#b404-import-subprocess
+    "B603", # https://bandit.readthedocs.io/en/1.7.10/plugins/b603_subprocess_without_shell_equals_true.html
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+include = ["pyproject.toml",
+    "**/*.py",
+    ]
+exclude = [
+    "vendor/**",
+    "scripts/**",
+    "tests/**",
+    "_debug/**",
+    "_bck/**",
+    "*.tmp",
+    "__pycache__/**",
+    "build/**",
+    ".venv/**",
+    "*.pyi",
+    "pic_lib.py"
+]
+
+
+[tool.ruff.format]
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "C90", "I", "N", "D", "UP", "S1", "S2", "S3", "S5", "BLE", "FBT",
+    "B", "A", "C4", "COM", "DTZ", "T10", "FA", "ISC", "ICN", "LOG", "G", "INP", "PIE", "T20", "Q", "RSE", "RET", "SLF",
+    "SLOT", "SIM", "TID",
+    "TC001", "TC004", "TC005", "TC010",
+    "INT", "ARG", "FIX", "ERA", "PL", "TRY", "FLY", "PERF", "RUF"
+]
+
+ignore = [
+    "D105", # https://docs.astral.sh/ruff/rules/undocumented-magic-method/
+    "D107", # https://docs.astral.sh/ruff/rules/undocumented-public-init/
+    "PLC0415", # https://docs.astral.sh/ruff/rules/import-outside-top-level/
+    "Q000", # https://docs.astral.sh/ruff/rules/bad-quotes-inline-string/
+    "RET504", # https://docs.astral.sh/ruff/rules/unnecessary-assign/
+    "TRY003", # https://github.com/guilatrova/tryceratops/blob/main/docs/violations/TRY003.md
+    "UP038", # https://docs.astral.sh/ruff/rules/non-pep604-isinstance/
+    "T201", # https://docs.astral.sh/ruff/rules/print/
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"test_blenderkit_asset_tasks/*.py" = [
+    "D", # https://docs.astral.sh/ruff/rules/#pydocstyle-d
+    "SLF001"  # https://docs.astral.sh/ruff/rules/private-member-access/
+]
+"scripts/*" = [
+    "INP001", # https://docs.astral.sh/ruff/rules/implicit-namespace-package/
+]
+
+"tests/pytests/*.py" = [
+    "S101"  # https://docs.astral.sh/ruff/rules/assert/
+]
+
+[tool.ruff.lint.pep8-naming]
+extend-ignore-names = ["_t*", "t*"]
+
+[tool.bumpversion]
+current_version = "0.9.0"
+parse = """(?x)
+    (?P<major>0|[1-9]\\d*)\\.
+    (?P<minor>0|[1-9]\\d*)\\.
+    (?P<patch>0|[1-9]\\d*)
+    (?:
+        -dev(?P<dev>\\d+)
+    )?
+"""
+serialize = [
+    "{major}.{minor}.{patch}-dev{dev}",
+    "{major}.{minor}.{patch}"
+]
+search = "{current_version}"
+replace = "{new_version}"
+regex = false
+ignore_missing_version = false
+tag = false
+sign_tags = false
+tag_name = "asset_tasks-v{new_version}"
+tag_message = "Bump version: {current_version} → {new_version}"
+allow_dirty = true
+commit = false
+message = "Bump version: {current_version} → {new_version}"
+commit_args = ""
+
+[tool.bumpversion.part.dev]
+optional_value = ""
+values = "0123456789"
+independent = true
+
+
+[tool.uv.sources]
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+check-return-types = false
+ignore-private-args = true
+ignore-underscore-args = true
+exclude = "\\.venv"
+
