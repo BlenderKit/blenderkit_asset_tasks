@@ -1,54 +1,73 @@
-"""Script to sync twinbru library to blenderkit. 
+"""Script to sync twinbru library to blenderkit.
+
 Required environment variables:
 BLENDERKIT_API_KEY - API key to be used
 BLENDERS_PATH - path to the folder with blender versions
 
 """
 
+from __future__ import annotations
+
 import csv
 import json
-import requests
 import os
-import tempfile
-import time
-from datetime import datetime
 import pathlib
 import re
+import tempfile
 import threading
+import time
 import zipfile
-from blenderkit_server_utils import download, search, paths, upload, send_to_bg
+
+import requests
+
+from blenderkit_server_utils import paths, search, send_to_bg, upload
 
 results = []
 page_size = 100
 
 MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
-SKIP_UPLOAD = os.environ.get("SKIP_UPLOAD", False) == "True"
+SKIP_UPLOAD = os.environ.get("SKIP_UPLOAD", False) == "True"  # noqa: PLW1508
+
+RESPONSE_STATUS_OK = 200
+RESPONSE_STATUS_BAD_REQUEST = 400
 
 
-def read_csv_file(file_path):
-    """
-    Read a CSV file and return a list of dictionaries.
+def read_csv_file(file_path: str) -> list[dict]:
+    """Read a CSV file and return a list of dictionaries.
+
+    Args:
+        file_path (str): Path to the CSV file.
+
+    Returns:
+        list: List of dictionaries representing the CSV rows.
     """
     try:
-        with open(file_path, "r", encoding="utf-8-sig") as file:
+        with open(file_path, encoding="utf-8-sig") as file:
             reader = csv.DictReader(file)
-            return [row for row in reader]
+            return [row for row in reader]  # noqa: C416
     except UnicodeDecodeError:
         # If UTF-8 fails, try with ISO-8859-1 encoding
-        with open(file_path, "r", encoding="iso-8859-1") as file:
+        with open(file_path, encoding="iso-8859-1") as file:
             reader = csv.DictReader(file)
-            return [row for row in reader]
-    except Exception as e:
+            return [row for row in reader]  # noqa: C416
+    except Exception as e:  # noqa: BLE001
         print(f"Error reading CSV file: {e}")
         return []
 
 
 def download_file(url, filepath):
-    """
-    Download a file from a URL to a filepath.
+    """Download a file from a URL to a filepath.
+
     Write progress to console.
+
+    Args:
+        url (str): URL of the file to download.
+        filepath (str): Path to save the downloaded file.
+
+    Returns:
+        None
     """
-    response = requests.get(url, stream=True)
+    response = requests.get(url, stream=True, timeout=10)
     total_length = int(response.headers.get("content-length"))
     with open(filepath, "wb") as file:
         for chunk in response.iter_content(chunk_size=8192):
@@ -58,11 +77,16 @@ def download_file(url, filepath):
     print()
 
 
-def build_description_text(twinbru_asset):
+def build_description_text(twinbru_asset: dict) -> str:
+    """Build a description text for the asset.
+
+    Args:
+        twinbru_asset (dict): Dictionary containing asset data.
+
+    Returns:
+        str: Description text for the asset.
     """
-    Build a description text for the asset.
-    """
-    description = f"Physical material that renders exactly as in real life."
+    description = "Physical material that renders exactly as in real life."
     description += f"Brand: {twinbru_asset['brand']}\n"
     description += f"Weight: {twinbru_asset['weight_g_per_m_squared']}\n"
     description += f"End Use: {twinbru_asset['cat_end_use']}\n"
@@ -74,10 +98,16 @@ def build_description_text(twinbru_asset):
     return description
 
 
-def slugify_text(text):
-    """
-    Slugify a text.
+def slugify_text(text: str) -> str:
+    """Slugify a text.
+
     Remove special characters, replace spaces with underscores and make it lowercase.
+
+    Args:
+        text (str): Text to slugify.
+
+    Returns:
+        str: Slugified text.
     """
     text = re.sub(r"[()/#-]", "", text)
     text = re.sub(r"\s", "_", text)
@@ -85,19 +115,27 @@ def slugify_text(text):
     return text.lower()
 
 
-def build_tags_list(twinbru_asset):
-    """
-    Create a list of tags for the asset.
+def build_tags_list(twinbru_asset: dict) -> list[str]:
+    """Create a list of tags for the asset.
+
+    Args:
+        twinbru_asset (dict): Dictionary containing asset data.
+
+    Returns:
+        list[str]: List of tags for the asset.
     """
     tags = []
     tags.extend(twinbru_asset["cat_end_use"].split(","))
     tags.extend(twinbru_asset["cat_design_type"].split(","))
-    # tags.append(twinbru_asset["cat_colour"])
+    # >tags.append(twinbru_asset["cat_colour"])
     tags.extend(twinbru_asset["cat_characteristics"].split(","))
+
     # remove duplicates
     tags = list(set(tags))
+
     # shorten to max 5 tags
     tags = tags[:5]
+
     # make tags contain only alphanumeric characters and underscores
     # there are these characters to be replaced: ()/#- and gaps
     tags = [slugify_text(tag) for tag in tags]
@@ -105,7 +143,15 @@ def build_tags_list(twinbru_asset):
     return tags
 
 
-def dict_to_params(inputs):
+def dict_to_params(inputs: dict) -> list[dict]:
+    """Convert a dictionary to a list of parameters.
+
+    Args:
+        inputs (dict): Dictionary to convert.
+
+    Returns:
+        list: List of parameters.
+    """
     parameters = []
     for k, v in inputs.items():
         value = ""
@@ -123,10 +169,17 @@ def dict_to_params(inputs):
     return parameters
 
 
-def get_thumbnail_path(temp_folder, twinbru_asset):
-    """
-    Get the thumbnail path for the asset.
+def get_thumbnail_path(temp_folder: str, twinbru_asset: dict) -> str:
+    """Get the thumbnail path for the asset.
+
     Thumbnails are stored in the /renders directory of the asset
+
+    Args:
+        temp_folder (str): Path to the temporary folder.
+        twinbru_asset (dict): Dictionary containing asset data.
+
+    Returns:
+        str: Path to the thumbnail image or None if not found.
     """
     # Get the path to the renders directory
     renders_dir = os.path.join(temp_folder, "Samples")
@@ -150,7 +203,8 @@ def get_thumbnail_path(temp_folder, twinbru_asset):
         return None
 
     # get the largest image file assuming it's the best quality thumbnail
-    image_files.sort(key=lambda f: os.path.getsize(os.path.join(renders_dir, f)))
+    image_files.sort(key=lambda f: os.path.getsize(
+        os.path.join(renders_dir, f)))
 
     thumbnail_file = image_files[-1]
 
@@ -164,9 +218,14 @@ def get_thumbnail_path(temp_folder, twinbru_asset):
     return os.path.join(renders_dir, thumbnail_file)
 
 
-def generate_upload_data(twinbru_asset):
-    """
-    Generate the upload data for the asset.
+def generate_upload_data(twinbru_asset: dict) -> dict:
+    """Generate the upload data for the asset.
+
+    Args:
+        twinbru_asset (dict): Dictionary containing asset data.
+
+    Returns:
+        dict: Dictionary containing the upload data.
     """
     # convert name - remove _ and remove the number that comes last in name
     readable_name = twinbru_asset["name"].split("_")
@@ -232,26 +291,27 @@ def generate_upload_data(twinbru_asset):
     return upload_data
 
 
-import tempfile
-import os
-from blenderkit_server_utils import paths
+def sync_TwinBru_library(file_path: str) -> None:  # noqa: N802
+    """Sync the TwinBru library to blenderkit.
 
-def sync_TwinBru_library(file_path):
-    """
-    Sync the TwinBru library to blenderkit.
     1. Read the CSV file
     2. For each asset:
       2.1. Search for the asset on blenderkit, if it exists, skip it, if it doesn't, upload it.
       2.2. Download the asset
       2.3. Unpack the asset
       2.4. Create blenderkit upload metadata
-      2.5. Make an upload request to the blenderkit API, to uplod metadata and to get asset_base_id.
+      2.5. Make an upload request to the blenderkit API, to upload metadata and to get asset_base_id.
       2.6. run a pack_twinbru_material.py script to create a material in Blender 3D,
       write the asset_base_id and other blenderkit props on the material.
       2.7. Upload the material to blenderkit
       2.8. Mark the asset for thumbnail generation
-    """
 
+    Args:
+        file_path (str): Path to the CSV file.
+
+    Returns:
+        None
+    """
     assets = read_csv_file(file_path)
     current_dir = pathlib.Path(__file__).parent.resolve()
     i = 0
@@ -271,119 +331,145 @@ def sync_TwinBru_library(file_path):
             api_key=paths.API_KEY,
         )
         if len(bk_assets) > 0:
-            print(f"Asset {twinbru_asset['name']} already exists on blenderkit")
+            print(
+                f"Asset {twinbru_asset['name']} already exists on blenderkit")
             continue
-        else:
-            i += 1
-            print(f"Asset {twinbru_asset['name']} does not exist on blenderkit")
-            # Download the asset into temp folder
-            temp_folder = os.path.join(tempfile.gettempdir(), twinbru_asset["name"])
-            # create the folder if it doesn't exist
-            if not os.path.exists(temp_folder):
-                os.makedirs(temp_folder)
 
-            # check if the file exists
-            asset_file_name = twinbru_asset["url_texture_source"].split("/")[-1]
-            # crop any data behind first ? in the string
-            asset_file_name = asset_file_name.split("?")[0]
-            asset_file_path = os.path.join(temp_folder, asset_file_name)
-            if not os.path.exists(asset_file_path):
-                download_file(twinbru_asset["url_texture_source"], asset_file_path)
-                # Unzip the asset file
-                with zipfile.ZipFile(asset_file_path, "r") as zip_ref:
-                    zip_ref.extractall(temp_folder)
+        i += 1
+        print(
+            f"Asset {twinbru_asset['name']} does not exist on blenderkit")
+        # Download the asset into temp folder
+        temp_folder = os.path.join(
+            tempfile.gettempdir(), twinbru_asset["name"])
+        # create the folder if it doesn't exist
+        if not os.path.exists(temp_folder):
+            os.makedirs(temp_folder)
 
-            # skip assets that don't have the same suffix as originally
-            # let's assume all have at least  texture with "_NRM." in the folder
-            # switched this to lower case, as the files are not always consistent
-            if not any("_nrm." in f.lower() for f in os.listdir(temp_folder)):
-                print(f"Asset {twinbru_asset['name']} isn't expected configuration")
-                continue
+        # check if the file exists
+        asset_file_name = twinbru_asset["url_texture_source"].split(
+            "/")[-1]
+        # crop any data behind first ? in the string
+        asset_file_name = asset_file_name.split("?")[0]
+        asset_file_path = os.path.join(temp_folder, asset_file_name)
+        if not os.path.exists(asset_file_path):
+            download_file(
+                twinbru_asset["url_texture_source"], asset_file_path)
+            # Unzip the asset file
+            with zipfile.ZipFile(asset_file_path, "r") as zip_ref:
+                zip_ref.extractall(temp_folder)
 
-            # Create blenderkit upload metadata
-            upload_data = generate_upload_data(twinbru_asset)
+        # skip assets that don't have the same suffix as originally
+        # let's assume all have at least  texture with "_NRM." in the folder
+        # switched this to lower case, as the files are not always consistent
+        if not any("_nrm." in f.lower() for f in os.listdir(temp_folder)):
+            print(
+                f"Asset {twinbru_asset['name']} isn't expected configuration")
+            continue
 
-            # upload metadata and get result
-            print("uploading metadata")
-            # print json structure
+        # Create blenderkit upload metadata
+        upload_data = generate_upload_data(twinbru_asset)
 
-            print(json.dumps(upload_data, indent=4))
-            asset_data = upload.upload_asset_metadata(upload_data, paths.API_KEY)
-            if asset_data.get("statusCode") == 400:
-                print(asset_data)
-                return
-            # Run the _bg.py script to create a material in Blender 3D
-            send_to_bg.send_to_bg(
-                asset_data=asset_data,
-                template_file_path=os.path.join(
-                    current_dir, "blend_files", "empty.blend"
-                ),
-                result_path=os.path.join(temp_folder, "material.blend"),
-                script="pack_twinbru_material.py",
-                binary_type="NEWEST",
-                temp_folder=temp_folder,
-                verbosity_level=2,
+        # upload metadata and get result
+        print("uploading metadata")
+        # print json structure
+
+        print(json.dumps(upload_data, indent=4))
+        asset_data = upload.upload_asset_metadata(
+            upload_data, paths.API_KEY)
+        if asset_data.get("statusCode") == RESPONSE_STATUS_BAD_REQUEST:
+            print(asset_data)
+            return
+        # Run the _bg.py script to create a material in Blender 3D
+        send_to_bg.send_to_bg(
+            asset_data=asset_data,
+            template_file_path=os.path.join(
+                current_dir, "blend_files", "empty.blend",
+            ),
+            result_path=os.path.join(temp_folder, "material.blend"),
+            script="pack_twinbru_material.py",
+            binary_type="NEWEST",
+            temp_folder=temp_folder,
+            verbosity_level=2,
+        )
+        # Upload the asset to blenderkit
+        files = [
+            {
+                "type": "blend",
+                "index": 0,
+                "file_path": os.path.join(temp_folder, "material.blend"),
+            },
+        ]
+        upload_data = {
+            "name": asset_data["name"],
+            "displayName": upload_data["name"],
+            "token": paths.API_KEY,
+            "id": asset_data["id"],
+        }
+        uploaded = upload.upload_files(upload_data, files)
+
+        if uploaded:
+            print(f"Successfully uploaded asset: {asset_data['name']}")
+            # Mark the asset for thumbnail generation with material-specific settings
+            ok = upload.mark_for_thumbnail(
+                asset_id=asset_data["id"],
+                api_key=paths.API_KEY,
+                # Common parameters
+                use_gpu=True,
+                samples=100,
+                resolution=2048,
+                denoising=True,
+                background_lightness=0.5,
+                # Material-specific parameters
+                thumbnail_type='CLOTH',  # Using BALL_COMPLEX for fabric materials
+                # scale the scene to be 2x the width of the texture
+                scale=2 * float(twinbru_asset["texture_width_cm"]) * 0.01,
+                background=False,  # Enable background for better fabric visibility
+                adaptive_subdivision=False,  # Enable for better fabric detail
             )
-            # Upload the asset to blenderkit
-            files = [
-                {
-                    "type": "blend",
-                    "index": 0,
-                    "file_path": os.path.join(temp_folder, "material.blend"),
-                },
-            ]
-            upload_data = {
-                "name": asset_data["name"],
-                "displayName": upload_data["name"],
-                "token": paths.API_KEY,
-                "id": asset_data["id"],
-            }
-            uploaded = upload.upload_files(upload_data, files)
-
-            if uploaded:
-                print(f"Successfully uploaded asset: {asset_data['name']}")
-                # Mark the asset for thumbnail generation with material-specific settings
-                ok = upload.mark_for_thumbnail(
-                    asset_id=asset_data["id"],
-                    api_key=paths.API_KEY,
-                    # Common parameters
-                    use_gpu=True,
-                    samples=100,
-                    resolution=2048,
-                    denoising=True,
-                    background_lightness=0.5,
-                    # Material-specific parameters
-                    thumbnail_type='CLOTH',  # Using BALL_COMPLEX for fabric materials
-                    scale= 2* float(twinbru_asset["texture_width_cm"]) * 0.01, # scale the scene to be 2x the width of the texture
-                    background=False,  # Enable background for better fabric visibility
-                    adaptive_subdivision=False,  # Enable for better fabric detail
-                )
-                if ok:
-                    print(f"Successfully marked asset for thumbnail generation: {asset_data['name']}")
-                else:
-                    print(f"Failed to mark asset for thumbnail generation: {asset_data['name']}")
+            if ok:
+                print(
+                    f"Successfully marked asset for thumbnail generation: {asset_data['name']}")
             else:
-                print(f"Failed to upload asset: {asset_data['name']}")
-            # mark asset as uploaded
-            # this will return error since the thumbnail is not generated yet
+                print(
+                    f"Failed to mark asset for thumbnail generation: {asset_data['name']}")
+        else:
+            print(f"Failed to upload asset: {asset_data['name']}")
+        # mark asset as uploaded
+        # this will return error since the thumbnail is not generated yet
 
-            upload.patch_asset_metadata(
-                asset_data["id"], paths.API_KEY, data={"verificationStatus": "uploaded"}
-            )
+        upload.patch_asset_metadata(
+            asset_data["id"], paths.API_KEY, data={
+                "verificationStatus": "uploaded"},
+        )
 
-            # Add a delay not to overwhelm the server
-            time.sleep(10)
+        # Add a delay not to overwhelm the server
+        time.sleep(10)
 
 
-def iterate_assets(filepath, thread_function=None, process_count=12, api_key=""):
-    """iterate through all assigned assets, check for those which need generation and send them to res gen"""
+def iterate_assets(filepath: str,
+                   thread_function: callable | None = None,
+                   process_count: int = 12,
+                   api_key: str = "",
+                   ) -> None:
+    """Iterate through all assigned assets, check for those which need generation and send them to res gen.
+
+    Args:
+        filepath (str): path to the CSV file
+        thread_function (function, optional): function to run in thread. Defaults to None.
+        process_count (int, optional): number of parallel processes. Defaults to 12.
+        api_key (str, optional): API key to use. Defaults to "".
+
+    Returns:
+        None
+    """
     assets = search.load_assets_list(filepath)
     threads = []
     for asset_data in assets:
         if asset_data is not None:
-            print("downloading and generating resolution for  %s" % asset_data["name"])
+            print(
+                f"downloading and generating resolution for  {asset_data['name']}")
             thread = threading.Thread(
-                target=thread_function, args=(asset_data, api_key)
+                target=thread_function, args=(asset_data, api_key),
             )
             thread.start()
             threads.append(thread)
@@ -397,6 +483,7 @@ def iterate_assets(filepath, thread_function=None, process_count=12, api_key="")
 
 def main():
     """Main entry point for the script.
+
     Reads the CSV file path from TWINBRU_CSV_PATH environment variable.
     If not set, prints an error message and exits.
     """
@@ -404,7 +491,7 @@ def main():
     if not csv_path:
         print("Error: TWINBRU_CSV_PATH environment variable not set")
         return
-    
+
     if not os.path.exists(csv_path):
         print(f"Error: CSV file not found at path: {csv_path}")
         return
