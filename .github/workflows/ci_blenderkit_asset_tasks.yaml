@@ -3,8 +3,6 @@ name: CI Workflow
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - "**/*.py"
 
 env:
   PYTHONPATH: "${{ github.workspace }}"
