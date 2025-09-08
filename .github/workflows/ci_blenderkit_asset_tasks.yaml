@@ -4,20 +4,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "**.py"
-      - ".github/workflows/ci_blenderkit_asset_tasks.yaml"
+      - "**/*.py"
 
 env:
-  PYTHONPATH: "${{ github.workspace }}:"
-
-  # special env vr to signify GITHUB testing for some parts of the code
-  GITHUB_ACTIONS: "true"
-
+  PYTHONPATH: "${{ github.workspace }}"
   PACKAGE_NAME: "CI_BLENDERKIT_ASSET_TASKS"
 
 jobs:
-
   linting:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: &python-versions
@@ -27,16 +22,12 @@ jobs:
           - "3.12"
     env:
       UV_PYTHON: ${{ matrix.python-version }}
-      GITHUB_ACTIONS: "true"
-    runs-on: ubuntu-latest
     steps:
-
       - &checkout-code-lfs
         name: Checkout code
         uses: actions/checkout@v4
         with:
-          lfs: 'true'
-          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          lfs: true
 
       - &setup-system
         name: Setup system
@@ -46,48 +37,46 @@ jobs:
 
       - &setup-python
         name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - &install-uv
         name: Add UV
         run: pip install uv
-        working-directory: blenderkit_asset_tasks
 
       - &create-venv
         name: Create venv
         working-directory: blenderkit_asset_tasks
         run: |
           uv venv
-          uv sync --link-mode=copy
-          pip install .
+          uv sync --all-groups --link-mode=copy
+          uv run pip install -e .
 
       - name: Ruff
         working-directory: blenderkit_asset_tasks
         if: always()
-        run: uv run -m ruff check
+        run: uv run ruff check
 
       - name: Bandit
         working-directory: blenderkit_asset_tasks
         if: always()
-        run: uv run bandit -c blenderkit_asset_tasks/_bandit.yaml -ll -r blenderkit_asset_tasks
+        run: uv run bandit -c _bandit.yaml -ll -r .
 
       - name: PyDocLint
         working-directory: blenderkit_asset_tasks
         if: always()
-        run: uv run pydoclint blenderkit_asset_tasks
+        run: uv run pydoclint .
 
   create_coverage:
     runs-on: ubuntu-latest
     steps:
-      - *setup-ssh
       - *checkout-code-lfs
       - *setup-system
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up Python 311
+        uses: actions/setup-python@v5
         with:
-          python-version-file: "blenderkit_asset_tasks/.python-version"
+          python-version: "3.11"
       - *install-uv
       - *create-venv
 
@@ -95,7 +84,7 @@ jobs:
         working-directory: blenderkit_asset_tasks
         run: |
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-          uv run -m coverage run --omit="*/pic_lib.py" -m unittest discover -s ./_test_blenderkit_asset_tasks/unittests
+          uv run -m coverage run -m unittest discover -s ./_test_blenderkit_asset_tasks/unittests
 
       - name: Create coverage
         working-directory: blenderkit_asset_tasks
@@ -106,14 +95,14 @@ jobs:
 
       - name: Save coverage report as artifact
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: blenderkit_asset_tasks/coverage.xml
 
       - name: Upload HTML Coverage Report
-        if: always()  # Ensure HTML report is uploaded regardless of coverage check
-        uses: actions/upload-artifact@v3
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report-html
           path: blenderkit_asset_tasks/htmlcov
@@ -123,11 +112,10 @@ jobs:
     strategy:
       matrix:
         python-version: *python-versions
-
     env:
       UV_PYTHON: ${{ matrix.python-version }}
-
     steps:
+      - *checkout-code-lfs
       - *setup-system
       - *setup-python
       - *install-uv
@@ -137,4 +125,4 @@ jobs:
         working-directory: blenderkit_asset_tasks
         run: |
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-          uv run -m coverage run --omit="*/pic_lib.py" -m unittest discover -s ./_test_blenderkit_asset_tasks/unittests
+          uv run -m unittest discover -s ./_test_blenderkit_asset_tasks/unittest

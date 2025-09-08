@@ -51,14 +51,10 @@ include = ["pyproject.toml",
     "**/*.py",
     ]
 exclude = [
-    "vendor/**",
-    "scripts/**",
-    "tests/**",
     "_debug/**",
     "_bck/**",
     "*.tmp",
     "__pycache__/**",
-    "build/**",
     ".venv/**",
     "*.pyi",
     "pic_lib.py"
@@ -91,15 +87,9 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"test_blenderkit_asset_tasks/*.py" = [
+"_test_blenderkit_asset_tasks/*.py" = [
     "D", # https://docs.astral.sh/ruff/rules/#pydocstyle-d
-    "SLF001"  # https://docs.astral.sh/ruff/rules/private-member-access/
-]
-"scripts/*" = [
-    "INP001", # https://docs.astral.sh/ruff/rules/implicit-namespace-package/
-]
-
-"tests/pytests/*.py" = [
+    "SLF001",  # https://docs.astral.sh/ruff/rules/private-member-access/
     "S101"  # https://docs.astral.sh/ruff/rules/assert/
 ]
 
