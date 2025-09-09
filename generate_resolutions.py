@@ -10,6 +10,7 @@ For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import pathlib
@@ -18,7 +19,6 @@ import sys
 import tempfile
 import threading
 import time
-from datetime import datetime
 
 from blenderkit_server_utils import download, paths, search, send_to_bg, upload
 
@@ -118,21 +118,33 @@ def generate_resolution_thread(asset_data: dict, api_key: str) -> None:
     print("changing asset variable")
     resgen_param = {"resolutionsGenerated": result_state}
 
-    today = datetime.today().strftime("%Y-%m-%d")  # noqa: DTZ002
-
+    today = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")  # noqa: UP017
     upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
-    # TODO: delete the temp folder
-    print("deleting temp folder")
-    shutil.rmtree(temp_folder)
-    os.remove(asset_file_path)
+
+    # delete the temp folder
+    try:
+        shutil.rmtree(temp_folder)
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        print(f"Error while deleting temp folder {temp_folder}: {e}")
+    try:
+        os.remove(asset_file_path)
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        print(f"Error while deleting asset file {asset_file_path}: {e}")
     print("deleted temp folder")
-    # delete all files from drive.
-    # >os.remove(asset_file_path)
+
     # return,no param patching for now - no need for it by now?
     return
-    upload.patch_individual_parameter(asset_data["id"], param_name=resgen_param, api_key=api_key)
+
     upload.patch_individual_parameter(
-        asset_data["id"], param_name="resolutionsGeneratedDate", param_value=today, api_key=api_key
+        asset_data["id"],
+        param_name=resgen_param,
+        api_key=api_key,
+    )
+    upload.patch_individual_parameter(
+        asset_data["id"],
+        param_name="resolutionsGeneratedDate",
+        param_value=today,
+        api_key=api_key,
     )
 
 

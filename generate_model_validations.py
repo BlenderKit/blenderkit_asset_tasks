@@ -1,52 +1,96 @@
-# -----------------------------------------------------------------------------------
-# generate material validation scene for all uploaded assets
-# -------------------------------------------- ---------------------------------------
+"""Generate model validation renders for uploaded BlenderKit assets.
 
-import json
+This script downloads model assets, renders validation videos/images via a
+background Blender process, and uploads the results to Cloudflare R2 storage.
+
+It can process assets in parallel using threads and includes helpers to fetch
+asset lists and orchestrate per-asset rendering.
+"""
+
+from __future__ import annotations
+
 import os
+import pathlib
 import shutil
 import tempfile
 import threading
 import time
-import pathlib
 
-from blenderkit_server_utils import download, search, paths, upload, send_to_bg, utils
+from blenderkit_server_utils import download, paths, search, send_to_bg
 
 # Assuming necessary imports are done at the top of the script
 from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 
-
-results = []
-page_size = 100
-
 MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
 
-DONE_ASSETS_COUNT = 0
 
-DO_ASSETS = 200
-ALL_FOLDERS = set()
+def cloudflare_setup() -> CloudflareStorage:
+    """Setup Cloudflare Storage bucket if needed.
 
-
-def render_model_validation_thread(asset_data, api_key):
+    Returns:
+         CloudflareStorage: Configured CloudflareStorage instance.
     """
-    A thread that:
-     1.downloads file
-     2.starts an instance of Blender that renders the validation
-     3.uploads files that were prepared
-     4.patches asset data with a new parameter.
+    # Initialize Cloudflare Storage with your credentials
+    cloudflare_storage = CloudflareStorage(
+        access_key=os.getenv("CF_ACCESS_KEY"),
+        secret_key=os.getenv("CF_ACCESS_SECRET"),
+        endpoint_url=os.getenv("CF_ENDPOINT_URL"),
+    )
+    return cloudflare_storage
 
-    Parameters
-    ----------
-    asset_data
 
-    Returns
-    -------
+def cloudflare_validate_empty_folder(item_id: str, cloudflare_storage: CloudflareStorage) -> bool:
+    """Check and optionally purge a Cloudflare folder; signal whether to skip.
 
+    If the folder exists and contains only the "index.json" file, the folder is
+    purged and processing can continue. If the folder exists and contains other
+    files, the function returns True to signal the caller should skip further
+    processing for this item.
+
+    Args:
+        item_id: The ID (folder name) to check in the bucket.
+        cloudflare_storage: Configured Cloudflare storage client.
+
+    Returns:
+        True if the folder exists and is not empty (skip processing), otherwise
+        False.
     """
-    global DONE_ASSETS_COUNT, ALL_FOLDERS
+    f_exists = cloudflare_storage.folder_exists("validation-renders", item_id)
+    # let's not skip now.
+    if f_exists:
+        # check if the result folder is empty only with index.json, if yes, purge it and continue. Otherwise skip
+        files = cloudflare_storage.list_folder_contents("validation-renders", item_id)
+
+        if len(files) == 1 and files[0] == "index.json":
+            # purge the folder
+            cloudflare_storage.delete_folder_contents("validation-renders", item_id)
+            print(f"Purged the folder: {item_id}")
+        else:
+            print(f"directory {item_id} exists, skipping")
+            return True
+    return False
+
+
+def render_model_validation_thread(asset_data: dict, api_key: str) -> None:
+    """Worker to validate a single model asset.
+
+    The worker performs the following steps:
+    1. Download the asset archive.
+    2. Unpack and render validation media via background Blender.
+    3. Generate a GLB via Blender (gltf export) and move results to a temp folder.
+    4. Upload the resulting files to Cloudflare R2 under the asset upload ID.
+
+    Args:
+        asset_data: Asset metadata dict returned by search API (must contain
+            keys like "files", "name", "assetBaseId").
+        api_key: BlenderKit API key for authenticated download.
+
+    Returns:
+        None
+    """
     destination_directory = tempfile.gettempdir()
     if len(asset_data["files"]) == 0:
-        print("no files for asset %s" % asset_data["name"])
+        print(f"no files for asset {asset_data['name']}")
         return
     upload_id = asset_data["files"][0]["downloadUrl"].split("/")[-2]
 
@@ -55,18 +99,16 @@ def render_model_validation_thread(asset_data, api_key):
     result_file_name = f"{upload_id}"
     predicted_filename = f"{result_file_name}.mkv"  # let's try to super simplify now.
 
-    # print('all validation folders', all_validation_folders)
-
     # check if the directory exists on the drive
     # we check file by file, since the comparison with folder contents is not reliable and would potentially
     # compare with a very long list. main issue was what to set the page size for the search request...
     # Initialize Cloudflare Storage with your credentials
-    # f_exists = result_file_name in ALL_FOLDERS
-    cloudflare_storage = CloudflareStorage(
-        access_key=os.getenv("CF_ACCESS_KEY"),
-        secret_key=os.getenv("CF_ACCESS_SECRET"),
-        endpoint_url=os.getenv("CF_ENDPOINT_URL"),
-    )
+
+    cloudflare_storage = cloudflare_setup()
+
+    if cloudflare_validate_empty_folder(upload_id, cloudflare_storage):
+        return
+
     f_exists = cloudflare_storage.folder_exists("validation-renders", upload_id)
     # let's not skip now.
     if f_exists:
@@ -82,20 +124,14 @@ def render_model_validation_thread(asset_data, api_key):
             return
 
     # Download asset
-    asset_file_path = download.download_asset(
-        asset_data, api_key=api_key, directory=destination_directory
-    )
+    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
     # Unpack asset
-    send_to_bg.send_to_bg(
-        asset_data, asset_file_path=asset_file_path, script="unpack_asset_bg.py"
-    )
+    send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script="unpack_asset_bg.py")
 
     # find template file
     current_dir = pathlib.Path(__file__).parent.resolve()
-    template_file_path = os.path.join(
-        current_dir, "blend_files", "model_validation_static_renders.blend"
-    )
+    template_file_path = os.path.join(current_dir, "blend_files", "model_validation_static_renders.blend")
 
     # Send to background to generate resolutions
     # generated temp folder
@@ -138,31 +174,25 @@ def render_model_validation_thread(asset_data, api_key):
     # move gltf to result folder
     try:
         shutil.move(gltf_path, result_folder)
-    except Exception as e:
+    except (FileNotFoundError, PermissionError, shutil.Error, OSError) as e:
         print(f"Error while moving {gltf_path} to {result_folder}: {e}")
 
-    DONE_ASSETS_COUNT += 1
     # part of the results is in temfolder/tmp/Render, so let's move all of it's files to the result folder,
     # so that there are no subdirectories and everything is in one folder.
     # and then upload the result folder to drive
 
     render_folder = os.path.join(temp_folder, "tmp", "Render")
     try:
-
         file_names = os.listdir(render_folder)
         for file_name in file_names:
             shutil.move(os.path.join(render_folder, file_name), result_folder)
-    except Exception as e:
+    except (FileNotFoundError, NotADirectoryError, PermissionError, shutil.Error, OSError) as e:
         print(f"Error while moving files from {render_folder} to {result_folder}: {e}")
 
     # Upload result
     # # Instead of using Google Drive for upload, use Cloudflare Storage
     # Initialize the CloudFlare service
-    cloudflare_storage = CloudflareStorage(
-        access_key=os.getenv("CF_ACCESS_KEY"),
-        secret_key=os.getenv("CF_ACCESS_SECRET"),
-        endpoint_url=os.getenv("CF_ENDPOINT_URL"),
-    )
+    cloudflare_storage = cloudflare_setup()
     cloudflare_storage.upload_folder(
         result_folder,
         bucket_name="validation-renders",
@@ -172,27 +202,35 @@ def render_model_validation_thread(asset_data, api_key):
     # cleanup
     try:
         shutil.rmtree(temp_folder)
-    except Exception as e:
+    except (FileNotFoundError, PermissionError, OSError) as e:
         print(f"Error while deleting temp folder {temp_folder}: {e}")
 
     return
 
 
-def iterate_assets(filepath, thread_function=None, process_count=12, api_key=""):
-    """iterate through all assigned assets, check for those which need generation and send them to res gen"""
+def iterate_assets(
+    filepath: str,
+    thread_function: callable[[dict, str], None] | None = None,
+    process_count: int = 12,
+    api_key: str = "",
+) -> None:
+    """Iterate assets and dispatch validation render threads.
+
+    Args:
+        filepath: Path to JSON file with the asset list (created by search helper).
+        thread_function: Callable to execute per-asset. Defaults to
+            :func:`render_model_validation_thread`.
+        process_count: Maximum number of concurrent threads.
+        api_key: BlenderKit API key passed to the thread function.
+    """
+    if thread_function is None:
+        thread_function = render_model_validation_thread
     assets = search.load_assets_list(filepath)
     threads = []
     for asset_data in assets:
-        # if DONE_ASSETS_COUNT >= DO_ASSETS:
-        #     break
         if asset_data is not None:
-            print(
-                "downloading and generating validation render for  %s"
-                % asset_data["name"]
-            )
-            thread = threading.Thread(
-                target=thread_function, args=(asset_data, api_key)
-            )
+            print(f"downloading and generating validation render for  {asset_data['name']}")
+            thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
             thread.start()
             threads.append(thread)
             while len(threads) > process_count - 1:
@@ -203,20 +241,28 @@ def iterate_assets(filepath, thread_function=None, process_count=12, api_key="")
                 time.sleep(0.1)  # wait for a bit to finish all threads
 
 
-def main():
-    # cleanup the drive folder
-    # get all folders from cloudflare to faster check if the folder exists
-    cloudflare_storage = CloudflareStorage(
-        access_key=os.getenv("CF_ACCESS_KEY"),
-        secret_key=os.getenv("CF_ACCESS_SECRET"),
-        endpoint_url=os.getenv("CF_ENDPOINT_URL"),
-    )
-    # ALL_FOLDERS = cloudflare_storage.list_all_folders(bucket_name='validation-renders')
-    # print("deleting old files")
-    # cloudflare_storage.delete_old_files(bucket_name="validation-renders", x_days=30)
-    # cloudflare_storage.delete_new_files(bucket_name="validation-renders", x_days=30)
+def cloudflare_cleanup() -> None:
+    """Cleanup old files from Cloudflare Storage.
 
-    # return
+    Removes files older than a configured threshold and recent temp files to
+    keep the bucket tidy.
+
+    Returns:
+        None
+    """
+    # Initialize Cloudflare Storage with your credentials
+    cloudflare_storage = cloudflare_setup()
+    print("deleting old files")
+    cloudflare_storage.delete_old_files(bucket_name="validation-renders", x_days=30)
+    cloudflare_storage.delete_new_files(bucket_name="validation-renders", x_days=30)
+
+
+def main() -> None:
+    """Entry point: fetch assets and render model validations."""
+    # cleanup the drive folder
+    if os.getenv("CLOUDFLARE_CLEANUP", "0") == "1":
+        cloudflare_cleanup()
+        return
 
     # Get os temp directory
     dpath = tempfile.gettempdir()
@@ -236,7 +282,7 @@ def main():
 
     assets = search.load_assets_list(filepath)
     print("ASSETS TO BE PROCESSED")
-    for i, a in enumerate(assets):
+    for a in assets:
         print(a["name"], a["assetType"])
 
     iterate_assets(
