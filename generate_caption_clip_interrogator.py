@@ -44,7 +44,7 @@ def check_and_install(to_import: list[str], to_install: list[str]) -> None:
     for package in to_import:
         try:
             __import__(package)
-        except ImportError:
+        except ImportError:  # noqa: PERF203
             failed_to_import = True
 
     if failed_to_import:

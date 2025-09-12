@@ -81,7 +81,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         # there are no actual resolutions
         print("Files are:", files)
         upload.upload_resolutions(files, asset_data, api_key=api_key)
-        today = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")  # noqa: UP017
+        today = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")
         param = "gltfGodotGeneratedDate"
         upload.patch_individual_parameter(asset_data["id"], param_name=param, param_value=today, api_key=api_key)
         upload.get_individual_parameter(asset_data["id"], param_name=param, api_key=api_key)

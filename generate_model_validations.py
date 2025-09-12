@@ -254,7 +254,6 @@ def cloudflare_cleanup() -> None:
     cloudflare_storage = cloudflare_setup()
     print("deleting old files")
     cloudflare_storage.delete_old_files(bucket_name="validation-renders", x_days=30)
-    cloudflare_storage.delete_new_files(bucket_name="validation-renders", x_days=30)
 
 
 def main() -> None:
