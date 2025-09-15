@@ -5,7 +5,8 @@ on:
     types: [opened, synchronize, reopened]
 
 env:
-  PYTHONPATH: "${{ github.workspace }}"
+  PYTHONPATH: "${{ github.workspace }}:${{ github.workspace }}/_test_blenderkit_asset_tasks:${{ github.workspace }}/_test_blenderkit_asset_tasks/unittests"
+
   PACKAGE_NAME: "CI_BLENDERKIT_ASSET_TASKS"
 
 jobs:
@@ -81,6 +82,7 @@ jobs:
       - name: Run unit tests
         working-directory: blenderkit_asset_tasks
         run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/_test_blenderkit_asset_tasks:$GITHUB_WORKSPACE/_test_blenderkit_asset_tasks/unittests"
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
           uv run -m coverage run -m unittest discover -s ./_test_blenderkit_asset_tasks/unittests
 
@@ -122,5 +124,6 @@ jobs:
       - name: Run unit tests
         working-directory: blenderkit_asset_tasks
         run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/_test_blenderkit_asset_tasks:$GITHUB_WORKSPACE/_test_blenderkit_asset_tasks/unittests"
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-          uv run -m unittest discover -s ./_test_blenderkit_asset_tasks/unittest
+          uv run -m unittest discover -s ./_test_blenderkit_asset_tasks/unittests
