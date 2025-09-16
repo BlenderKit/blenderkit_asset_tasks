@@ -36,23 +36,31 @@ The script workflow:
 
 from __future__ import annotations
 
-import contextlib
 import json
+import logging
 import os
 import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from blenderkit_server_utils import download, paths, search, send_to_bg, upload
+
+logger = logging.getLogger(__name__)
+
+# Configure basic logging only if root has no handlers (script usage)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 # Required environment variables
 ASSET_BASE_ID = os.environ.get("ASSET_BASE_ID", None)
 MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
+PAGE_SIZE_LIMIT = 100
 SKIP_UPLOAD = os.environ.get("SKIP_UPLOAD", False) == "True"  # noqa: PLW1508
 
 # Thumbnail default parameters
-DEFAULT_THUMBNAIL_PARAMS = {
+DEFAULT_THUMBNAIL_PARAMS: dict[str, Any] = {
     "thumbnail_use_gpu": True,
     "thumbnail_samples": 100,
     "thumbnail_resolution": 2048,
@@ -61,7 +69,7 @@ DEFAULT_THUMBNAIL_PARAMS = {
 }
 
 # Material-specific defaults
-DEFAULT_MATERIAL_PARAMS = {
+DEFAULT_MATERIAL_PARAMS: dict[str, Any] = {
     "thumbnail_type": "BALL",
     "thumbnail_scale": 1.0,
     "thumbnail_background": False,
@@ -69,70 +77,86 @@ DEFAULT_MATERIAL_PARAMS = {
 }
 
 # Model-specific defaults
-DEFAULT_MODEL_PARAMS = {
+DEFAULT_MODEL_PARAMS: dict[str, Any] = {
     "thumbnail_angle": "DEFAULT",
     "thumbnail_snap_to": "GROUND",
 }
 
 
-def parse_json_params(json_str: str) -> dict:  # noqa: C901
+def _env_bool(name: str, *, default: bool) -> bool:
+    """Return boolean env var value using string comparison with a sensible default.
+
+    Args:
+        name: Environment variable name.
+        default: Default boolean value when env var is not set.
+
+    Returns:
+        Boolean parsed from environment ("True"/"False").
+    """
+    default_str = "True" if default else "False"
+    return os.environ.get(name, default_str).lower() == "true"
+
+
+def parse_json_params(json_str: str | None) -> dict[str, Any]:
     """Parse the markThumbnailRender JSON parameter.
 
     Args:
-        json_str: JSON string containing thumbnail parameters
+        json_str: JSON string containing thumbnail parameters.
 
     Returns:
-        dict: Parsed parameters or empty dict if invalid JSON
+        Parsed parameters or empty dict if invalid or missing.
     """
     if not json_str:
         return {}
 
-    if 1:
-        params = json.loads(json_str)
-        # String params
-        string_params = [
-            "thumbnail_type",
-            "thumbnail_angle",
-            "thumbnail_snap_to",
-        ]
-        for param in string_params:
-            if param in params and isinstance(params[param], str):
-                params[param] = params[param]
+    try:
+        params: dict[str, Any] = json.loads(json_str)
+    except (json.JSONDecodeError, TypeError):
+        logger.exception("Invalid JSON for markThumbnailRender: %s", json_str)
+        return {}
 
-        # Convert string boolean values to actual booleans
-        bool_params = [
-            "thumbnail_use_gpu",
-            "thumbnail_denoising",
-            "thumbnail_background",
-            "thumbnail_adaptive_subdivision",
-        ]
-        for param in bool_params:
-            if param in params and isinstance(params[param], str):
-                params[param] = params[param].lower() == "true"
+    # Normalize string params (ensure they are strings)
+    string_params = [
+        "thumbnail_type",
+        "thumbnail_angle",
+        "thumbnail_snap_to",
+    ]
+    for param in string_params:
+        if param in params and not isinstance(params[param], str):
+            params[param] = str(params[param])
 
-        # Convert numeric values
-        numeric_params = [
-            "thumbnail_samples",
-            "thumbnail_resolution",
-            "thumbnail_background_lightness",
-            "thumbnail_scale",
-        ]
-        for param in numeric_params:
-            if param in params:
-                try:
-                    # Convert to float if decimal point present
-                    if "." in str(params[param]):
-                        params[param] = float(params[param])
-                    else:
-                        params[param] = int(params[param])
-                except (ValueError, TypeError):
-                    del params[param]  # Remove invalid numeric values
-        print(params)
-        return params
-    return {}
+    # Convert string boolean values to actual booleans
+    bool_params = [
+        "thumbnail_use_gpu",
+        "thumbnail_denoising",
+        "thumbnail_background",
+        "thumbnail_adaptive_subdivision",
+    ]
+    for param in bool_params:
+        if param in params and isinstance(params[param], str):
+            params[param] = params[param].lower() == "true"
+
+    # Convert numeric values
+    numeric_params = [
+        "thumbnail_samples",
+        "thumbnail_resolution",
+        "thumbnail_background_lightness",
+        "thumbnail_scale",
+    ]
+    for param in numeric_params:
+        if param in params:
+            try:
+                value_str = str(params[param])
+                params[param] = float(value_str) if "." in value_str else int(value_str)
+            except (ValueError, TypeError):
+                logger.warning("Invalid numeric parameter %s: %s", param, params[param])
+                params.pop(param, None)
+
+    logger.debug("Parsed thumbnail params: %s", params)
+    return params
 
 
-def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = None) -> dict:
+def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = None) -> dict[str, Any]:
     """Get thumbnail parameters from environment variables or defaults.
 
     This function consolidates all thumbnail rendering parameters, combining values
@@ -149,7 +173,7 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
         dict: Combined dictionary of all thumbnail parameters
     """
     # Start with default parameters
-    params = DEFAULT_THUMBNAIL_PARAMS.copy()
+    params: dict[str, Any] = DEFAULT_THUMBNAIL_PARAMS.copy()
 
     # Add type-specific defaults
     if asset_type == "material":
@@ -164,10 +188,10 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
 
     # Update with environment variables (highest priority)
     env_updates = {
-        "thumbnail_use_gpu": os.environ.get("THUMBNAIL_USE_GPU", params["thumbnail_use_gpu"]) == "True",
+        "thumbnail_use_gpu": _env_bool("THUMBNAIL_USE_GPU", default=bool(params["thumbnail_use_gpu"])),
         "thumbnail_samples": int(os.environ.get("THUMBNAIL_SAMPLES", params["thumbnail_samples"])),
         "thumbnail_resolution": int(os.environ.get("THUMBNAIL_RESOLUTION", params["thumbnail_resolution"])),
-        "thumbnail_denoising": os.environ.get("THUMBNAIL_DENOISING", params["thumbnail_denoising"]) == "True",
+        "thumbnail_denoising": _env_bool("THUMBNAIL_DENOISING", default=bool(params["thumbnail_denoising"])),
         "thumbnail_background_lightness": float(
             os.environ.get("THUMBNAIL_BACKGROUND_LIGHTNESS", params["thumbnail_background_lightness"]),
         ),
@@ -179,13 +203,14 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
             {
                 "thumbnail_type": os.environ.get("THUMBNAIL_TYPE", params["thumbnail_type"]),
                 "thumbnail_scale": float(os.environ.get("THUMBNAIL_SCALE", params["thumbnail_scale"])),
-                "thumbnail_background": os.environ.get("THUMBNAIL_BACKGROUND", params["thumbnail_background"])
-                == "True",
-                "thumbnail_adaptive_subdivision": os.environ.get(
+                "thumbnail_background": _env_bool(
+                    "THUMBNAIL_BACKGROUND",
+                    default=bool(params["thumbnail_background"]),
+                ),
+                "thumbnail_adaptive_subdivision": _env_bool(
                     "THUMBNAIL_ADAPTIVE_SUBDIVISION",
-                    params["thumbnail_adaptive_subdivision"],
-                )
-                == "True",
+                    default=bool(params["thumbnail_adaptive_subdivision"]),
+                ),
             },
         )
     elif asset_type == "model":
@@ -202,7 +227,7 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
     return params
 
 
-def render_thumbnail_thread(asset_data: dict, api_key: str) -> None:
+def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
     """Process a single asset's thumbnail in a separate thread.
 
     This function handles the complete thumbnail generation workflow for a single asset:
@@ -221,14 +246,14 @@ def render_thumbnail_thread(asset_data: dict, api_key: str) -> None:
 
     # Get thumbnail parameters based on asset type and markThumbnailRender
     thumbnail_params = get_thumbnail_params(
-        asset_data["assetType"].lower(),
-        mark_thumbnail_render=asset_data["dictParameters"].get("markThumbnailRender"),
+        str(asset_data.get("assetType", "")).lower(),
+        mark_thumbnail_render=(asset_data.get("dictParameters") or {}).get("markThumbnailRender"),
     )
     # Download asset
     asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
     if not asset_file_path:
-        print(f"Failed to download asset {asset_data['name']}")
+        logger.error("Failed to download asset %s", asset_data.get("name"))
         return
 
     # Create temp folder for results
@@ -242,15 +267,22 @@ def render_thumbnail_thread(asset_data: dict, api_key: str) -> None:
     asset_data.update(thumbnail_params)
 
     # Select appropriate script and template based on asset type
-    if asset_data["assetType"] == "material":
-        script_name = "autothumb_material_bg.py"
-        template_path = Path(__file__).parent / "blend_files" / "material_thumbnailer_cycles.blend"
-    elif asset_data["assetType"] == "model":
-        script_name = "autothumb_model_bg.py"
-        template_path = Path(__file__).parent / "blend_files" / "model_thumbnailer.blend"
-    else:
-        print(f"Unsupported asset type: {asset_data['assetType']}")
+    asset_type = asset_data.get("assetType")
+    script_template_map: dict[str, tuple[str, Path]] = {
+        "material": (
+            "autothumb_material_bg.py",
+            Path(__file__).parent / "blend_files" / "material_thumbnailer_cycles.blend",
+        ),
+        "model": (
+            "autothumb_model_bg.py",
+            Path(__file__).parent / "blend_files" / "model_thumbnailer.blend",
+        ),
+    }
+    selected = script_template_map.get(str(asset_type))
+    if not selected:
+        logger.error("Unsupported asset type: %s", asset_type)
         return
+    script_name, template_path = selected
 
     # Send to background Blender for thumbnail generation
     send_to_bg.send_to_bg(
@@ -262,51 +294,56 @@ def render_thumbnail_thread(asset_data: dict, api_key: str) -> None:
     )
 
     # Check results and upload
+    if SKIP_UPLOAD:
+        logger.warning("SKIP_UPLOAD==True -> skipping upload")
+        # Cleanup and return
+        try:
+            os.remove(asset_file_path)
+            os.remove(result_filepath)
+            os.rmdir(temp_folder)
+        except (FileNotFoundError, PermissionError, OSError):
+            logger.exception("Cleanup error for asset %s", asset_data.get("id"))
+        return
+
+    files_to_upload: list[dict[str, Any]] = [
+        {
+            "type": "thumbnail",
+            "index": 0,
+            "file_path": result_filepath,
+        },
+    ]
+    upload_data: dict[str, Any] = {
+        "name": asset_data.get("name"),
+        "displayName": asset_data.get("displayName"),
+        "token": api_key,
+        "id": asset_data.get("id"),
+    }
     try:
-        if SKIP_UPLOAD:
-            print("----- SKIP_UPLOAD==True -> skipping upload -----")
-            return
-
-        files = [
-            {
-                "type": "thumbnail",
-                "index": 0,
-                "file_path": result_filepath,
-            },
-        ]
-        upload_data = {
-            "name": asset_data["name"],
-            "displayName": asset_data["displayName"],
-            "token": api_key,
-            "id": asset_data["id"],
-        }
-        # Upload the new thumbnail
-        print(f"Uploading thumbnail for {asset_data['name']}")
-        ok = upload.upload_files(upload_data, files)
-
+        logger.info("Uploading thumbnail for %s", asset_data.get("name"))
+        ok = upload.upload_files(upload_data, files_to_upload)
         if ok:
-            print(f"Successfully uploaded new thumbnail for {asset_data['name']}")
-            # Clear the markThumbnailRender parameter
+            logger.info("Successfully uploaded new thumbnail for %s", asset_data.get("name"))
             clear_ok = upload.delete_individual_parameter(
-                asset_id=asset_data["id"],
+                asset_id=str(asset_data.get("id")),
                 param_name="markThumbnailRender",
                 param_value="",
                 api_key=api_key,
             )
             if clear_ok:
-                print(f"Successfully cleared markThumbnailRender for {asset_data['name']}")
+                logger.info("Cleared markThumbnailRender for %s", asset_data.get("name"))
             else:
-                print(f"Failed to clear markThumbnailRender for {asset_data['name']}")
+                logger.error("Failed to clear markThumbnailRender for %s", asset_data.get("name"))
         else:
-            print(f"Failed to upload thumbnail for {asset_data['name']}")
-    except Exception as e:  # noqa: BLE001
-        print(f"Error processing thumbnail results: {e}")
+            logger.error("Failed to upload thumbnail for %s", asset_data.get("name"))
+    except Exception:  # Upstream may raise varied exceptions
+        logger.exception("Error processing thumbnail upload for %s", asset_data.get("name"))
     finally:
-        # Cleanup
-        with contextlib.suppress(Exception):
+        try:
             os.remove(asset_file_path)
             os.remove(result_filepath)
             os.rmdir(temp_folder)
+        except (FileNotFoundError, PermissionError, OSError):
+            logger.exception("Cleanup error for asset %s", asset_data.get("id"))
 
 
 def iterate_assets(filepath: str, api_key: str, process_count: int = 1) -> None:
@@ -321,28 +358,27 @@ def iterate_assets(filepath: str, api_key: str, process_count: int = 1) -> None:
         process_count (int): Maximum number of concurrent thumbnail generations
     """
     assets = search.load_assets_list(filepath)
-    threads = []
+    threads: list[threading.Thread] = []
 
     for asset_data in assets:
-        if asset_data is not None:
-            print(f"Processing thumbnail for {asset_data['name']}")
-            thread = threading.Thread(target=render_thumbnail_thread, args=(asset_data, api_key))
-            thread.start()
-            threads.append(thread)
+        if not asset_data:
+            logger.warning("Skipping empty asset entry")
+            continue
+        logger.info("Processing thumbnail for %s", asset_data.get("name"))
+        thread = threading.Thread(target=render_thumbnail_thread, args=(asset_data, api_key))
+        thread.start()
+        threads.append(thread)
 
-            while len(threads) > process_count - 1:
-                for t in threads[:]:
-                    if not t.is_alive():
-                        threads.remove(t)
-                    break
-                time.sleep(0.1)
+        while len([t for t in threads if t.is_alive()]) >= process_count:
+            threads = [t for t in threads if t.is_alive()]
+            time.sleep(0.1)
 
     # Wait for remaining threads
     for thread in threads:
         thread.join()
 
 
-def main():
+def main() -> None:
     """Main entry point for the thumbnail generation script.
 
     Sets up the initial conditions for thumbnail generation:
@@ -371,14 +407,13 @@ def main():
     assets = search.get_search_simple(
         params,
         filepath,
-        page_size=min(MAX_ASSETS, 100),
+        page_size=min(MAX_ASSETS, PAGE_SIZE_LIMIT),
         max_results=MAX_ASSETS,
         api_key=paths.API_KEY,
     )
-
-    print(f"Found {len(assets)} assets to process:")
+    logger.info("Found %s assets to process", len(assets))
     for asset in assets:
-        print(f"{asset['name']} ({asset['assetType']})")
+        logger.debug("%s (%s)", asset.get("name"), asset.get("assetType"))
 
     iterate_assets(filepath, api_key=paths.API_KEY)
 

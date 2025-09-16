@@ -6,19 +6,28 @@ background Blender, and uploads results to Cloudflare storage.
 
 from __future__ import annotations
 
+import logging
 import os
 import pathlib
 import tempfile
 import threading
 import time
+from collections.abc import Callable
+from typing import Any
 
 from blenderkit_server_utils import download, paths, search, send_to_bg
 from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 
-results = []
-page_size = 100
+logger = logging.getLogger(__name__)
 
-MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
+# Constants
+MAX_ASSETS: int = int(os.environ.get("MAX_ASSET_COUNT", "100"))
+MAX_THREADS: int = int(os.environ.get("MAX_VALIDATION_THREADS", "12"))
+BUCKET_VALIDATION: str = "validation-renders"
+
+# Configure basic logging only if root has no handlers (script usage)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 def cloudflare_setup() -> CloudflareStorage:
@@ -36,7 +45,7 @@ def cloudflare_setup() -> CloudflareStorage:
     return cloudflare_storage
 
 
-def render_material_validation_thread(asset_data: dict, api_key: str) -> None:
+def render_material_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
     """Validate a single material asset in a background Blender process.
 
     Steps:
@@ -64,9 +73,9 @@ def render_material_validation_thread(asset_data: dict, api_key: str) -> None:
     # we check file by file, since the comparison with folder contents is not reliable and would potentially
     # compare with a very long list. main issue was what to set the page size for the search request...
     cloudflare_storage = cloudflare_setup()
-    f_exists = cloudflare_storage.folder_exists("validation-renders", upload_id)
+    f_exists = cloudflare_storage.folder_exists(BUCKET_VALIDATION, upload_id)
     if f_exists:
-        print("file exists, skipping")
+        logger.info("Validation already exists for upload %s; skipping.", upload_id)
         return
 
     # Download asset
@@ -84,7 +93,8 @@ def render_material_validation_thread(asset_data: dict, api_key: str) -> None:
     os.makedirs(result_folder, exist_ok=True)
 
     # local file path of main rendered image
-    result_path = os.path.join(temp_folder, result_folder, result_file_name)
+    # result_path should be inside result_folder; avoid duplicating temp_folder
+    result_path = os.path.join(result_folder, result_file_name)
 
     # send to background to render
     send_to_bg.send_to_bg(
@@ -100,9 +110,10 @@ def render_material_validation_thread(asset_data: dict, api_key: str) -> None:
     )
 
     # send to background to render turnarounds
-    template_file_path = os.path.join(current_dir, "blend_files", "material_turnaround_validation.blend")
+    # Use existing turnaround blend file from repository
+    template_file_path = os.path.join(current_dir, "blend_files", "material_turnaround.blend")
 
-    result_path = os.path.join(temp_folder, result_folder, upload_id + "_turnaround.mkv")
+    result_path = os.path.join(result_folder, upload_id + "_turnaround.mkv")
 
     send_to_bg.send_to_bg(
         asset_data,
@@ -118,14 +129,19 @@ def render_material_validation_thread(asset_data: dict, api_key: str) -> None:
 
     # Upload result
     cloudflare_storage = cloudflare_setup()
-    cloudflare_storage.upload_folder(result_folder, "validation-renders", upload_id)
+    try:
+        cloudflare_storage.upload_folder(result_folder, BUCKET_VALIDATION, upload_id)
+        logger.info("Uploaded validation renders for upload %s", upload_id)
+    except Exception:
+        # Underlying client already logs; keep a top-level trace for the thread
+        logger.exception("Failed to upload validation renders for upload %s", upload_id)
     return
 
 
 def iterate_assets(
     filepath: str,
-    thread_function: callable[[dict, str], None] | None = None,
-    process_count: int = 12,
+    thread_function: Callable[[dict[str, Any], str], None] | None = None,
+    process_count: int = MAX_THREADS,
     api_key: str = "",
 ) -> None:
     """Iterate assets and dispatch validation rendering threads.
@@ -141,26 +157,38 @@ def iterate_assets(
         None
     """
     assets = search.load_assets_list(filepath)
-    threads = []
+    if thread_function is None:
+        thread_function = render_material_validation_thread
+
+    threads: list[threading.Thread] = []
     for asset_data in assets:
-        if asset_data is not None:
-            print(f"downloading and generating resolution for  {asset_data['name']}")
-            thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
-            thread.start()
-            threads.append(thread)
-            while len(threads) > process_count - 1:
-                for t in threads:
-                    if not t.is_alive():
-                        threads.remove(t)
-                    break
-                time.sleep(0.1)  # wait for a bit to finish all threads
+        if not asset_data:
+            logger.warning("Skipping empty asset entry")
+            continue
+        logger.info("Queueing validation render for %s", asset_data.get("name"))
+        thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
+        thread.start()
+        threads.append(thread)
+        # throttle by max concurrent threads
+        while len([t for t in threads if t.is_alive()]) >= process_count:
+            # prune finished threads periodically
+            threads = [t for t in threads if t.is_alive()]
+            time.sleep(0.1)
+
+    # Wait for remaining threads to finish
+    for t in threads:
+        t.join()
 
 
-def main():
+def main() -> None:
     """Fetch assets and run material validation renders."""
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, "assets_for_resolutions.json")
-    params = {"order": "created", "asset_type": "material", "verification_status": "uploaded"}
+    params = {
+        "order": "created",
+        "asset_type": "material",
+        "verification_status": "uploaded",
+    }
     search.get_search_simple(
         params,
         filepath=filepath,
@@ -170,9 +198,9 @@ def main():
     )
 
     assets = search.load_assets_list(filepath)
-    print("ASSETS TO BE PROCESSED")
+    logger.info("Assets to be processed: %s", len(assets))
     for a in assets:
-        print(a["name"], a["assetType"])
+        logger.debug("%s ||| %s", a.get("name"), a.get("assetType"))
 
     iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=render_material_validation_thread)
 

@@ -8,3 +8,6 @@ blend_files/assets/
 temp
 
 .ruff_cache
+
+blender_test_results.txt
+blender_test_results.xml

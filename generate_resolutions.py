@@ -10,51 +10,42 @@ For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 
 from __future__ import annotations
 
-import datetime
 import json
+import logging
 import os
 import pathlib
 import shutil
-import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
+from typing import Any
 
 from blenderkit_server_utils import download, paths, search, send_to_bg, upload
 
-results = []
-page_size = 100
+logger = logging.getLogger(__name__)
+
+# Constants
+PAGE_SIZE_LIMIT: int = 100
 
 ASSET_BASE_ID = os.environ.get("ASSET_BASE_ID", None)
 MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
 SKIP_UPLOAD = os.environ.get("SKIP_UPLOAD", False) == "True"  # noqa: PLW1508
 
+# Configure basic logging only if root has no handlers (script usage)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-def generate_resolution_thread(asset_data: dict, api_key: str) -> None:
-    """Thread to generate resolutions for a single asset.
 
-    A thread that:
-     1.downloads file
-     2.starts an instance of Blender that generates the resolutions
-     3.uploads files that were prepared
-     4.patches asset data with a new parameter.
+def _maybe_unpack_asset(asset_data: dict[str, Any], asset_file_path: str, blender_binary_path: str) -> None:
+    """Unpack asset in Blender when needed.
 
     Args:
-        asset_data (dict): Asset data dictionary.
-        api_key (str): API key for authentication.
-
-    Returns:
-        None
+        asset_data: Asset data dictionary.
+        asset_file_path: Path to the downloaded asset file.
+        blender_binary_path: Path to Blender binary.
     """
-    # data gets saved into the default temp directory
-    destination_directory = tempfile.gettempdir()
-    blender_binary_path = os.environ.get("BLENDER_PATH", "")
-
-    # Download asset into temp directory
-    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
-
-    # Unpack asset
-    if asset_file_path and asset_data["assetType"] != "hdr":
+    if asset_file_path and asset_data.get("assetType") != "hdr":
         send_to_bg.send_to_bg(
             asset_data,
             asset_file_path=asset_file_path,
@@ -62,21 +53,30 @@ def generate_resolution_thread(asset_data: dict, api_key: str) -> None:
             binary_path=blender_binary_path,
         )
 
-    if not asset_file_path:
-        # this could probably happen when wrong api_key with wrong plan was submitted,
-        # or e.g. a private asset was submitted.
-        # fail message?
-        return
 
-    # Send to background to generate resolutions
+def _send_to_bg_for_resolutions(
+    asset_data: dict[str, Any],
+    asset_file_path: str,
+    blender_binary_path: str,
+) -> tuple[str, str]:
+    """Dispatch Blender background job to generate resolutions.
+
+    Creates a temp folder for results and calls Blender with the right script
+    depending on asset type.
+
+    Args:
+        asset_data: Asset data dictionary.
+        asset_file_path: Path to the downloaded asset file.
+        blender_binary_path: Path to Blender binary.
+
+    Returns:
+        A tuple of (temp_folder, result_path).
+    """
     temp_folder = tempfile.mkdtemp()
     result_path = os.path.join(temp_folder, asset_data["assetBaseId"] + "_resdata.json")
 
-    if asset_data["assetType"] == "hdr":
-        # >asset_file_path = 'empty.blend'
-        # HDRs have a different script, and are open inside an empty blend file.
+    if asset_data.get("assetType") == "hdr":
         current_dir = pathlib.Path(__file__).parent.resolve()
-
         send_to_bg.send_to_bg(
             asset_data,
             asset_file_path=asset_file_path,
@@ -93,64 +93,116 @@ def generate_resolution_thread(asset_data: dict, api_key: str) -> None:
             script="resolutions_bg_blender.py",
             binary_path=blender_binary_path,
         )
+    return temp_folder, result_path
 
-    files = None
+
+def _read_result_files(result_path: str) -> list[dict[str, Any]] | None:
+    """Read JSON results from Blender background process.
+
+    Args:
+        result_path: Path to the JSON results file.
+
+    Returns:
+        A list of file dicts or None on error.
+    """
     try:
         with open(result_path, encoding="utf-8") as f:
-            files = json.load(f)
-    except Exception as e:  # noqa: BLE001
-        print(e)
+            return json.load(f)
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError):
+        logger.exception("Error reading result JSON %s", result_path)
+        return None
 
-    if SKIP_UPLOAD:
-        print("----- SKIP_UPLOAD==True -> skipping upload -----")
-        sys.exit()
+
+def _determine_result_and_upload(
+    files: list[dict[str, Any]] | None,
+    asset_data: dict[str, Any],
+    api_key: str,
+) -> str:
+    """Upload results when present and return operation state.
+
+    Args:
+        files: List of generated files, None on error, empty if skipped.
+        asset_data: Asset data dictionary.
+        api_key: API key.
+
+    Returns:
+        One of "success", "error", or "skipped".
+    """
     if files is None:
-        # this means error
-        result_state = "error"
-    elif len(files) > 0:
-        # there are no actual resolutions
+        return "error"
+    if not files:
+        return "skipped"
+    try:
         upload.upload_resolutions(files, asset_data, api_key=api_key)
-        result_state = "success"
+    except Exception:
+        logger.exception("Upload resolutions failed for asset %s", asset_data.get("id"))
+        return "error"
     else:
-        # zero files, consider skipped
-        result_state = "skipped"
-    print(f"result state: {result_state}")
-    print("changing asset variable")
-    resgen_param = {"resolutionsGenerated": result_state}
+        return "success"
 
-    today = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")  # noqa: UP017
-    upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
 
-    # delete the temp folder
+def _cleanup(temp_folder: str, asset_file_path: str, asset_id: str | None) -> None:
+    """Delete temporary artifacts from disk.
+
+    Args:
+        temp_folder: Temporary directory path.
+        asset_file_path: Path to the downloaded asset file.
+        asset_id: Optional asset ID for logging.
+    """
     try:
         shutil.rmtree(temp_folder)
-    except (FileNotFoundError, PermissionError, OSError) as e:
-        print(f"Error while deleting temp folder {temp_folder}: {e}")
+    except (FileNotFoundError, PermissionError, OSError):
+        logger.exception("Error while deleting temp folder %s", temp_folder)
     try:
         os.remove(asset_file_path)
-    except (FileNotFoundError, PermissionError, OSError) as e:
-        print(f"Error while deleting asset file {asset_file_path}: {e}")
-    print("deleted temp folder")
+    except (FileNotFoundError, PermissionError, OSError):
+        logger.exception("Error while deleting asset file %s", asset_file_path)
+    logger.debug("Deleted temp folder and asset file for %s", asset_id)
 
-    # return,no param patching for now - no need for it by now?
+
+def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None:
+    """Thread to generate resolutions for a single asset.
+
+    A thread that:
+     1.downloads file
+     2.starts an instance of Blender that generates the resolutions
+     3.uploads files that were prepared
+     4.patches asset data with a new parameter.
+
+    Args:
+        asset_data (dict): Asset data dictionary.
+        api_key (str): API key for authentication.
+
+    Returns:
+        None
+    """
+    destination_directory = tempfile.gettempdir()
+    blender_binary_path = os.environ.get("BLENDER_PATH", "")
+
+    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+    if not asset_file_path:
+        # wrong api key/plan, or private asset submitted
+        return
+
+    _maybe_unpack_asset(asset_data, asset_file_path, blender_binary_path)
+    temp_folder, result_path = _send_to_bg_for_resolutions(asset_data, asset_file_path, blender_binary_path)
+
+    files = _read_result_files(result_path)
+    if SKIP_UPLOAD:
+        logger.warning("SKIP_UPLOAD==True -> skipping upload")
+        _cleanup(temp_folder, asset_file_path, asset_data.get("id"))
+        return
+
+    result_state = _determine_result_and_upload(files, asset_data, api_key)
+    logger.info("Result state for asset %s: %s", asset_data.get("id"), result_state)
+    upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
+    _cleanup(temp_folder, asset_file_path, asset_data.get("id"))
     return
-
-    upload.patch_individual_parameter(
-        asset_data["id"],
-        param_name=resgen_param,
-        api_key=api_key,
-    )
-    upload.patch_individual_parameter(
-        asset_data["id"],
-        param_name="resolutionsGeneratedDate",
-        param_value=today,
-        api_key=api_key,
-    )
 
 
 def iterate_assets(
     filepath: str,
-    thread_function: callable | None = None,
+    thread_function: Callable[[dict[str, Any], str], None] | None = None,
     process_count: int = 12,
     api_key: str = "",
 ) -> None:
@@ -166,22 +218,28 @@ def iterate_assets(
         None
     """
     assets = search.load_assets_list(filepath)
-    threads = []
+    if thread_function is None:
+        thread_function = generate_resolution_thread
+    threads: list[threading.Thread] = []
     for asset_data in assets:
-        if asset_data is not None:
-            print(f"downloading and generating resolution for  {asset_data['name']}")
-            thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
-            thread.start()
-            threads.append(thread)
-            while len(threads) > process_count - 1:
-                for t in threads:
-                    if not t.is_alive():
-                        threads.remove(t)
-                    break
-                time.sleep(0.1)  # wait for a bit to finish all threads
+        if not asset_data:
+            logger.warning("Skipping empty asset entry")
+            continue
+        logger.info("Queueing resolutions generation for %s", asset_data.get("name"))
+        thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
+        thread.start()
+        threads.append(thread)
+        # throttle concurrent threads
+        while len([t for t in threads if t.is_alive()]) >= process_count:
+            threads = [t for t in threads if t.is_alive()]
+            time.sleep(0.1)
+
+    # Wait for remaining threads to finish
+    for t in threads:
+        t.join()
 
 
-def main():
+def main() -> None:
     """Main function to generate resolutions for assets."""
     dpath = tempfile.gettempdir()
     filepath = os.path.join(dpath, "assets_for_resolutions.json")
@@ -191,8 +249,8 @@ def main():
     # only material, model and hdr are supported currently. We can do scenes in future potentially
     # only validated public assets are processed
     # only files from a certain size are processed (over 1 MB)
-    # TODO: Fix the parameter last_resolution_upload - currently searches for assets that were never processed,
-    # TODO: but we need to process all updated assets too, and write a specific parameter too
+    # Note: The parameter last_resolution_upload currently searches for assets that were never processed.
+    # Note: We should also process updated assets and record a specific parameter for updates.
     params = {
         "asset_type": "model,material,hdr",
         # >'asset_type': 'hdr',
@@ -213,14 +271,13 @@ def main():
     assets = search.get_search_simple(
         params,
         filepath,
-        page_size=min(MAX_ASSETS, 100),
+        page_size=min(MAX_ASSETS, PAGE_SIZE_LIMIT),
         max_results=MAX_ASSETS,
         api_key=paths.API_KEY,
     )
-
-    print("COUNT OF ASSETS TO BE PROCESSED ", len(assets))
+    logger.info("Count of assets to be processed: %s", len(assets))
     for a in assets:
-        print(a["name"], a["assetType"])
+        logger.debug("%s ||| %s", a.get("name"), a.get("assetType"))
 
     iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=generate_resolution_thread)
 

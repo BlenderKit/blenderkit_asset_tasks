@@ -3,7 +3,7 @@ name = "blenderkit-asset_tasks"
 version = "0.9.1"
 description = "BlenderKit asset tasks"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "python-dotenv>=1.0.1",
     "certifi==2025.8.3",
@@ -21,6 +21,7 @@ dependencies = [
     "gradio",
     "open_clip_torch>=3.1.0",
     "clip-interrogator>=0.6.0",
+    "pillow",
     "boto3",
     "botocore",
     "numpy",

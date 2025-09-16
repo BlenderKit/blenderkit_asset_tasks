@@ -1,17 +1,49 @@
 """Script to trigger reindex of an asset on the BlenderKit server.
 
-It uses asset_base_id to find the asset_id, which is then used to trigger the reindex.
-asset_base_id is in the admin presented as 'asset ID', asset_id is in admin presented
-as 'version ID'.
+It uses ``asset_base_id`` to find the ``asset_id``, which is then used to trigger the reindex.
+``asset_base_id`` is in the admin presented as "asset ID", ``asset_id`` is in admin presented
+as "version ID".
 """
 
+from __future__ import annotations
+
+import logging
 import os
-import sys
+from typing import Any
 
 import requests
-from requests.adapters import HTTPAdapter, Retry
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+logger = logging.getLogger(__name__)
+
+# Configure basic logging only if root has no handlers (script usage)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 RESPONSE_OK = 200
+REQUEST_TIMEOUT_SECONDS = 30
+RETRIES_TOTAL = 5
+RETRIES_BACKOFF_FACTOR = 1
+RETRIES_STATUS_FORCELIST = (500, 502, 503, 504)
+
+
+def _build_session() -> requests.Session:
+    """Create a requests session with retry logic.
+
+    Returns:
+        Configured requests.Session instance.
+    """
+    session = requests.Session()
+    retries = Retry(
+        total=RETRIES_TOTAL,
+        backoff_factor=RETRIES_BACKOFF_FACTOR,
+        status_forcelist=RETRIES_STATUS_FORCELIST,
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
 
 
 def get_asset_id(server: str, asset_base_id: str) -> str:
@@ -28,32 +60,38 @@ def get_asset_id(server: str, asset_base_id: str) -> str:
         str: Asset ID (version ID).
     """
     url = f"{server}/api/v1/search?query=asset_base_id:{asset_base_id}"
-    s = requests.Session()
-    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
-    s.mount("https://", HTTPAdapter(max_retries=retries))
-    headers = {"Accept": "application/json"}
-    resp = s.get(url=url, headers=headers)
-    resp_json = resp.json()
+    session = _build_session()
+    headers: dict[str, str] = {"Accept": "application/json"}
+    resp = session.get(url=url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    try:
+        resp.raise_for_status()
+    except requests.RequestException:
+        logger.exception("HTTP error while fetching asset ID for %s", asset_base_id)
+        raise
+
+    try:
+        resp_json: dict[str, Any] = resp.json()
+    except ValueError:
+        logger.exception("Invalid JSON response when fetching asset ID for %s from %s", asset_base_id, url)
+        raise
 
     count = resp_json.get("count")
     if count != 1:
-        print(f"unexpected count of results: {count}")
+        logger.error("Unexpected result count for %s: %s", asset_base_id, count)
+        raise ValueError(f"Unexpected count of results: {count}")
 
     results = resp_json.get("results")
-    if results is None:
-        print(f"results not present in response: {resp_json} on {url}")
-        sys.exit(10)
-
-    if len(results) == 0:
-        print(f"results length is 0 in response: {resp_json} on {url}")
-        sys.exit(10)
+    if not isinstance(results, list) or len(results) == 0:
+        logger.error("Results missing or empty in response: %s on %s", resp_json, url)
+        raise ValueError("Results missing or empty in response")
 
     asset_id = results[0].get("id")
     if not asset_id:
-        print(f"unexpected asset id: {asset_id} in response: {resp_json} on {url}")
-        sys.exit(10)
+        logger.error("Asset ID missing in response: %s on %s", resp_json, url)
+        raise ValueError("Asset ID missing in response")
 
-    return asset_id
+    asset_id_str: str = str(asset_id)
+    return asset_id_str
 
 
 def trigger_reindex(server: str, api_key: str, asset_id: str) -> None:
@@ -71,18 +109,21 @@ def trigger_reindex(server: str, api_key: str, asset_id: str) -> None:
         None
     """
     url = f"{server}/api/v1/assets/{asset_id}"
-    s = requests.Session()
-    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
-    s.mount("https://", HTTPAdapter(max_retries=retries))
-    headers = {
+    session = _build_session()
+    headers: dict[str, str] = {
         "Accept": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
-    resp = s.patch(url=url, headers=headers)
+    resp = session.patch(url=url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     if resp.status_code != RESPONSE_OK:
-        print(f"http response OK was expected, but we got: {resp.status_code}")
+        logger.error("HTTP response OK was expected, but got: %s", resp.status_code)
+        try:
+            resp.raise_for_status()
+        except requests.RequestException:
+            logger.exception("HTTP error while triggering reindex for %s", asset_id)
+            raise
     else:
-        print("Asset reindex successfully scheduled!")
+        logger.info("Asset reindex successfully scheduled for %s", asset_id)
 
 
 if __name__ == "__main__":

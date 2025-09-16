@@ -1,49 +1,93 @@
+"""Launch Blender background tasks with controlled environment and logging.
+
+This module selects an appropriate Blender binary, prepares a temporary
+datafile for the background script, spawns Blender with flags, streams output,
+and cleans up afterwards.
+"""
+
+from __future__ import annotations
+
 import json
+import logging
 import os
 import subprocess
 import sys
 import tempfile
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
 from . import paths
 
-
-def version_to_float(version):
-    vars = version.split(".")
-    version = int(vars[0]) + 0.01 * int(vars[1])
-    if len(vars) > 2:
-        version += 0.0001 * int(vars[2])
-    return version
+logger = logging.getLogger(__name__)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
-def get_blender_version_from_blend(blend_file_path):
-    # get blender version from blend file, works only for 2.8+
+# Verbosity constants
+VERBOSITY_STDERR: int = 1
+VERBOSITY_ALL: int = 2
+
+# Version parsing helpers
+MIN_PARTS_FOR_MINOR: int = 2
+MIN_PARTS_FOR_PATCH: int = 3
+
+
+def version_to_float(version: str) -> float:
+    """Convert a version string like '3.6.2' to a sortable float.
+
+    Note: this retains original behavior where the third component has a small
+    weight. It is sufficient for nearest-version matching.
+    """
+    parts = version.split(".")
+    major = int(parts[0])
+    minor = int(parts[1]) if len(parts) >= MIN_PARTS_FOR_MINOR else 0
+    patch = int(parts[2]) if len(parts) >= MIN_PARTS_FOR_PATCH else 0
+    result = major + 0.01 * minor + 0.0001 * patch
+    return result
+
+
+def get_blender_version_from_blend(blend_file_path: str) -> str:
+    """Extract Blender version from a .blend file header (2.8+ heuristic).
+
+    Returns 'major.minor' as a string. Falls back to '2.93' if not detected.
+    """
     with open(blend_file_path, "rb") as blend_file:
-        # Read the first 12 bytes
         header = blend_file.read(24)
-        # Check for compression
         if header[0:7] == b"BLENDER":
-            # If the file is uncompressed, the version is in bytes 9-11
             version_bytes = header[9:12]
             version = (chr(version_bytes[0]), chr(version_bytes[2]))
         elif header[12:19] == b"BLENDER":
-            # If the file is compressed, the version is in bytes 8-10
             version_bytes = header[21:24]
             version = (chr(version_bytes[0]), chr(version_bytes[2]))
         else:
-            version_bytes = None
-            version = ("2", "93")  # last supported version by now
-        print(version)
-        return ".".join(version)
+            version = ("2", "93")
+        ver_str = ".".join(version)
+        logger.debug("Blend header reported version %s", ver_str)
+        return ver_str
 
 
-def get_blender_binary(asset_data, file_path="", binary_type="CLOSEST"):
-    # pick the right blender version for asset processing
+def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_type: str = "CLOSEST") -> str:
+    """Pick the appropriate Blender binary based on asset metadata and policy.
+
+    Args:
+        asset_data: Asset metadata; expects 'sourceAppVersion' and 'assetType'.
+        file_path: Path to a .blend file to derive version from if present.
+        binary_type: 'CLOSEST' or 'NEWEST'. CLOSEST uses nearest to asset version.
+
+    Returns:
+        Absolute path to the chosen Blender executable.
+
+    Raises:
+        RuntimeError: If no binaries are found or the selected binary doesn't exist.
+    """
     blenders_path = paths.BLENDERS_PATH
     blenders = []
     # Get available blender versions
     for fn in os.listdir(blenders_path):
         # Skip hidden files and non-version directories
-        if fn.startswith('.') or not any(c.isdigit() for c in fn):
+        if fn.startswith(".") or not any(c.isdigit() for c in fn):
             continue
         try:
             version = version_to_float(fn)
@@ -56,29 +100,26 @@ def get_blender_binary(asset_data, file_path="", binary_type="CLOSEST"):
 
     if binary_type == "CLOSEST":
         # get asset's blender upload version
-        asset_blender_version = version_to_float(asset_data["sourceAppVersion"])
-        print("asset blender version", asset_blender_version)
+        source_ver = str(asset_data.get("sourceAppVersion", "0.0"))
+        asset_blender_version = version_to_float(source_ver)
+        logger.debug("Asset Blender version (metadata): %s -> %s", source_ver, asset_blender_version)
 
-        asset_blender_version_from_blend = get_blender_version_from_blend(file_path)
-        print("asset blender version from blend", asset_blender_version_from_blend)
+        asset_blender_version_from_blend = get_blender_version_from_blend(file_path) if file_path else "0.0"
+        logger.debug("Asset Blender version (from blend): %s", asset_blender_version_from_blend)
 
-        asset_blender_version_from_blend = version_to_float(
-            asset_blender_version_from_blend
-        )
-        asset_blender_version = max(
-            asset_blender_version, asset_blender_version_from_blend
-        )
-        print("asset blender version picked", asset_blender_version)
+        asset_blender_version_from_blend_f = version_to_float(asset_blender_version_from_blend)
+        asset_blender_version = max(asset_blender_version, asset_blender_version_from_blend_f)
+        logger.debug("Asset Blender version (picked): %s", asset_blender_version)
 
         blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
     if binary_type == "NEWEST":
         blender_target = max(blenders, key=lambda x: x[0])
     # use latest blender version for hdrs
-    if asset_data["assetType"] == "hdr":
+    if str(asset_data.get("assetType", "")).lower() == "hdr":
         blender_target = blenders[-1]
 
-    print(blender_target)
-    
+    logger.debug("Selected Blender target: %s", blender_target)
+
     # Handle different OS paths
     if sys.platform == "darwin":  # macOS
         binary = os.path.join(
@@ -86,104 +127,90 @@ def get_blender_binary(asset_data, file_path="", binary_type="CLOSEST"):
             blender_target[1],
             "Contents",
             "MacOS",
-            "Blender"
+            "Blender",
         )
     else:  # Windows and Linux
         ext = ".exe" if sys.platform == "win32" else ""
         binary = os.path.join(blenders_path, blender_target[1], f"blender{ext}")
 
-    print(f"Using Blender binary: {binary}")
+    logger.info("Using Blender binary: %s", binary)
     if not os.path.exists(binary):
         raise RuntimeError(f"Blender binary not found at {binary}")
-        
+
     return binary
 
 
-def get_process_flags():
-    """Get proper priority flags so background processess can run with lower priority."""
-
-    ABOVE_NORMAL_PRIORITY_CLASS = 0x00008000
-    BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
-    HIGH_PRIORITY_CLASS = 0x00000080
-    IDLE_PRIORITY_CLASS = 0x00000040
-    NORMAL_PRIORITY_CLASS = 0x00000020
-    REALTIME_PRIORITY_CLASS = 0x00000100
-
-    flags = BELOW_NORMAL_PRIORITY_CLASS
-    if sys.platform != "win32":  # TODO test this on windows
-        flags = 0
-
-    return flags
+def get_process_flags() -> int:
+    """Get OS-specific priority flags so subprocess runs at lower priority."""
+    below_normal_priority_class = 0x00004000
+    return below_normal_priority_class if sys.platform == "win32" else 0
 
 
-def send_to_bg(
-        asset_data: dict,
-        asset_file_path: str = '',
-        template_file_path: str = '',
-        temp_folder: str = '',
-        result_path: str = '',
-        result_folder: str = '',
-        api_key: str = '',
-        script: str = '',
-        addons: str = '',
-        binary_type: str = 'CLOSEST',
-        verbosity_level: int = 2,
-        binary_path: str = "",
-        target_format: str = ""
-        ):
-    '''
-    Send various task to a new blender instance that runs and closes after finishing the task.
-    This function waits until the process finishes.
-    The function tries to set the same bpy.app.debug_value in the instance of Blender that is run.
-    Parameters
-    ----------
-    asset_data
-    asset_file_path - asset file that will be processed
-    template_file_path - if provided, gets open first, and the background script handles what should be done with asset file
-    temp_folder - temporary directory where the results will be stored
-    result_path - path where the result of the processing will be stored
-    result_folder - path where only things for possible upload can get stored if there is more than one outpit file
-    api_key - api key for the server
-    script - script that should be run in background, has to be in directory blender_bg_scripts which gets appended to path automatically
-    addons - addons that should be enabled in the background instance
-    target_format - which file format we want to export, e.g.: gltf, gltf_godot
-    '''
+def _reader_thread(pipe: Any, func: Callable[[str], None]) -> None:
+    """Read a pipe line-by-line and pass decoded text to a callback."""
+    for line in iter(pipe.readline, b""):
+        func(line.decode(errors="replace").strip())
+    pipe.close()
 
-    def reader_thread(pipe, func):
-        for line in iter(pipe.readline, b""):
-            func(line.decode().strip())
-        pipe.close()
 
-    if binary_path != "":
-        print(f"Send_to_BG: using predefined Blender binary path: {binary_path}")
-    else:
-        binary_path = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
-        print(f"Send_to_BG: using detected Blender binary path: {binary_path}")
+def _select_binary_path(
+    binary_path: str,
+    asset_data: dict[str, Any],
+    *,
+    asset_file_path: str,
+    binary_type: str,
+) -> str:
+    """Choose Blender binary path either from input or by detection."""
+    if binary_path:
+        logger.info("Send_to_BG: using predefined Blender binary path: %s", binary_path)
+        return binary_path
+    detected = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
+    logger.info("Send_to_BG: using detected Blender binary path: %s", detected)
+    return detected
 
-    own_temp_folder = False
-    if temp_folder == "":
-        temp_folder = tempfile.mkdtemp()
-        own_temp_folder = True
+
+def _ensure_temp_folder(temp_folder: str) -> tuple[str, bool]:
+    """Ensure a temporary folder exists; return the path and ownership flag."""
+    if temp_folder:
+        return temp_folder, False
+    created = tempfile.mkdtemp()
+    return created, True
+
+
+def _write_datafile(
+    temp_folder: str,
+    payload: DataPayload,
+) -> str:
+    """Write the JSON datafile used by the background script and return its path."""
     data = {
-        'file_path': asset_file_path,
-        'result_filepath': result_path,
-        'result_folder': result_folder,
-        'asset_data': asset_data,
-        'api_key': api_key,
-        'temp_folder': temp_folder,
-        'target_format': target_format,
+        "file_path": payload.file_path,
+        "result_filepath": payload.result_filepath,
+        "result_folder": payload.result_folder,
+        "asset_data": payload.asset_data,
+        "api_key": payload.api_key,
+        "temp_folder": temp_folder,
+        "target_format": payload.target_format,
     }
-    datafile = os.path.join(temp_folder, 'resdata.json').replace('\\', '\\\\')
-    with open(datafile, 'w', encoding='utf-8') as s:
-        json.dump(data, s, ensure_ascii=False, indent=4)
+    datafile = os.path.join(temp_folder, "resdata.json").replace("\\", "\\\\")
+    with open(datafile, "w", encoding="utf-8") as stream:
+        json.dump(data, stream, ensure_ascii=False, indent=4)
+    return datafile
 
-    print("opening Blender instance to do processing - ", script)
 
-    # exclude hdrs from reading as .blend
-    if template_file_path == "":
-        template_file_path = asset_file_path
+def _resolve_template(template_file_path: str, asset_file_path: str) -> str:
+    """Return the template path, defaulting to the asset file if not provided."""
+    return template_file_path or asset_file_path
 
-    command = [
+
+def _build_command(
+    binary_path: str,
+    template_file_path: str,
+    script: str,
+    datafile: str,
+    addons: str,
+) -> list[str]:
+    """Construct the Blender CLI command list with optional addons."""
+    command: list[str] = [
         binary_path,
         "--background",
         "--factory-startup",
@@ -194,37 +221,42 @@ def send_to_bg(
         "--",
         datafile,
     ]
-    if addons != "":
-        addons = f"--addons {addons}"
-        command.insert(3, addons)
+    if addons:
+        command.insert(3, "--addons")
+        command.insert(4, addons)
+    return command
 
-    # Other code remains the same ...
+
+def _run_blender(command: list[str], verbosity_level: int) -> int:
+    """Run Blender with the given command and stream output per verbosity."""
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
-
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
-        if verbosity_level == 2:
+        if verbosity_level == VERBOSITY_ALL:
             stdout_thread = threading.Thread(
-                target=reader_thread,
-                args=(proc.stdout, lambda line: print("STDOUT:", line)),
+                target=_reader_thread,
+                args=(proc.stdout, lambda line: logger.info("STDOUT: %s", line)),
             )
             stderr_thread = threading.Thread(
-                target=reader_thread,
-                args=(proc.stderr, lambda line: print("STDERR:", line)),
+                target=_reader_thread,
+                args=(proc.stderr, lambda line: logger.error("STDERR: %s", line)),
             )
-        elif verbosity_level == 1:
+        elif verbosity_level == VERBOSITY_STDERR:
             stdout_thread = threading.Thread(
-                target=reader_thread, args=(proc.stdout, lambda _: None)
+                target=_reader_thread,
+                args=(proc.stdout, lambda _: None),
             )
             stderr_thread = threading.Thread(
-                target=reader_thread,
-                args=(proc.stderr, lambda line: print("STDERR:", line)),
+                target=_reader_thread,
+                args=(proc.stderr, lambda line: logger.error("STDERR: %s", line)),
             )
         else:
             stdout_thread = threading.Thread(
-                target=reader_thread, args=(proc.stdout, lambda _: None)
+                target=_reader_thread,
+                args=(proc.stdout, lambda _: None),
             )
             stderr_thread = threading.Thread(
-                target=reader_thread, args=(proc.stderr, lambda _: None)
+                target=_reader_thread,
+                args=(proc.stderr, lambda _: None),
             )
 
         stdout_thread.start()
@@ -232,12 +264,89 @@ def send_to_bg(
         stdout_thread.join()
         stderr_thread.join()
         returncode = proc.wait()
+    return returncode
+
+
+def _cleanup_paths(datafile: str, temp_folder: str, *, remove_temp_folder: bool) -> None:
+    """Remove temporary files/folders created by this module."""
+    try:
+        os.remove(datafile)
+    except OSError:
+        logger.debug("Failed to remove temp datafile: %s", datafile, exc_info=True)
+    if remove_temp_folder:
+        try:
+            os.rmdir(temp_folder)
+        except OSError:
+            logger.debug("Failed to remove temp folder: %s", temp_folder, exc_info=True)
+
+
+@dataclass
+class DataPayload:
+    """Container for background script input payload."""
+
+    file_path: str
+    result_filepath: str
+    result_folder: str
+    asset_data: dict[str, Any]
+    api_key: str
+    target_format: str
+
+
+def send_to_bg(  # noqa: PLR0913
+    asset_data: dict[str, Any],
+    asset_file_path: str = "",
+    template_file_path: str = "",
+    temp_folder: str = "",
+    result_path: str = "",
+    result_folder: str = "",
+    api_key: str = "",
+    script: str = "",
+    addons: str = "",
+    binary_type: str = "CLOSEST",
+    verbosity_level: int = 2,
+    binary_path: str = "",
+    target_format: str = "",
+) -> int:
+    """Run a Blender background script and wait for it to finish.
+
+    Args:
+        asset_data: Asset metadata used to select Blender and passed to the script.
+        asset_file_path: Asset file to process.
+        template_file_path: Optional .blend template to open first.
+        temp_folder: Temporary directory used to store the JSON datafile and outputs.
+        result_path: Output path used by the background script.
+        result_folder: Output directory for multi-file results.
+        api_key: API key string forwarded to the background script.
+        script: Python file name in paths.BG_SCRIPTS_PATH to run with Blender.
+        addons: Comma-separated addon names to enable in Blender.
+        binary_type: 'CLOSEST' or 'NEWEST' to select Blender.
+        verbosity_level: 0=quiet, 1=stderr only, 2=stdout+stderr streaming.
+        binary_path: Explicit Blender binary path to use; if empty, autodetect.
+        target_format: Optional target format forwarded to script.
+
+    Returns:
+        Process return code from Blender.
+    """
+    binary_path = _select_binary_path(binary_path, asset_data, asset_file_path=asset_file_path, binary_type=binary_type)
+    temp_folder, own_temp_folder = _ensure_temp_folder(temp_folder)
+    payload = DataPayload(
+        file_path=asset_file_path,
+        result_filepath=result_path,
+        result_folder=result_folder,
+        asset_data=asset_data,
+        api_key=api_key,
+        target_format=target_format,
+    )
+    datafile = _write_datafile(temp_folder, payload)
+    logger.info("Opening Blender instance to process script: %s", script)
+    template_file_path = _resolve_template(template_file_path, asset_file_path)
+    command = _build_command(binary_path, template_file_path, script, datafile, addons)
+    returncode = _run_blender(command, verbosity_level)
 
     if returncode != 0:
-        print("Error while running command: ", command)
-        print("Return code: ", returncode)
+        logger.error("Blender command failed with code %s: %s", returncode, command)
 
     # cleanup
-    os.remove(datafile)
-    if own_temp_folder:
-        os.rmdir(temp_folder)
+    _cleanup_paths(datafile, temp_folder, remove_temp_folder=own_temp_folder)
+
+    return returncode

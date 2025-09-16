@@ -1,21 +1,32 @@
-"""A script to generate GLTF files for models that do not have them yet.
+"""Generate GLTF files for models that do not have them yet.
 
-It downloads the asset, starts a background Blender process to generate the GLTF file,
-and uploads the result.
+This script downloads the asset, starts a background Blender process to
+generate the GLTF file, and uploads the result. It also patches success or
+error parameters on the asset for traceability.
 """
 
 import datetime
 import json
+import logging
 import os
 import tempfile
+from typing import Any
 
 from blenderkit_server_utils import download, search, send_to_bg, upload
 
-results = []
-page_size = 100
+logger = logging.getLogger(__name__)
+
+# Constants
+PAGE_SIZE_LIMIT: int = 100
+PARAM_SUCCESS: str = "gltfGeneratedDate"
+PARAM_ERROR: str = "gltfGeneratedError"
+
+# Configure basic logging only if root has no handlers (script usage)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
-def generate_gltf(asset_data: dict, api_key: str, binary_path: str) -> bool:
+def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) -> bool:
     """Generate GLTF for a single asset via background Blender and upload it.
 
     Steps:
@@ -46,8 +57,7 @@ def generate_gltf(asset_data: dict, api_key: str, binary_path: str) -> bool:
     )
 
     if not asset_file_path:
-        print(f"Asset file not found on path {asset_file_path}")
-        # fail message?
+        logger.error("Asset file not found on path %s", asset_file_path)
         return False
 
     # Send to background to generate GLTF
@@ -63,41 +73,63 @@ def generate_gltf(asset_data: dict, api_key: str, binary_path: str) -> bool:
         target_format="gltf",
     )
 
-    files = None
+    files: list[dict[str, Any]] | None = None
     try:
         with open(result_path, encoding="utf-8") as f:
             files = json.load(f)
-    except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError) as e:
-        print(f"---> Error reading result JSON {result_path}: {e}")
-        error += f" {e}"
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError) as exc:
+        logger.exception("Error reading result JSON %s", result_path)
+        error += f" {exc}"
 
     if files is None:
         error += " Files are None"
     elif len(files) > 0:
-        # there are no actual resolutions
-        print("Files are:", files)
-        upload.upload_resolutions(files, asset_data, api_key=api_key)
-        today = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")
-        param = "gltfGeneratedDate"
-        upload.patch_individual_parameter(asset_data["id"], param_name=param, param_value=today, api_key=api_key)
-        upload.get_individual_parameter(asset_data["id"], param_name=param, api_key=api_key)
-        print(f"---> Asset parameter {param} successfully patched with value {today}")
-        # TODO: Remove gltfGeneratedError if it was filled by previous runs
-        return True
+        logger.info("Generated files: %s", files)
+        try:
+            upload.upload_resolutions(files, asset_data, api_key=api_key)
+            today = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+            upload.patch_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=PARAM_SUCCESS,
+                param_value=today,
+                api_key=api_key,
+            )
+            upload.get_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=PARAM_SUCCESS,
+                api_key=api_key,
+            )
+            logger.info("Patched %s=%s for asset %s", PARAM_SUCCESS, today, asset_data.get("id"))
+        except Exception:
+            logger.exception(
+                "Failed to upload resolutions or patch success parameter for asset %s",
+                asset_data.get("id"),
+            )
+            error += " upload/patch failed"
+        else:
+            # Success path
+            return True
     else:
         error += f" len(files)={len(files)}"
 
-    print("---> GLTF generation failed")
-    param = "gltfGeneratedError"
+    logger.error("GLTF generation failed for asset %s: %s", asset_data.get("id"), error.strip())
     value = error.strip()
-    upload.patch_individual_parameter(asset_data["id"], param_name=param, param_value=value, api_key=api_key)
-    upload.get_individual_parameter(asset_data["id"], param_name=param, api_key=api_key)
-    print(f"--> Asset parameter {param} patched with value {value} to signal GLTF generation FAILURE")
+    try:
+        upload.patch_individual_parameter(
+            asset_id=asset_data["id"],
+            param_name=PARAM_ERROR,
+            param_value=value,
+            api_key=api_key,
+        )
+        upload.get_individual_parameter(asset_data["id"], param_name=PARAM_ERROR, api_key=api_key)
+        logger.info("Patched %s='%s' for asset %s", PARAM_ERROR, value, asset_data.get("id"))
+    except Exception:
+        logger.exception("Failed to patch error parameter for asset %s", asset_data.get("id"))
 
     return False
 
 
-def iterate_assets(assets: list[dict], api_key: str = "", binary_path: str = ""):
+def iterate_assets(assets: list[dict[str, Any]], api_key: str = "", binary_path: str = "") -> None:
     """Iterate assets and run GLTF generation for each.
 
     Args:
@@ -109,18 +141,18 @@ def iterate_assets(assets: list[dict], api_key: str = "", binary_path: str = "")
         None
     """
     for i, asset_data in enumerate(assets):
-        print(f"\n\n=== {i + 1} downloading and generating GLTF files for {asset_data['name']}")
-        if asset_data is None:
-            print("---> skipping, asset_data are None")
+        logger.info("=== %s/%s generating GLTF for %s", i + 1, len(assets), asset_data.get("name"))
+        if not asset_data:
+            logger.warning("Skipping empty asset entry at index %s", i)
             continue
         ok = generate_gltf(asset_data, api_key, binary_path=binary_path)
         if ok:
-            print("===> GLTF SUCCESS")
+            logger.info("===> GLTF SUCCESS for %s", asset_data.get("id"))
         else:
-            print("===> GLTF FAILED")
+            logger.warning("===> GLTF FAILED for %s", asset_data.get("id"))
 
 
-def main():
+def main() -> None:
     """Entry point to fetch assets and generate GLTFs where missing."""
     blender_path = os.environ.get("BLENDER_PATH", "")
     api_key = os.environ.get("BLENDERKIT_API_KEY", "")
@@ -145,13 +177,13 @@ def main():
 
     assets = search.get_search_without_bullshit(
         params,
-        page_size=min(max_assets, 100),
+        page_size=min(max_assets, PAGE_SIZE_LIMIT),
         max_results=max_assets,
         api_key=api_key,
     )
-    print(f"--- Found {len(assets)} for GLTF conversion: ---")
+    logger.info("Found %s assets for GLTF conversion", len(assets))
     for i, asset in enumerate(assets):
-        print(f"{i + 1} {asset['name']} ||| {asset['assetType']}")
+        logger.debug("%s %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"))
 
     iterate_assets(assets, api_key=api_key, binary_path=blender_path)
 

@@ -1,4 +1,3 @@
-
 """Placeholder test file to ensure test discovery works."""
 
 import unittest
@@ -12,9 +11,5 @@ class TestPlaceholder(unittest.TestCase):
         self.assertTrue(True)  # noqa: FBT003
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-
-
-
-
