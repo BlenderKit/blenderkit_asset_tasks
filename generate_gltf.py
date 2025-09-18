@@ -5,25 +5,19 @@ generate the GLTF file, and uploads the result. It also patches success or
 error parameters on the asset for traceability.
 """
 
-import datetime
 import json
-import logging
 import os
 import tempfile
 from typing import Any
 
-from blenderkit_server_utils import download, search, send_to_bg, upload
+from blenderkit_server_utils import datetime_utils, download, log, search, send_to_bg, upload
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100
 PARAM_SUCCESS: str = "gltfGeneratedDate"
 PARAM_ERROR: str = "gltfGeneratedError"
-
-# Configure basic logging only if root has no handlers (script usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) -> bool:
@@ -87,7 +81,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         logger.info("Generated files: %s", files)
         try:
             upload.upload_resolutions(files, asset_data, api_key=api_key)
-            today = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+            today = datetime_utils.today_date_iso()
             upload.patch_individual_parameter(
                 asset_id=asset_data["id"],
                 param_name=PARAM_SUCCESS,
@@ -175,7 +169,7 @@ def main() -> None:
             "gltfGeneratedError_isnull": True,
         }
 
-    assets = search.get_search_without_bullshit(
+    assets = search.get_search_paginated(
         params,
         page_size=min(max_assets, PAGE_SIZE_LIMIT),
         max_results=max_assets,

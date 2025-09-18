@@ -6,7 +6,6 @@ generated files for the main process to upload.
 """
 
 import json
-import logging
 import os
 import sys
 from typing import Any
@@ -19,12 +18,10 @@ parent_path = os.path.join(dir_path, os.path.pardir)
 if parent_path not in sys.path:
     sys.path.append(parent_path)
 
-from blenderkit_server_utils import image_utils, paths  # isort: skip  # noqa: E402
+from blenderkit_server_utils import image_utils, paths, log  # isort: skip  # noqa: E402
 
 
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s - %(message)s")
+logger = log.create_logger(__name__)
 
 
 def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:

@@ -10,15 +10,14 @@ and logging is used instead of print statements.
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any
 
 import requests
 
-from . import paths, utils
+from . import log, paths, utils
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 SCENE_UUID = "5d22a2ce-7d4e-4500-9b1a-e5e79f8732c0"
 HTTP_SUCCESS_MAX = 399

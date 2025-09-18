@@ -15,12 +15,21 @@ The expected JSON structure is:
 # ruff: noqa: I001
 
 import json
-import logging
 import os
 import sys
 
 import bpy
 
+# Import utils - add path for Blender background execution
+dir_path = os.path.dirname(os.path.realpath(__file__))
+parent_path = os.path.join(dir_path, os.path.pardir)
+if parent_path not in sys.path:
+    sys.path.append(parent_path)
+
+from blenderkit_server_utils import log  # noqa: E402
+
+
+logger = log.create_logger(__name__)
 
 # Layout constants to avoid magic numbers
 NODE_GAP_X: int = 400
@@ -34,11 +43,6 @@ TEXTURE_MAPPING: dict[str, str] = {
     "alpha": "Alpha",
     "nrm": "Normal",
 }
-
-
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s - %(message)s")
 
 
 def _ensure_principled_setup(material: bpy.types.Material) -> tuple[bpy.types.Node, bpy.types.Node, bpy.types.NodeTree]:

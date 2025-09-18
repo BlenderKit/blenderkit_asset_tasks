@@ -8,16 +8,15 @@ Notes:
 - Ensure the API key is available (paths.API_KEY).
 """
 
-import logging
 import os
 import tempfile
 import time
 from typing import Any
 
-from blenderkit_server_utils import paths, search, upload
+from blenderkit_server_utils import log, paths, search, upload
 
 # Module logger
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 param_name: str = ""
 
@@ -32,10 +31,6 @@ def main() -> None:
     """
     if not param_name:
         raise ValueError("param_name must be set to the parameter you want to delete.")
-
-    # Configure logging if the root logger has no handlers (script use).
-    if not logging.getLogger().handlers:
-        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     params: dict[str, Any] = {f"{param_name}_isnull": False}
     dpath: str = tempfile.gettempdir()

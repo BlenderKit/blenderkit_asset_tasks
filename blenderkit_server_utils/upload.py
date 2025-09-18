@@ -12,7 +12,10 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 import requests
-from . import paths, utils
+
+from . import log, paths, utils
+
+logger = log.create_logger(__name__)
 
 # HTTP success range and request timeout
 HTTP_STATUS_SUCCESS_MIN = 199
@@ -54,7 +57,8 @@ class UploadInChunks:
                     break
                 self.readsofar += len(data)
                 percent = self.readsofar * 1e2 / self.totalsize
-                print(f"Uploading {self.report_name} {percent}%")
+                # Use debug level to avoid spamming info logs during large uploads.
+                logger.debug("Uploading %s %.2f%%", self.report_name, percent)
                 yield data
 
     def __len__(self) -> int:
@@ -72,7 +76,7 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
     """
     headers = utils.get_headers(upload_data["token"])
     version_id = upload_data["id"]
-    print(f"\n----> UPLOADING {f['type']} {os.path.basename(f['file_path'])}")
+    logger.info("----> Uploading %s %s", f["type"], os.path.basename(f["file_path"]))
 
     upload_info = {
         "assetId": version_id,
@@ -80,7 +84,7 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
         "fileIndex": f["index"],
         "originalFilename": os.path.basename(f["file_path"]),
     }
-    print(f" -  data:{upload_info}")
+    logger.debug("Upload init payload: %s", upload_info)
 
     upload_create_url = paths.get_api_url() + "/uploads/"
     response = requests.post(
@@ -119,16 +123,21 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                     verify=True,
                     timeout=REQUEST_TIMEOUT_SECONDS,
                 )
-                print(
-                    f"Finished file upload: {os.path.basename(f['file_path'])}",
+                logger.info(
+                    "Finished file upload: %s",
+                    os.path.basename(f["file_path"]),
                 )
                 return True
             message = f"Upload failed, retry. File : {f['type']} {os.path.basename(f['file_path'])}"
-            print(message)
-        except requests.exceptions.RequestException as e:
-            print(e)
+            logger.warning(message)
+        except requests.exceptions.RequestException:  # noqa: PERF203
+            logger.exception(
+                "Upload attempt raised exception for file %s (%s)",
+                f["file_path"],
+                f["type"],
+            )
             message = f"Upload failed, retry. File : {f['type']} {os.path.basename(f['file_path'])}"
-            print(message)
+            logger.warning(message)
             time.sleep(1)
 
             # confirm single file upload to bkit server
@@ -146,7 +155,13 @@ def upload_files(upload_data: dict[str, Any], files: Iterable[dict[str, Any]]) -
         uploaded = upload_file(upload_data, f)
         if not uploaded:
             uploaded_all = False
-        print(f"Uploaded all files for asset {upload_data['displayName']}")
+        logger.info(
+            "Uploaded file type %s (index %s) for asset %s -> %s",
+            f["type"],
+            f["index"],
+            upload_data["displayName"],
+            "SUCCESS" if uploaded else "FAIL",
+        )
     return uploaded_all
 
 
@@ -167,9 +182,9 @@ def upload_resolutions(files: Iterable[dict[str, Any]], asset_data: dict[str, An
 
     uploaded = upload_files(upload_data, files)
     if uploaded:
-        print("upload finished successfully")
+        logger.info("Upload of resolutions finished successfully")
     else:
-        print("upload failed.")
+        logger.error("Upload of resolutions failed")
 
 
 def get_individual_parameter(asset_id: str = "", param_name: str = "", api_key: str = "") -> dict[str, Any]:
@@ -187,7 +202,7 @@ def get_individual_parameter(asset_id: str = "", param_name: str = "", api_key: 
     headers = utils.get_headers(api_key)
     r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)  # files = files,
     parameter = r.json()
-    print(url)
+    logger.debug("GET parameter url: %s", url)
     return parameter
 
 
@@ -212,7 +227,7 @@ def patch_individual_parameter(
     url = f"{paths.get_api_url()}/assets/{asset_id}/parameter/{param_name}/"
     headers = utils.get_headers(api_key)
     metadata_dict = {"value": param_value}
-    print(url)
+    logger.debug("PATCH parameter url: %s", url)
     r = requests.put(
         url,
         json=metadata_dict,
@@ -220,8 +235,8 @@ def patch_individual_parameter(
         verify=True,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )  # files = files,
-    print(r.text)
-    print(r.status_code)
+    logger.debug("PATCH response text: %s", r.text)
+    logger.info("PATCH status code: %s", r.status_code)
     ok = r.status_code in SUCCESS_STATUS_CODES
     return ok
 
@@ -247,7 +262,7 @@ def delete_individual_parameter(
     url = f"{paths.get_api_url()}/assets/{asset_id}/parameter/{param_name}/"
     headers = utils.get_headers(api_key)
     metadata_dict = {"value": param_value}
-    print(url)
+    logger.debug("DELETE parameter url: %s", url)
     r = requests.delete(
         url,
         json=metadata_dict,
@@ -255,8 +270,8 @@ def delete_individual_parameter(
         verify=True,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )  # files = files,
-    print(r.text)
-    print(r.status_code)
+    logger.debug("DELETE response text: %s", r.text)
+    logger.info("DELETE status code: %s", r.status_code)
     ok = r.status_code in SUCCESS_STATUS_CODES_WITH_NO_CONTENT
     return ok
 
@@ -269,7 +284,7 @@ def patch_asset_empty(asset_id: str, api_key: str):
     upload_data = {}
     url = f"{paths.get_api_url()}/assets/{asset_id}/"
     headers = utils.get_headers(api_key)
-    print("patching asset with empty data")
+    logger.info("Patching asset %s with empty data (reindex trigger)", asset_id)
     try:
         r = requests.patch(
             url,
@@ -278,11 +293,11 @@ def patch_asset_empty(asset_id: str, api_key: str):
             verify=True,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )  # files = files,
-    except requests.exceptions.RequestException as e:
-        print(e)
+    except requests.exceptions.RequestException:
+        logger.exception("Patch asset (empty) request failed for %s", asset_id)
         return {"CANCELLED"}
-    print(r.status_code)
-    print("patched asset with empty data")
+    logger.info("Patch asset empty status code: %s", r.status_code)
+    logger.info("Patched asset %s with empty data", asset_id)
     return {"FINISHED"}
 
 
@@ -298,7 +313,7 @@ def upload_asset_metadata(upload_data: dict[str, Any], api_key: str):
     """
     url = f"{paths.get_api_url()}/assets/"
     headers = utils.get_headers(api_key)
-    print("uploading new asset metadata")
+    logger.info("Uploading new asset metadata: %s", upload_data.get("displayName") or upload_data.get("name"))
     try:
         r = requests.post(
             url,
@@ -307,14 +322,13 @@ def upload_asset_metadata(upload_data: dict[str, Any], api_key: str):
             verify=True,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )  # files = files,
-    except requests.exceptions.RequestException as e:
-        print(e)
+    except requests.exceptions.RequestException:
+        logger.exception("Upload asset metadata request failed")
         return {"CANCELLED"}
     else:
-        print(r.text)
-        # result should be json
+        logger.debug("Asset metadata creation response: %s", r.text)
         result = r.json()
-        print(result)
+        logger.info("Created asset metadata id=%s", result.get("id"))
         return result
 
 
@@ -328,12 +342,12 @@ def patch_asset_metadata(asset_id: str, api_key: str, data: dict[str, Any] | Non
     """
     if data is None:
         data = {}
-    print("patching asset metadata")
+    logger.info("Patching asset metadata %s", asset_id)
 
     headers = utils.get_headers(api_key)
 
     url = f"{paths.get_api_url()}/assets/{asset_id}/"
-    print(url)
+    logger.debug("PATCH asset url: %s", url)
     r = requests.patch(
         url,
         json=data,
@@ -341,10 +355,10 @@ def patch_asset_metadata(asset_id: str, api_key: str, data: dict[str, Any] | Non
         verify=True,
         timeout=REQUEST_TIMEOUT_SECONDS,
     )  # files = files,
-    print(r.text)
+    logger.debug("PATCH asset metadata response: %s", r.text)
 
 
-def mark_for_thumbnail(
+def mark_for_thumbnail(  # noqa: C901, PLR0912, PLR0913
     asset_id: str,
     api_key: str,
     *,
@@ -428,7 +442,8 @@ def mark_for_thumbnail(
             param_value=params_json,
             api_key=api_key,
         )
-        return result
-    except (TypeError, ValueError) as e:
-        print(f"Error marking asset for thumbnail: {e}")
+    except (TypeError, ValueError):
+        logger.exception("Error marking asset %s for thumbnail", asset_id)
         return False
+    else:
+        return result

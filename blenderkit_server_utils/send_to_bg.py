@@ -8,8 +8,8 @@ and cleans up afterwards.
 from __future__ import annotations
 
 import json
-import logging
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,12 +18,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from . import paths
+from . import log, paths
 
-logger = logging.getLogger(__name__)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-
+logger = log.create_logger(__name__)
 
 # Verbosity constants
 VERBOSITY_STDERR: int = 1
@@ -199,7 +196,9 @@ def _write_datafile(
 
 def _resolve_template(template_file_path: str, asset_file_path: str) -> str:
     """Return the template path, defaulting to the asset file if not provided."""
-    return template_file_path or asset_file_path
+    if template_file_path:
+        return template_file_path
+    return asset_file_path
 
 
 def _build_command(
@@ -230,6 +229,7 @@ def _build_command(
 def _run_blender(command: list[str], verbosity_level: int) -> int:
     """Run Blender with the given command and stream output per verbosity."""
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
+    logger.info("Running Blender command: %s", command)
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
         if verbosity_level == VERBOSITY_ALL:
             stdout_thread = threading.Thread(
@@ -275,7 +275,15 @@ def _cleanup_paths(datafile: str, temp_folder: str, *, remove_temp_folder: bool)
         logger.debug("Failed to remove temp datafile: %s", datafile, exc_info=True)
     if remove_temp_folder:
         try:
-            os.rmdir(temp_folder)
+            # remove all files in temp folder first
+            for filename in os.listdir(temp_folder):
+                file_path = os.path.join(temp_folder, filename)
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            # remove completely empty temp folder
+            shutil.rmtree(temp_folder)
         except OSError:
             logger.debug("Failed to remove temp folder: %s", temp_folder, exc_info=True)
 
@@ -344,7 +352,8 @@ def send_to_bg(  # noqa: PLR0913
     returncode = _run_blender(command, verbosity_level)
 
     if returncode != 0:
-        logger.error("Blender command failed with code %s: %s", returncode, command)
+        logger.error("Error while running command: %s", command)
+        logger.error("Return code: %s", returncode)
 
     # cleanup
     _cleanup_paths(datafile, temp_folder, remove_temp_folder=own_temp_folder)

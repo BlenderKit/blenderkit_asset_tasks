@@ -11,7 +11,6 @@ For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import pathlib
 import shutil
@@ -21,9 +20,9 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from blenderkit_server_utils import download, paths, search, send_to_bg, upload
+from blenderkit_server_utils import download, log, paths, search, send_to_bg, upload
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100
@@ -31,10 +30,6 @@ PAGE_SIZE_LIMIT: int = 100
 ASSET_BASE_ID = os.environ.get("ASSET_BASE_ID", None)
 MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
 SKIP_UPLOAD = os.environ.get("SKIP_UPLOAD", False) == "True"  # noqa: PLW1508
-
-# Configure basic logging only if root has no handlers (script usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 def _maybe_unpack_asset(asset_data: dict[str, Any], asset_file_path: str, blender_binary_path: str) -> None:

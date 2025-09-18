@@ -24,24 +24,21 @@ helpers, and common local directory paths used by background scripts.
 
 from __future__ import annotations
 
-import logging
 import os
 import shutil
 from typing import Any
+
+# Local imports used by some helpers.
+from . import log, utils
+
+logger = log.create_logger(__name__)
 
 try:
     import bpy  # type: ignore
 except ImportError:
     bpy = None  # type: ignore
-    logging.getLogger(__name__).debug("bpy not present; running outside Blender")
+    logger.debug("bpy not present; running outside Blender")
 
-# Local imports used by some helpers.
-from . import utils
-
-logger = logging.getLogger(__name__)
-# Provide a minimal logging configuration when no handlers are configured (CLI/background usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 dir_path: str = os.path.dirname(os.path.realpath(__file__))
 parent_path: str = os.path.join(dir_path, os.path.pardir)
 

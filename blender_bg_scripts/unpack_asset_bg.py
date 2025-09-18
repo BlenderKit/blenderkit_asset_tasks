@@ -10,7 +10,6 @@ This background script:
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 from typing import Any
@@ -18,17 +17,15 @@ from typing import Any
 import bpy
 
 # Path injection so Blender can import our utils when running in background
-DIR_PATH = os.path.dirname(os.path.realpath(__file__))
-PARENT_PATH = os.path.join(DIR_PATH, os.path.pardir)
-if PARENT_PATH not in sys.path:
-    sys.path.append(PARENT_PATH)
+dir_path = os.path.dirname(os.path.realpath(__file__))
+parent_path = os.path.join(dir_path, os.path.pardir)
+if parent_path not in sys.path:
+    sys.path.append(parent_path)
 
-from blenderkit_server_utils import paths  # isort: skip  # noqa: E402
+from blenderkit_server_utils import paths, log  # isort: skip  # noqa: E402
 
 
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s - %(message)s")
+logger = log.create_logger(__name__)
 
 
 def _ensure_tex_dir(asset_data: dict[str, Any], resolution: str) -> str:

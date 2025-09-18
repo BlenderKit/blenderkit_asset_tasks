@@ -10,7 +10,8 @@ Notes:
 - No dynamic package installation is performed.
 """
 
-import logging
+from __future__ import annotations
+
 import os
 import tempfile
 import time
@@ -21,20 +22,16 @@ from PIL import Image, UnidentifiedImageError
 import requests
 import torch
 
-from blenderkit_server_utils import paths, search, upload
+from blenderkit_server_utils import paths, search, upload, log
 
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100
 REQUEST_TIMEOUT: int = 15
 CLIP_MODEL_NAME: str = "ViT-L-14/openai"
 IMAGE_FILENAME: str = "image_name.jpg"
-
-# Configure basic logging only if root has no handlers (script usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 def log_torch_info() -> None:

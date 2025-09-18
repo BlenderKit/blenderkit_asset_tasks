@@ -89,7 +89,7 @@ def main() -> None:
     asset_base_id = os.environ.get("ASSET_BASE_ID", "")
 
     params = {"asset_base_id": asset_base_id, "asset_type": "addon"}
-    addons = search.get_search_without_bullshit(params, api_key=api_key)
+    addons = search.get_search_paginated(params, api_key=api_key)
     if len(addons) == 0:
         raise RuntimeError("Addon not found in the database")
 

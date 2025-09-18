@@ -6,11 +6,12 @@ This module contains small, well-typed utilities for common API operations.
 from __future__ import annotations
 
 import json
-import logging
 
 import requests
 
-logger = logging.getLogger(__name__)
+from . import log
+
+logger = log.create_logger(__name__)
 
 
 def create_comment(

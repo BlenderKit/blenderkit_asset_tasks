@@ -8,13 +8,12 @@ Supports two targets:
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 from typing import Any
 
-import addon_utils
-import bpy
+import addon_utils  # type: ignore
+import bpy  # type: ignore
 
 # Add utils path for imports inside Blender
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -22,10 +21,10 @@ parent_path = os.path.join(dir_path, os.path.pardir)
 if parent_path not in sys.path:
     sys.path.append(parent_path)
 
+from blenderkit_server_utils import log  # noqa: E402, I001
 
-logger = logging.getLogger(__name__)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+logger = log.create_logger(__name__)
 
 
 DRACO_MESH_COMPRESSION: dict[str, Any] = {
@@ -84,7 +83,7 @@ def move_uv_to_bottom(obj, index: int) -> None:
 
     # set the context, so later we can add uv_texture
     bpy.context.view_layer.objects.active = obj
-    obj.select_set(select=True)
+    obj.select_set(state=True)
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -130,7 +129,7 @@ def is_procedural_material(mat) -> bool:
     if not mat.use_nodes:
         return False
     for node in mat.node_tree.nodes:  # noqa: SIM110
-        if node.type == 'TEX_IMAGE':
+        if node.type == "TEX_IMAGE":
             return False
     return True
 
@@ -153,7 +152,7 @@ def bake_all_procedural_textures(obj) -> None:
 
     # Select the object and make it active
     bpy.ops.object.select_all(action="DESELECT")
-    obj.select_set(select=True)
+    obj.select_set(state=True)
     bpy.context.view_layer.objects.active = obj
 
     # Ensure the object is in Object Mode

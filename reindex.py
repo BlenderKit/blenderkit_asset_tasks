@@ -7,7 +7,6 @@ as "version ID".
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any
 
@@ -15,11 +14,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-logger = logging.getLogger(__name__)
+from blenderkit_server_utils import log
 
-# Configure basic logging only if root has no handlers (script usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = log.create_logger(__name__)
 
 RESPONSE_OK = 200
 REQUEST_TIMEOUT_SECONDS = 30

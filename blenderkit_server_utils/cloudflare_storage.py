@@ -6,7 +6,6 @@ Typed helpers for basic S3-compatible operations against Cloudflare R2.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -15,7 +14,9 @@ from typing import Any
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
-logger = logging.getLogger(__name__)
+from . import log
+
+logger = log.create_logger(__name__)
 
 # S3 limit for batch delete operations
 S3_DELETE_BATCH_LIMIT = 1000

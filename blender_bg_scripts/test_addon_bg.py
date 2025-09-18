@@ -8,22 +8,22 @@ input under key "result_filepath".
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 from typing import Any
 
-import addon_utils
+import addon_utils  # type: ignore
 import bpy
 
 # Path injection so Blender can import our utils when running in background
-DIR_PATH = os.path.dirname(os.path.realpath(__file__))
-PARENT_PATH = os.path.join(DIR_PATH, os.path.pardir)
-sys.path.append(PARENT_PATH)
+dir_path = os.path.dirname(os.path.realpath(__file__))
+parent_path = os.path.join(dir_path, os.path.pardir)
+if parent_path not in sys.path:
+    sys.path.append(parent_path)
 
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s - %(message)s")
+from blenderkit_server_utils import log  # noqa: E402
+
+logger = log.create_logger(__name__)
 
 
 def install_addon(zip_path: str) -> str:

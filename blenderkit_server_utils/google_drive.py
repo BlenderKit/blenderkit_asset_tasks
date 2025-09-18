@@ -9,19 +9,20 @@ conventions and avoids bare exceptions.
 from __future__ import annotations
 
 import json
-import logging
 import os
 from typing import Any
 
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
+from google.oauth2.service_account import Credentials  # type: ignore
+from googleapiclient.discovery import build  # type: ignore
+from googleapiclient.errors import HttpError  # type: ignore
+from googleapiclient.http import MediaFileUpload  # type: ignore
+
+from . import log
 
 # Full read/write access to the authenticated account
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 
 def init_drive() -> Any:

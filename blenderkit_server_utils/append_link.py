@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:  # Imported for type checking only; Blender not required at runtime.
-    from bpy.types import Material as BpyMaterial
-    from bpy.types import Object as BpyObject
+from . import log
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:  # Imported for type checking only; Blender not required at runtime.
+    from bpy.types import Material as BpyMaterial  # type: ignore
+    from bpy.types import Object as BpyObject  # type: ignore
+
+logger = log.create_logger(__name__)
 
 
 def append_material(
@@ -67,7 +68,7 @@ def append_material(
         return mat
 
 
-def link_collection(
+def link_collection(  # noqa: PLR0913
     file_name: str,
     location: tuple[float, float, float] = (0.0, 0.0, 0.0),
     rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),

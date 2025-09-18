@@ -7,18 +7,17 @@ and renders a WEBP image for quick review/debugging.
 
 from __future__ import annotations
 
-import logging
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-import bmesh
+import bmesh  # type: ignore
 import bpy
-from mathutils import Vector
+from mathutils import Vector  # type: ignore
 
-from . import render_UVs
+from . import log, render_UVs
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 # Layout constants
 LINE_HEIGHT: float = 0.3

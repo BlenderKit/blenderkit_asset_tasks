@@ -9,7 +9,6 @@ be a path to a JSON file with keys: file_path, result_filepath, asset_data.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 from typing import Any
@@ -22,12 +21,10 @@ parent_path = os.path.join(dir_path, os.path.pardir)
 if parent_path not in sys.path:
     sys.path.append(parent_path)
 
-from blenderkit_server_utils import utils  # noqa: E402
+from blenderkit_server_utils import log, utils  # noqa: E402
 
 
-logger = logging.getLogger(__name__)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = log.create_logger(__name__)
 
 
 MATERIAL_PREVIEW_SUFFIX = "MaterialPreview"

@@ -10,10 +10,13 @@ available, functions that require it will raise a RuntimeError.
 
 from __future__ import annotations
 
-import logging
 import os
 import time
 from typing import Any
+
+from . import log
+
+logger = log.create_logger(__name__)
 
 # Constants to avoid magic numbers and improve readability
 TRUE_HDR_THRESHOLD = 1.05
@@ -26,7 +29,6 @@ NORMAL_MEAN_LOW = 0.45
 NORMAL_MEAN_HIGH = 0.55
 MIN_DOWNSCALE_SIZE = 128
 
-logger = logging.getLogger(__name__)
 
 try:  # Blender is not available in unit tests or CI
     import bpy  # type: ignore

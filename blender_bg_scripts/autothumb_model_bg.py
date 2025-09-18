@@ -13,7 +13,6 @@ from __future__ import annotations
 # isort: skip_file
 
 import json
-import logging
 import math
 import os
 import sys
@@ -27,13 +26,10 @@ parent_path = os.path.join(dir_path, os.path.pardir)
 if parent_path not in sys.path:
     sys.path.append(parent_path)
 
-from blenderkit_server_utils import append_link, utils  # noqa: E402
+from blenderkit_server_utils import append_link, utils, log  # noqa: E402
 
 
-logger = logging.getLogger(__name__)
-
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = log.create_logger(__name__)
 
 
 def center_obs_for_thumbnail(obs: list[Any]) -> None:

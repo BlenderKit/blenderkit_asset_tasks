@@ -6,7 +6,6 @@ background Blender, and uploads results to Cloudflare storage.
 
 from __future__ import annotations
 
-import logging
 import os
 import pathlib
 import tempfile
@@ -15,19 +14,15 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from blenderkit_server_utils import download, paths, search, send_to_bg
+from blenderkit_server_utils import download, log, paths, search, send_to_bg
 from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
 # Constants
 MAX_ASSETS: int = int(os.environ.get("MAX_ASSET_COUNT", "100"))
 MAX_THREADS: int = int(os.environ.get("MAX_VALIDATION_THREADS", "12"))
 BUCKET_VALIDATION: str = "validation-renders"
-
-# Configure basic logging only if root has no handlers (script usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 
 def cloudflare_setup() -> CloudflareStorage:

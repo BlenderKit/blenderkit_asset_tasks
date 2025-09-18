@@ -10,12 +10,16 @@ import platform
 from collections.abc import Iterable
 from typing import Any
 
+from . import log
+
+logger = log.create_logger(__name__)
+
 bpy = None
 try:  # pragma: no cover - only available inside Blender
     import bpy  # type: ignore
     from mathutils import Vector  # type: ignore
 except ImportError:
-    print("bpy not present")
+    logger.warning("bpy not present")
 
 
 def get_headers(api_key: str) -> dict[str, str]:
@@ -71,8 +75,7 @@ def selection_set(sel: tuple[Any, Iterable[Any]]) -> None:
         for ob in sel[1]:
             ob.select_set(True)  # noqa: FBT003
     except (AttributeError, IndexError, TypeError) as e:
-        print("Selectable objects not found")
-        print(e)
+        logger.warning("Selectable objects not found: %s", e)
 
 
 def get_param(asset_data: dict[str, Any], parameter_name: str, default: Any | None = None) -> Any | None:
@@ -123,11 +126,11 @@ def enable_cycles_cuda() -> None:
 
     cycles_preferences.compute_device_type = "CUDA"
     if cycles_preferences.compute_device_type == "CUDA":
-        print("CUDA is enabled for rendering.")
+        logger.info("CUDA is enabled for rendering")
     elif cycles_preferences.compute_device_type == "OPTIX":
-        print("OPTIX is enabled for rendering.")
+        logger.info("OPTIX is enabled for rendering")
     else:
-        print("GPU rendering is not enabled.")
+        logger.info("GPU rendering is not enabled")
 
 
 # Backward compatibility wrapper for older callers
