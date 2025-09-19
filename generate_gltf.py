@@ -226,7 +226,7 @@ def main() -> None:
     )
     logger.info("Found %s assets for GLTF (Godot) conversion", len(assets))
     for i, asset in enumerate(assets):
-        logger.debug("%s %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"))
+        logger.info("%s %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"))
 
     iterate_assets(
         assets,
