@@ -141,7 +141,7 @@ def is_procedural_material(mat) -> bool:
     return True
 
 
-def bake_all_procedural_textures(obj) -> None:
+def bake_all_procedural_textures(obj) -> None:  # noqa: C901
     """Bake all procedural textures on a mesh object.
 
     Baked images are packed inside the Blender file for portability.
