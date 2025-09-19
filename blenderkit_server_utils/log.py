@@ -59,8 +59,8 @@ class _TaskLogFormatter(logging.Formatter):
     so it only appears once.
     """
 
-    def _collapse_embedded(self, msg: str) -> tuple[str, str | None, int | None]:
-        """Return (new_message, func, line) collapsing embedded formatted line.
+    def _collapse_embedded(self, msg: str) -> tuple[str, str, None, str | None, int | None]:
+        """Return (new_message, level_name, func, line) collapsing embedded formatted line.
 
         If message contains 'STDOUT: <already formatted line>' or 'STDERR: <already formatted line>'
         or starts with formatted datetime followed by levelname,
@@ -68,8 +68,10 @@ class _TaskLogFormatter(logging.Formatter):
         function name and line number so outer record can reflect original
         caller. Returns original message if no embedded pattern is detected.
         """
+        default_response = (msg, None, None, None)
+
         if "STDOUT:" not in msg and "STDERR:" not in msg and re.match(_EMBEDDED_LINE_RE, msg) is None:
-            return msg, None, None
+            return default_response
         if "STDOUT:" in msg:
             prefix, _, remainder = msg.partition("STDOUT:")
         elif "STDERR:" in msg:
@@ -79,24 +81,30 @@ class _TaskLogFormatter(logging.Formatter):
         remainder = remainder.strip()
         match = _EMBEDDED_LINE_RE.match(remainder)
         if not match:
-            return msg, None, None
+            return default_response
         # Use parsed func/line and the original inner message only.
+        inner_level = match.group("level").strip()
+        if inner_level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "TRACE"):
+            return default_response
         inner_func = match.group("func").strip()
         try:
             inner_line = int(match.group("line"))
         except ValueError:
             inner_line = None
         inner_msg = match.group("msg")
-        return inner_msg, inner_func, inner_line
+        return inner_msg, inner_level, inner_func, inner_line
 
     def format(self, record: logging.LogRecord) -> str:
         ts = _dt.datetime.fromtimestamp(record.created, tz=_dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         millis = int(record.msecs)
         message = record.getMessage()
-        collapsed_msg, inner_func, inner_line = self._collapse_embedded(message)
+        collapsed_msg, inner_level, inner_func, inner_line = self._collapse_embedded(message)
+
+        recorded_level = inner_level if inner_level is not None else record.levelname
         func_name = inner_func or record.funcName
         line_no = inner_line if inner_line is not None else record.lineno
-        return f"{ts}.{millis:03d} | {record.levelname:>5} | {func_name} | {line_no} | {collapsed_msg}"
+
+        return f"{ts}.{millis:03d} | {recorded_level:>5} | {func_name} | {line_no} | {collapsed_msg}"
 
 
 def _derive_caller_info(stack_level: int = CALLER_STACK_LEVEL) -> tuple[str, str, int]:

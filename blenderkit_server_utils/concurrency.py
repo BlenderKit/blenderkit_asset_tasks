@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 DEFAULT_POLL_INTERVAL = 0.1
@@ -13,36 +13,77 @@ DEFAULT_POLL_INTERVAL = 0.1
 
 def run_asset_threads(  # noqa: PLR0913
     assets: Iterable[dict[str, Any]],
-    worker: Callable[[dict[str, Any], str], None],
-    api_key: str,
+    worker: Callable[..., Any],
     *,
-    max_concurrency: int,
+    max_concurrency: int = 2,
     logger: logging.Logger,
     poll_interval: float = DEFAULT_POLL_INTERVAL,
+    worker_args: Sequence[Any] | None = None,
+    worker_kwargs: dict[str, Any] | None = None,
+    asset_arg_position: int = 0,
 ) -> None:
-    """Run worker function on assets with controlled concurrency.
+    """Run a worker callable over assets with controlled concurrency.
+
+    This is a generalized version allowing arbitrary extra positional and keyword
+    arguments for the worker. The current asset dict is injected at
+    ``asset_arg_position`` among the positional args (default 0 = first).
 
     Args:
         assets: Iterable of asset metadata dicts.
-        worker: Function to execute per asset; takes asset dict and api_key as arguments.
-        api_key: BlenderKit API key forwarded to the worker function.
+        worker: Callable invoked per asset.
         max_concurrency: Maximum number of concurrent threads.
         logger: Logger for logging messages.
-        poll_interval: Time in seconds to wait between concurrency checks.
+        poll_interval: Sleep duration between concurrency checks.
+        worker_args: Additional positional arguments (excluding the per-asset dict).
+        worker_kwargs: Keyword arguments passed to worker each invocation.
+        asset_arg_position: Index in positional args where the asset dict will be inserted.
 
-    Returns:
-        None
+    Notes:
+        Backward compatibility: previous signature expected (asset, api_key). To
+        replicate, pass worker_args=(api_key,) with asset_arg_position=0 (default),
+        which produces the call worker(asset, api_key).
     """
     threads: list[threading.Thread] = []
+    static_args: Sequence[Any] = worker_args or ()
+    static_kwargs: dict[str, Any] = worker_kwargs or {}
+
     for asset in assets:
         if not asset:
             logger.warning("Skipping empty asset entry")
             continue
-        t = threading.Thread(target=worker, args=(asset, api_key))
-        t.start()
+
+        if asset_arg_position < 0 or asset_arg_position > len(static_args):
+            logger.error("Invalid asset_arg_position %s (len=%s)", asset_arg_position, len(static_args))
+            continue
+
+        call_args = list(static_args)
+        call_args.insert(asset_arg_position, asset)
+
+        def _thread_target(
+            a_args: tuple[Any, ...],
+            a_kwargs: dict[str, Any],
+            asset_keys_snapshot: tuple[str, ...],
+        ) -> None:
+            try:
+                worker(*a_args, **a_kwargs)
+            except Exception:
+                logger.exception("Worker raised exception (asset keys=%s)", asset_keys_snapshot)
+
+        try:
+            asset_keys_snapshot = tuple(list(asset.keys())[:5])
+            t = threading.Thread(
+                target=_thread_target,
+                args=(tuple(call_args), static_kwargs, asset_keys_snapshot),
+            )
+            t.start()
+        except Exception:  # Thread creation or start failure
+            logger.exception("Failed to start thread for asset")
+            continue
         threads.append(t)
+
         while sum(1 for th in threads if th.is_alive()) >= max_concurrency:
             threads = [th for th in threads if th.is_alive()]
             time.sleep(poll_interval)
+
     for t in threads:
         t.join()

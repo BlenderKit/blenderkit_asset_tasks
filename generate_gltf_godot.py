@@ -9,12 +9,12 @@ import os
 import tempfile
 from typing import Any
 
-from blenderkit_server_utils import datetime_utils, download, log, search, send_to_bg, upload
+from blenderkit_server_utils import concurrency, datetime_utils, download, log, search, send_to_bg, upload
 
 logger = log.create_logger(__name__)
 
 # Constants
-PAGE_SIZE_LIMIT: int = 100
+PAGE_SIZE_LIMIT: int = 100  # 100
 PARAM_SUCCESS: str = "gltfGodotGeneratedDate"
 PARAM_ERROR: str = "gltfGodotGeneratedError"
 
@@ -42,7 +42,9 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
     # Download asset
     asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
-    # get absolute path to other py scripts
+    if not asset_file_path:
+        logger.error("Asset file not found on path %s", asset_file_path)
+        return False
 
     # Unpack asset
     send_to_bg.send_to_bg(
@@ -51,10 +53,6 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         script="unpack_asset_bg.py",
         binary_path=binary_path,
     )
-
-    if not asset_file_path:
-        logger.error("Asset file not found on path %s", asset_file_path)
-        return False
 
     # Send to background to generate GLTF
     temp_folder = tempfile.mkdtemp()
@@ -124,16 +122,17 @@ def iterate_assets(assets: list[dict[str, Any]], api_key: str = "", binary_path:
         api_key: API key for authenticated server operations.
         binary_path: Absolute path to the Blender executable for background tasks.
     """
-    for i, asset_data in enumerate(assets):
-        logger.info("=== %s/%s generating GLTF (Godot) for %s", i + 1, len(assets), asset_data.get("name"))
-        if not asset_data:
-            logger.warning("Skipping empty asset entry at index %s", i)
-            continue
-        ok = generate_gltf(asset_data, api_key, binary_path=binary_path)
-        if ok:
-            logger.info("===> GLTF GODOT SUCCESS for %s", asset_data.get("id"))
-        else:
-            logger.warning("===> GLTF GODOT FAILED for %s", asset_data.get("id"))
+    concurrency.run_asset_threads(
+        assets,
+        worker=generate_gltf,
+        worker_kwargs={
+            "api_key": api_key,
+            "binary_path": binary_path,
+        },
+        asset_arg_position=0,
+        max_concurrency=2,
+        logger=logger,
+    )
 
 
 def main() -> None:

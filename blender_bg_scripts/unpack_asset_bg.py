@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+from functools import lru_cache
 from typing import Any
 
 import bpy
@@ -28,6 +30,55 @@ from blenderkit_server_utils import paths, log  # isort: skip  # noqa: E402
 logger = log.create_logger(__name__)
 
 
+WAIT_TIME = 2.0  # seconds
+
+
+@lru_cache(maxsize=1)
+def _get_scene_directory() -> str:
+    """Get the absolute filepath of the current Blender scene."""
+    return os.path.dirname(bpy.path.abspath(bpy.data.filepath))
+
+
+def _get_texture_abs_path(texture_path: str) -> str:
+    """Get the absolute path to the texture.
+
+    Args:
+        texture_path: Relative or absolute path to the texture.
+
+    Returns:
+        str: Absolute path to the texture.
+    """
+    if not os.path.isabs(texture_path):
+        texture_path = os.path.abspath(texture_path)
+        if os.path.exists(texture_path):
+            return texture_path
+
+    scene_dir = _get_scene_directory()
+    return bpy.path.abspath(os.path.join(scene_dir, texture_path))
+
+
+def _wait_for_resource(filepath: str, timeout: float = WAIT_TIME) -> bool:
+    """Wait for a file to become accessible within a timeout period.
+
+    Args:
+        filepath: Path to the file to check.
+        timeout: Maximum time to wait in seconds.
+
+    Returns:
+        bool: True if the file becomes accessible within the timeout; False otherwise.
+    """
+    start_time = time.time()
+    while True:
+        if os.path.exists(filepath):
+            return True
+        if time.time() - start_time > timeout:
+            logger.warning("Timeout waiting for file to be accessible: %s", filepath)
+            return False
+        logger.info("Waiting for file to be accessible: %s", filepath)
+        time.sleep(0.1)
+    return False
+
+
 def _ensure_tex_dir(asset_data: dict[str, Any], resolution: str) -> str:
     """Ensure texture directory for resolution exists and return its Blender-relative path."""
     tex_dir_path = paths.get_texture_directory(asset_data, resolution=resolution)
@@ -37,23 +88,38 @@ def _ensure_tex_dir(asset_data: dict[str, Any], resolution: str) -> str:
     return tex_dir_path
 
 
-def _unpack_images_to(tex_dir_path: str, resolution: str) -> None:
+def _unpack_images_to(tex_dir_path: str, resolution: str) -> list[str]:
     """Write packed images to the target directory and repath image datablocks."""
-    for image in bpy.data.images:
-        if image.name == "Render Result":
-            continue
-        fp = paths.get_texture_filepath(tex_dir_path, image, resolution=resolution)
-        logger.info("Unpacking image %s -> %s", image.name, fp)
-        for pf in image.packed_files:
-            pf.filepath = fp
-        image.filepath = fp
-        image.filepath_raw = fp
-        if image.packed_files:
-            # WRITE_ORIGINAL writes to image.filepath; safer than REMOVE in our workflow
-            try:
-                image.unpack(method="WRITE_ORIGINAL")
-            except RuntimeError:
-                logger.exception("Failed to unpack image %s", image.name)
+    unpacked_files = []
+    try:
+        for image in bpy.data.images:
+            if image.name == "Render Result":
+                continue
+            fp = paths.get_texture_filepath(tex_dir_path, image, resolution=resolution)
+            logger.info("Unpacking image %s -> %s", image.name, fp)
+
+            for pf in image.packed_files:
+                pf.filepath = fp
+
+            if image.packed_files:
+                # WRITE_ORIGINAL writes to image.filepath; safer than REMOVE in our workflow
+                try:
+                    image.unpack(method="WRITE_ORIGINAL")
+                except RuntimeError:
+                    logger.exception("Failed to unpack image %s", image.name)
+
+            # here is an issue where file is not immediately accessible after unpacking
+            # we try to mitigate this by waiting a bit after unpacking all files
+            absolute_path = _get_texture_abs_path(fp)
+            _ = _wait_for_resource(absolute_path)
+
+            image.filepath = fp
+            image.filepath_raw = fp
+
+            unpacked_files.append(fp)
+    except Exception:
+        logger.exception("Error unpacking images")
+    return unpacked_files
 
 
 def _set_asset_tags(data_block: object | None, asset_data: dict[str, Any]) -> None:
@@ -136,7 +202,8 @@ def unpack_asset(data: dict[str, Any]) -> None:
     tex_dir_path = _ensure_tex_dir(asset_data, resolution)
     bpy.data.use_autopack = False
 
-    _unpack_images_to(tex_dir_path, resolution)
+    unpacked_images = _unpack_images_to(tex_dir_path, resolution)
+    logger.info("Unpacked %d images to %s", len(unpacked_images), tex_dir_path)
     _mark_assets(asset_data)
 
     # If this isn't here, Blender may crash when saving.

@@ -102,12 +102,19 @@ def make_active_uv_first(obj) -> None:
     so in the end the active is first and all other UVs follow in original order.
     """
     uvs = obj.data.uv_layers
-    orig_name = uvs.active.name
+    # log number of uvs
+    logger.info("Number of UV layers found on object '%s': %d", obj.name, len(uvs))
+    active_layer = uvs.active
+    # check if we have active or at least some UV
+    if not active_layer:
+        logger.warning("No UV layers found on object '%s'", obj.name)
+        return
+    orig_name = active_layer.name
     orig_index = uvs.active_index
     if orig_index == 0:
         return
 
-    logger.info("UVs before order: %s (%s is active)", list(uvs), uvs.active.name)
+    logger.info("UVs before order: %s (%s is active)", list(uvs), orig_name)
     for i in range(len(uvs)):
         if i == orig_index:
             continue  # keep active on top
