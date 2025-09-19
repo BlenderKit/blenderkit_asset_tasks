@@ -190,12 +190,15 @@ def bake_all_procedural_textures(obj) -> None:
         mat.node_tree.nodes.active = img_node
 
     # Perform the bake
-    bpy.ops.object.bake(
-        type="DIFFUSE",
-        pass_filter={"COLOR"},
-        use_selected_to_active=False,
-        margin=16,
-    )
+    try:
+        bpy.ops.object.bake(
+            type="DIFFUSE",
+            pass_filter={"COLOR"},
+            use_selected_to_active=False,
+            margin=16,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("Error during baking.: %s", e)  # noqa: TRY400
     logger.info("Baked procedural textures: %s", procedural_materials)
 
     # Assign baked textures to materials

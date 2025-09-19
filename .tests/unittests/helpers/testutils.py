@@ -17,7 +17,7 @@ def ensure_src_on_path() -> str:
         The detected repository root path.
     """
     here = os.path.dirname(__file__)
-    # tests/helpers -> tests -> _test -> repo root
+    # tests/helpers -> tests -> .tests -> repo root
     repo_root = os.path.abspath(os.path.join(here, "..", "..", ".."))
     tasks_root = os.path.join(repo_root, "blenderkit_asset_tasks")
     tests_root = os.path.abspath(os.path.join(here, "..", ".."))

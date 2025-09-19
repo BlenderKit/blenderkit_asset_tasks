@@ -4,8 +4,8 @@ Scripts to do automatic processing of Blender assets in the database.
 ## Structure
 
 - `.github` - contains definitions of Github Actions Workflows.
-- `_scripts` - contains additional utilities for development project setup and testing
-- `_test` - contains unit tests for synthetic testing
+- `.scripts` - contains additional utilities for development project setup and testing
+- `.tests` - contains unit tests for synthetic testing
 - `blend_files` - contains template .blend projects through which some tasks are made.
 - `blender_bg_scripts` - contains scripts which gets executed inside the Blender instance.
 - `blender_server_utils` - python module containing code shared between multiple scripts in root dir.

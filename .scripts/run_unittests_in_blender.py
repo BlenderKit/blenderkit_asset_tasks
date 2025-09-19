@@ -3,12 +3,12 @@
 This script is intended to be executed by Blender in background mode, e.g.:
 
 Windows (PowerShell):
-    blender.exe -b -noaudio -P blenderkit_asset_tasks/_scripts/run_unittests_in_blender.py -- \
-        -s blenderkit_asset_tasks/_test/unittests -p "test_*.py"
+    blender.exe -b -noaudio -P blenderkit_asset_tasks/.scripts/run_unittests_in_blender.py -- \
+        -s blenderkit_asset_tasks/.tests/unittests -p "test_*.py"
 
 Linux/macOS:
-    blender -b -noaudio -P blenderkit_asset_tasks/_scripts/run_unittests_in_blender.py -- \
-        -s blenderkit_asset_tasks/_test/unittests -p "test_*.py"
+    blender -b -noaudio -P blenderkit_asset_tasks/.scripts/run_unittests_in_blender.py -- \
+        -s blenderkit_asset_tasks/.tests/unittests -p "test_*.py"
 
 If no arguments are provided, sensible defaults for this repository are used.
 """
@@ -34,7 +34,7 @@ def _compute_paths() -> tuple[str, str, str]:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.abspath(os.path.join(script_dir, ".."))
     package_root = repo_root
-    tests_root = os.path.join(repo_root, "_test")
+    tests_root = os.path.join(repo_root, ".tests")
     return repo_root, package_root, tests_root
 
 

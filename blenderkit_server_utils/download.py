@@ -181,6 +181,7 @@ def get_download_filepath(
     if not res_file:
         return file_names
     if res_file.get("url") is not None:
+        logger.debug("Resolved file info entry: %s", res_file["url"])
         fn = paths.extract_filename_from_url(res_file["url"])  # type: ignore[index]
         n = server_2_local_filename(asset_data, fn)
 
