@@ -243,7 +243,7 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
         elif verbosity_level == VERBOSITY_STDERR:
             stdout_thread = threading.Thread(
                 target=_reader_thread,
-                args=(proc.stdout, lambda _: None),
+                args=(proc.stdout, lambda line: logger.debug("STDOUT: %s", line)),
             )
             stderr_thread = threading.Thread(
                 target=_reader_thread,
@@ -252,11 +252,11 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
         else:
             stdout_thread = threading.Thread(
                 target=_reader_thread,
-                args=(proc.stdout, lambda _: None),
+                args=(proc.stdout, lambda line: logger.debug("STDOUT: %s", line)),
             )
             stderr_thread = threading.Thread(
                 target=_reader_thread,
-                args=(proc.stderr, lambda _: None),
+                args=(proc.stderr, lambda line: logger.debug("STDERR: %s", line)),
             )
 
         stdout_thread.start()
