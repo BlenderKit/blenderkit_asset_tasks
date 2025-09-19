@@ -1,40 +1,69 @@
-"""Generate GLTF files for models that do not have them yet.
+"""Generate GLTF files tailored for the Godot engine.
 
-This script downloads the asset, starts a background Blender process to
-generate the GLTF file, and uploads the result. It also patches success or
-error parameters on the asset for traceability.
+This variant disables Draco compression and updates dedicated parameters on
+the asset to indicate success or failure of the Godot-optimized export.
 """
 
+import argparse
 import json
 import os
+import sys
 import tempfile
 from typing import Any
 
-from blenderkit_server_utils import datetime_utils, download, log, search, send_to_bg, upload
+from blenderkit_server_utils import concurrency, datetime_utils, download, log, search, send_to_bg, upload
 
 logger = log.create_logger(__name__)
 
+args = argparse.ArgumentParser()
+args.add_argument("--target_format", type=str, default="gltf_godot", help="Target export format")
+
+
 # Constants
+TARGET_FORMAT = args.parse_args().target_format
+if TARGET_FORMAT:
+    logger.info("Using target format from args: %s", TARGET_FORMAT)
+if not TARGET_FORMAT:
+    # use env var or default
+    TARGET_FORMAT = os.environ.get("TARGET_FORMAT", None)
+    if not TARGET_FORMAT:
+        logger.info("No target format specified, defaulting to 'gltf_godot'")
+
+if not TARGET_FORMAT:
+    logger.error("No target format specified, defaulting to 'gltf_godot'")
+    TARGET_FORMAT = "gltf_godot"
+
+# target mode can be only one of these 2 now
+if TARGET_FORMAT not in ["gltf", "gltf_godot"]:
+    logger.error("Invalid target format specified: %s", TARGET_FORMAT)
+    sys.exit(1)
+
 PAGE_SIZE_LIMIT: int = 100
 PARAM_SUCCESS: str = "gltfGeneratedDate"
 PARAM_ERROR: str = "gltfGeneratedError"
 
+if "godot" in TARGET_FORMAT:
+    PARAM_SUCCESS = "gltfGodotGeneratedDate"
+    PARAM_ERROR = "gltfGodotGeneratedError"
 
-def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) -> bool:
-    """Generate GLTF for a single asset via background Blender and upload it.
+
+def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, target_format: str) -> bool:
+    """Generate and upload a Godot-optimized GLTF for a single asset.
 
     Steps:
-    1. Download the asset file (.blend).
-    2. Run background Blender to export GLTF and produce a result JSON.
-    3. Upload generated files and patch asset parameters accordingly.
+    1. Download the asset archive.
+    2. Unpack the asset via a background Blender process.
+    3. Run a background Blender export to produce a Godot-optimized GLTF.
+    4. Upload the generated files and patch an asset parameter on success.
 
     Args:
-        asset_data: Asset metadata dict (expects keys like "id", "assetBaseId", "name", "files").
-        api_key: BlenderKit API key used for authenticated API operations.
-        binary_path: Path to the Blender binary to use for background operations.
+        asset_data: Asset metadata returned from the search API.
+        api_key: API key used for authenticated operations.
+        binary_path: Absolute path to the Blender binary used for background operations.
+        target_format: The target export format, e.g., 'gltf_godot'.
 
     Returns:
-        bool: True if GLTF generation and upload succeeded; False otherwise.
+        True when the GLTF was generated and uploaded successfully; False otherwise.
     """
     error = ""
     destination_directory = tempfile.gettempdir()
@@ -42,17 +71,17 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
     # Download asset
     asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
+    if not asset_file_path:
+        logger.error("Asset file not found on path %s", asset_file_path)
+        return False
+
     # Unpack asset
     send_to_bg.send_to_bg(
-        asset_data,
+        asset_data=asset_data,
         asset_file_path=asset_file_path,
         script="unpack_asset_bg.py",
         binary_path=binary_path,
     )
-
-    if not asset_file_path:
-        logger.error("Asset file not found on path %s", asset_file_path)
-        return False
 
     # Send to background to generate GLTF
     temp_folder = tempfile.mkdtemp()
@@ -64,7 +93,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         result_path=result_path,
         script="gltf_bg_blender.py",
         binary_path=binary_path,
-        target_format="gltf",
+        target_format=target_format,
     )
 
     files: list[dict[str, Any]] | None = None
@@ -77,7 +106,9 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
 
     if files is None:
         error += " Files are None"
-    elif len(files) > 0:
+    elif len(files) == 0:
+        error += " len(files)=0"
+    else:
         logger.info("Generated files: %s", files)
         try:
             upload.upload_resolutions(files, asset_data, api_key=api_key)
@@ -94,7 +125,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
                 api_key=api_key,
             )
             logger.info("Patched %s=%s for asset %s", PARAM_SUCCESS, today, asset_data.get("id"))
-        except Exception:
+        except Exception:  # upload module uses requests; narrow errors are internal
             logger.exception(
                 "Failed to upload resolutions or patch success parameter for asset %s",
                 asset_data.get("id"),
@@ -103,12 +134,16 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         else:
             # Success path
             return True
-    else:
-        error += f" len(files)={len(files)}"
 
-    logger.error("GLTF generation failed for asset %s: %s", asset_data.get("id"), error.strip())
-    value = error.strip()
+    # Failure path: patch error parameter
+    logger.error(
+        "GLTF format '%s' generation failed for asset %s: %s",
+        target_format,
+        asset_data.get("id"),
+        error.strip(),
+    )
     try:
+        value = error.strip()
         upload.patch_individual_parameter(
             asset_id=asset_data["id"],
             param_name=PARAM_ERROR,
@@ -119,35 +154,49 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         logger.info("Patched %s='%s' for asset %s", PARAM_ERROR, value, asset_data.get("id"))
     except Exception:
         logger.exception("Failed to patch error parameter for asset %s", asset_data.get("id"))
-
     return False
 
 
-def iterate_assets(assets: list[dict[str, Any]], api_key: str = "", binary_path: str = "") -> None:
-    """Iterate assets and run GLTF generation for each.
+def iterate_assets(
+    assets: list[dict[str, Any]],
+    api_key: str = "",
+    binary_path: str = "",
+    target_format: str = "",
+) -> None:
+    """Iterate over assets and generate Godot GLTF outputs for each.
 
     Args:
-        assets: List of asset metadata dicts.
-        api_key: BlenderKit API key forwarded to generation.
-        binary_path: Path to the Blender binary for background export.
-
-    Returns:
-        None
+        assets: A list of asset dictionaries to process.
+        api_key: API key for authenticated server operations.
+        binary_path: Absolute path to the Blender executable for background tasks.
+        target_format: The target export format, e.g., 'gltf' or 'gltf_godot'.
     """
-    for i, asset_data in enumerate(assets):
-        logger.info("=== %s/%s generating GLTF for %s", i + 1, len(assets), asset_data.get("name"))
-        if not asset_data:
-            logger.warning("Skipping empty asset entry at index %s", i)
-            continue
-        ok = generate_gltf(asset_data, api_key, binary_path=binary_path)
-        if ok:
-            logger.info("===> GLTF SUCCESS for %s", asset_data.get("id"))
-        else:
-            logger.warning("===> GLTF FAILED for %s", asset_data.get("id"))
+    concurrency.run_asset_threads(
+        assets,
+        worker=generate_gltf,
+        worker_kwargs={
+            "api_key": api_key,
+            "binary_path": binary_path,
+            "target_format": target_format,
+        },
+        asset_arg_position=0,
+        max_concurrency=2,
+        logger=logger,
+    )
 
 
 def main() -> None:
-    """Entry point to fetch assets and generate GLTFs where missing."""
+    """Entry point for running the Godot GLTF generation workflow.
+
+    Reads configuration from environment variables, searches for assets, and
+    triggers generation for each asset.
+
+    Environment Variables:
+        BLENDER_PATH: Absolute path to the Blender binary used for background processing.
+        BLENDERKIT_API_KEY: API key used to access and modify assets.
+        ASSET_BASE_ID: Optional ID to run against a single asset (validation hook mode).
+        MAX_ASSET_COUNT: Upper bound of assets to process in one run (default 100).
+    """
     blender_path = os.environ.get("BLENDER_PATH", "")
     api_key = os.environ.get("BLENDERKIT_API_KEY", "")
     asset_base_id = os.environ.get("ASSET_BASE_ID")
@@ -163,10 +212,10 @@ def main() -> None:
             "asset_type": "model",
             "order": "-created",
             "verification_status": "validated",
-            # Assets which does not have generated GLTF
-            "gltfGeneratedDate_isnull": True,
-            # Assets which does not have error from previously failed GLTF generation
-            "gltfGeneratedError_isnull": True,
+            # Assets which do not have generated GLTF for Godot
+            f"{PARAM_SUCCESS}_isnull": True,
+            # Assets without an error from a previously failed Godot GLTF generation
+            f"{PARAM_ERROR}_isnull": True,
         }
 
     assets = search.get_search_paginated(
@@ -175,11 +224,16 @@ def main() -> None:
         max_results=max_assets,
         api_key=api_key,
     )
-    logger.info("Found %s assets for GLTF conversion", len(assets))
+    logger.info("Found %s assets for GLTF (Godot) conversion", len(assets))
     for i, asset in enumerate(assets):
         logger.debug("%s %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"))
 
-    iterate_assets(assets, api_key=api_key, binary_path=blender_path)
+    iterate_assets(
+        assets,
+        api_key=api_key,
+        binary_path=blender_path,
+        target_format=TARGET_FORMAT,
+    )
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ on:
       source_app_version_xy:
         description: 'Source app version X.Y'
         required: true
-  
+
   repository_dispatch:
     types: [process-asset]
 
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BLENDER_PATH: /home/headless/blender/blender
-    if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
+    if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
         (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
         (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
     container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy }}
@@ -51,7 +51,7 @@ jobs:
   GLTF:
     name: Public, Validated and Model -> generate GLTF
     runs-on: ubuntu-latest
-    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
+    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
     container: ghcr.io/blenderkit/headless-blender:blender-4.2 # LATEST STABLE
@@ -66,12 +66,12 @@ jobs:
       - name: Set BLENDER_PATH
         run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
       - name: Generate GLTF
-        run: python3 generate_gltf.py
+        run: python3 generate_gltf.py --target_format gltf
 
   GLTF_GODOT:
     name: Public, Validated and Model -> generate Godot GLTF
     runs-on: ubuntu-latest
-    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
+    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
     container: ghcr.io/blenderkit/headless-blender:blender-4.2 # LATEST STABLE
@@ -85,13 +85,13 @@ jobs:
       - run: python3 -m pip install -r requirements.txt
       - name: Set BLENDER_PATH
         run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
-      - name: Generate GLTF
-        run: python3 generate_gltf_godot.py
+      - name: Generate GLTF for Godot
+        run: python3 generate_gltf.py --target_format gltf_godot
 
   REINDEX-model:
     runs-on: ubuntu-latest
     needs: [RESOLUTIONS, GLTF, GLTF_GODOT]
-    if: contains(fromJSON('["model"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
+    if: contains(fromJSON('["model"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true') # same statement as in RESOLUTIONS
     steps:
@@ -108,7 +108,7 @@ jobs:
   REINDEX-hdr-or-mat: # We do it separately, because needs is not triggered when GLTF is skipped
     runs-on: ubuntu-latest
     needs: [RESOLUTIONS]
-    if: contains(fromJSON('["material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) && 
+    if: contains(fromJSON('["material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true') # same statement as in RESOLUTIONS
     steps:
