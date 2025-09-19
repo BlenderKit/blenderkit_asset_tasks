@@ -50,7 +50,7 @@ echo Using blender at "%blender_path%"
 
 
 rem Run tests; write output to file (suppress unittest duplicate prints)
-"%blender_path%" -y -b -noaudio -P blenderkit_asset_tasks\_scripts\run_unittests_in_blender.py -- -s blenderkit_asset_tasks\_test_blenderkit_asset_tasks\unittests -p "test_*.py" --runner-stream none >> !current_dir!blender_test_results.txt 2>&1
+"%blender_path%" -y -b -noaudio -P blenderkit_asset_tasks\_scripts\run_unittests_in_blender.py -- -s blenderkit_asset_tasks\_test\unittests -p "test_*.py" --runner-stream none >> !current_dir!blender_test_results.txt 2>&1
 if errorlevel 1 (
     echo Tests failed. See blender_test_results.txt for details.
     exit /b 1

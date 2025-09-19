@@ -66,7 +66,13 @@ class UnpackAssetBgTests(unittest.TestCase):
         self.assertEqual(image.filepath, "//tex/img.png")
 
     def test_mark_assets_model_visible_objects(self):
-        ob = mock.Mock(parent=None)
+        # NOTE: passing parent=None to Mock constructor does not create an attribute
+        # `.parent` that is None for truth testing; instead it's used internally by
+        # the mocking machinery. We explicitly assign after creation so the code
+        # under test (`_mark_model_assets`) sees `ob.parent is None` and treats it
+        # as a top-level object.
+        ob = mock.Mock()
+        ob.parent = None
         self.bpy.context.visible_objects = [ob]
         self.bpy.data.objects = [ob]
         self.U._mark_model_assets()

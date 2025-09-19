@@ -4,6 +4,8 @@ Scripts to do automatic processing of Blender assets in the database.
 ## Structure
 
 - `.github` - contains definitions of Github Actions Workflows.
+- `_scripts` - contains additional utilities for development project setup and testing
+- `_test` - contains unit tests for synthetic testing
 - `blend_files` - contains template .blend projects through which some tasks are made.
 - `blender_bg_scripts` - contains scripts which gets executed inside the Blender instance.
 - `blender_server_utils` - python module containing code shared between multiple scripts in root dir.
@@ -17,6 +19,43 @@ If some code is to be shared, it should be placed in `blender_server_utils`!
 Standalone scripts in root often need do some stuff right inside Blender.
 For this they should start Blender with some script from `blender_bg_utils`.
 All code which has to be run inside Blender should be in `blender_bg_utils`.
+
+## Logging & Debugging
+
+All scripts now use a unified logger (`blenderkit_server_utils.log.create_logger`).
+Set the environment variable `DEBUG_LOGGING=1` (any non-empty value) to switch global log level to DEBUG for more detailed diagnostics (per‑thread events, API calls, subprocess command lines, etc.).
+
+Examples:
+
+Windows (PowerShell):
+```powershell
+$env:DEBUG_LOGGING=1
+python generate_gltf.py --target_format gltf_godot
+```
+
+Windows (cmd):
+```cmd
+set DEBUG_LOGGING=1
+python generate_gltf.py --target_format gltf_godot
+```
+
+Linux / macOS:
+```bash
+DEBUG_LOGGING=1 python generate_gltf.py  --target_format gltf_godot
+```
+
+In a `.env` file (VS Code auto-loads if configured):
+```
+DEBUG_LOGGING=1
+```
+
+GitHub Actions (add to a step’s env):
+```yaml
+env:
+  DEBUG_LOGGING: "1"
+```
+
+Unset or leave empty to fall back to INFO level.
 
 ### Requirements for Blender
 

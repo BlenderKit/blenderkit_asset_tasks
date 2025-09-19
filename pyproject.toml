@@ -98,7 +98,7 @@ ignore = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"_test_blenderkit_asset_tasks/**/*.py" = [
+"_test/**/*.py" = [
     "D", # https://docs.astral.sh/ruff/rules/#pydocstyle-d
     "SLF001",  # https://docs.astral.sh/ruff/rules/private-member-access/
     "S101"  # https://docs.astral.sh/ruff/rules/assert/

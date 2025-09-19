@@ -31,6 +31,7 @@ import logging
 import re
 import sys
 from types import FrameType
+import os
 
 CALLER_STACK_LEVEL = 2  # create_logger -> caller wrapper (usually module)
 
@@ -137,6 +138,9 @@ def create_logger(name: str | None = None) -> logging.Logger:
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
+    # check env for debuglogging level
+    if "DEBUG_LOGGING" in os.environ:
+        logger.setLevel(logging.DEBUG)
 
     # Attach a handler if none present.
     if not logger.handlers:
