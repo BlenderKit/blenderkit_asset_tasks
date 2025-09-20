@@ -111,6 +111,7 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
     if binary_type == "NEWEST":
         blender_target = max(blenders, key=lambda x: x[0])
+        
     # use latest blender version for hdrs
     if str(asset_data.get("assetType", "")).lower() == "hdr":
         blender_target = blenders[-1]

@@ -11,9 +11,11 @@ from typing import Any
 
 import openai
 
-from blenderkit_server_utils import log, paths, search, upload
+from blenderkit_server_utils import config, log, search, upload, utils
 
 logger = log.create_logger(__name__)
+
+utils.raise_on_missing_env_vars(["API_KEY", "OPENAI_API_KEY", "MAX_ASSET_COUNT"])
 
 PAGE_SIZE_LIMIT: int = 100
 
@@ -63,8 +65,7 @@ def main() -> None:
 
     dpath: str = tempfile.gettempdir()
     filepath: str = os.path.join(dpath, "assets_for_resolutions.json")
-    max_assets: int = int(os.environ.get("MAX_ASSET_COUNT", "100"))
-    openai.api_key = os.environ.get("OPENAI_API_KEY", "")
+    openai.api_key = config.OPENAI_API_KEY
     if not openai.api_key:
         logger.error("OPENAI_API_KEY is not set; aborting.")
         return
@@ -72,9 +73,9 @@ def main() -> None:
     assets: list[dict[str, Any]] = search.get_search_simple(
         params,
         filepath,
-        page_size=min(max_assets, PAGE_SIZE_LIMIT),
-        max_results=max_assets,
-        api_key=paths.API_KEY,
+        page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
     )
     if not assets:
         logger.info("No assets found to process.")
@@ -107,12 +108,12 @@ def main() -> None:
                 asset_id=asset_data["id"],
                 param_name=param_name_target,
                 param_value=param_value,
-                api_key=paths.API_KEY,
+                api_key=config.BLENDERKIT_API_KEY,
             )
             upload.get_individual_parameter(
                 asset_id=asset_data["id"],
                 param_name=param_name_target,
-                api_key=paths.API_KEY,
+                api_key=config.BLENDERKIT_API_KEY,
             )
 
             # -------------------------------------------------------------------------------------

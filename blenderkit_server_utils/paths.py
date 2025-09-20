@@ -29,7 +29,7 @@ import shutil
 from typing import Any
 
 # Local imports used by some helpers.
-from . import log, utils
+from . import config, log, utils
 
 logger = log.create_logger(__name__)
 
@@ -41,11 +41,6 @@ except ImportError:
 
 dir_path: str = os.path.dirname(os.path.realpath(__file__))
 parent_path: str = os.path.join(dir_path, os.path.pardir)
-
-SERVER: str = os.environ.get("BLENDERKIT_SERVER", "https://www.blenderkit.com")
-API_KEY: str = os.environ.get("BLENDERKIT_API_KEY", "")
-BLENDERKIT_API: str = "/api/v1"
-BLENDERS_PATH: str = os.environ.get("BLENDERS_PATH", "")
 
 
 BG_SCRIPTS_PATH: str = os.path.join(parent_path, "blender_bg_scripts")
@@ -92,7 +87,7 @@ def ensure_bpy(func):
 
 def get_api_url() -> str:
     """Return BlenderKit API base URL."""
-    url = SERVER + BLENDERKIT_API
+    url = config.SERVER + config.BLENDERKIT_API_VERSION
     return url
 
 
@@ -105,7 +100,7 @@ def default_global_dict() -> str:
         Absolute path to the base BlenderKit data directory.
     """
     home = os.path.expanduser("~")
-    data_home = os.environ.get("XDG_DATA_HOME")
+    data_home = os.getenv("XDG_DATA_HOME")
     if data_home is not None:
         home = data_home
     base_dir = os.path.join(home, "blenderkit_data")
@@ -343,9 +338,15 @@ def delete_asset_debug(asset_data: dict[str, Any]) -> None:
     """
     from . import download  # local import to avoid cycles
 
+    utils.raise_on_missing_env_vars(["API_KEY"])
+
     # utils.get_scene_id and api_key are context-dependent; left as in original code.
     try:
-        _ = download.get_download_url(asset_data, utils.get_scene_id(), API_KEY)  # type: ignore[arg-type]
+        _ = download.get_download_url(
+            asset_data,
+            utils.get_scene_id(),
+            config.BLENDERKIT_API_KEY,
+        )
     except (KeyError, TypeError, ValueError, OSError):
         logger.exception("Failed to obtain download URL for asset id=%s", asset_data.get("id"))
 

@@ -1,23 +1,27 @@
 """Generate and post a comment with add-on test results to BlenderKit.com.
 
 Results are expected under directories like: ``temp/blender-{x.y}/test_addon_results.json``.
+
+Required environment variables:
+- BLENDERKIT_API_KEY: API key of the user owning the asset (used for downloading the add-on).
+- TEXTYBOT_API_KEY: API key of the user posting the comment (preferably a bot account).
+- ASSET_BASE_ID: Base ID of the add-on asset to comment on.
+
 """
 
 from __future__ import annotations
 
 import json
-import logging
 from collections import OrderedDict
 from os import environ
 from pathlib import Path
 from typing import Any
 
-from blenderkit_server_utils import api_nice
+from blenderkit_server_utils import api_nice, config, log, utils
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "TEXTYBOT_API_KEY", "ASSET_BASE_ID"])
 
 
 def read_result_files() -> OrderedDict[str, dict[str, Any]]:
@@ -92,10 +96,10 @@ def main() -> None:
 
     api_nice.create_comment(
         comment=comment,
-        asset_base_id=environ.get("ASSET_BASE_ID", ""),
+        asset_base_id=config.ASSET_BASE_ID,
         # prefer KEY for account of specialized commenting bot
-        api_key=environ.get("TEXTYBOT_API_KEY", environ.get("BLENDERKIT_API_KEY", "")),
-        server_url=environ.get("BLENDERKIT_SERVER", ""),
+        api_key=environ.get("TEXTYBOT_API_KEY", config.BLENDERKIT_API_KEY),
+        server_url=config.SERVER,
     )
     logger.info("Comment uploaded")
 

@@ -10,28 +10,23 @@ from __future__ import annotations
 
 import csv
 import json
-import logging
 import os
 import pathlib
 import re
 import tempfile
-import threading
 import time
 import zipfile
-from collections.abc import Callable
 from typing import Any
 
 import requests
 
-from blenderkit_server_utils import paths, search, send_to_bg, upload
+from blenderkit_server_utils import concurrency, config, log, search, send_to_bg, upload, utils
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
-# Configure basic logging only if root has no handlers (script usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDERS_PATH"])
 
-MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
+
 RESPONSE_STATUS_BAD_REQUEST = 400
 
 
@@ -329,7 +324,7 @@ def sync_twin_bru_library(file_path: str) -> None:
     current_dir = pathlib.Path(__file__).parent.resolve()
     i = 0
     for twinbru_asset in assets:
-        if i >= MAX_ASSETS:  # counts only assets not already present
+        if i >= config.MAX_ASSET_COUNT:  # counts only assets not already present
             break
         if _asset_exists(twinbru_asset):
             logger.info("Asset %s already exists on blenderkit", twinbru_asset.get("name"))
@@ -355,7 +350,7 @@ def _asset_exists(twinbru_asset: dict[str, Any]) -> bool:
         filepath=None,
         page_size=10,
         max_results=1,
-        api_key=paths.API_KEY,
+        api_key=config.BLENDERKIT_API_KEY,
     )
     return len(bk_assets) > 0
 
@@ -367,6 +362,10 @@ def _process_twinbru_asset(twinbru_asset: dict[str, Any], current_dir: pathlib.P
         twinbru_asset: Asset data from CSV.
         current_dir: Directory of this script for template path resolution.
     """
+    # skip assets without a source URL
+    if not twinbru_asset.get("url_texture_source"):
+        logger.warning("Skipping asset %s without source URL", twinbru_asset.get("name"))
+        return
     logger.info("Asset %s does not exist on blenderkit", twinbru_asset.get("name"))
     temp_folder = os.path.join(tempfile.gettempdir(), str(twinbru_asset.get("name")))
     os.makedirs(temp_folder, exist_ok=True)
@@ -389,7 +388,7 @@ def _process_twinbru_asset(twinbru_asset: dict[str, Any], current_dir: pathlib.P
     upload_data = generate_upload_data(twinbru_asset)
     logger.info("Uploading metadata for %s", upload_data.get("name"))
     logger.debug("Upload metadata payload: %s", json.dumps(upload_data, indent=2))
-    asset_data = upload.upload_asset_metadata(upload_data, paths.API_KEY)
+    asset_data = upload.upload_asset_metadata(upload_data, config.BLENDERKIT_API_KEY)
     if asset_data.get("statusCode") == RESPONSE_STATUS_BAD_REQUEST:
         logger.error("Bad request while uploading metadata: %s", asset_data)
         return
@@ -414,7 +413,7 @@ def _process_twinbru_asset(twinbru_asset: dict[str, Any], current_dir: pathlib.P
     files_upload_data = {
         "name": asset_data["name"],
         "displayName": upload_data["name"],
-        "token": paths.API_KEY,
+        "token": config.BLENDERKIT_API_KEY,
         "id": asset_data["id"],
     }
     uploaded = upload.upload_files(files_upload_data, files)
@@ -423,7 +422,7 @@ def _process_twinbru_asset(twinbru_asset: dict[str, Any], current_dir: pathlib.P
         logger.info("Successfully uploaded asset: %s", asset_data.get("name"))
         ok = upload.mark_for_thumbnail(
             asset_id=asset_data["id"],
-            api_key=paths.API_KEY,
+            api_key=config.BLENDERKIT_API_KEY,
             use_gpu=True,
             samples=100,
             resolution=2048,
@@ -441,20 +440,19 @@ def _process_twinbru_asset(twinbru_asset: dict[str, Any], current_dir: pathlib.P
     else:
         logger.error("Failed to upload asset: %s", asset_data.get("name"))
 
-    upload.patch_asset_metadata(asset_data["id"], paths.API_KEY, data={"verificationStatus": "uploaded"})
+    upload.patch_asset_metadata(asset_data["id"], config.BLENDERKIT_API_KEY, data={"verificationStatus": "uploaded"})
     time.sleep(10)
 
 
 def iterate_assets(
-    filepath: str,
-    thread_function: Callable[[dict[str, Any], str], None] | None = None,
+    assets: list[dict[str, Any]],
     process_count: int = 12,
     api_key: str = "",
 ) -> None:
     """Iterate through all assigned assets, check for those which need generation and send them to res gen.
 
     Args:
-        filepath (str): path to the CSV file
+        assets (list[dict[str, Any]]): List of asset dictionaries to process
         thread_function (function, optional): function to run in thread. Defaults to None.
         process_count (int, optional): number of parallel processes. Defaults to 12.
         api_key (str, optional): API key to use. Defaults to "".
@@ -462,26 +460,16 @@ def iterate_assets(
     Returns:
         None
     """
-    assets = search.load_assets_list(filepath)
-    if thread_function is None:
-        logger.error("No thread_function provided for iterate_assets")
-        return
-    threads: list[threading.Thread] = []
-    for asset_data in assets:
-        if not asset_data:
-            logger.warning("Skipping empty asset entry")
-            continue
-        logger.info("Processing asset %s", asset_data.get("name"))
-        thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
-        thread.start()
-        threads.append(thread)
-        while len([t for t in threads if t.is_alive()]) >= process_count:
-            threads = [t for t in threads if t.is_alive()]
-            time.sleep(0.1)
-
-    # Wait for remaining threads to finish
-    for t in threads:
-        t.join()
+    concurrency.run_asset_threads(
+        assets,
+        worker=sync_twin_bru_library,
+        worker_kwargs={
+            "api_key": api_key,
+        },
+        asset_arg_position=0,
+        max_concurrency=process_count,
+        logger=logger,
+    )
 
 
 def main() -> None:
@@ -490,7 +478,7 @@ def main() -> None:
     Reads the CSV file path from TWINBRU_CSV_PATH environment variable.
     If not set, prints an error message and exits.
     """
-    csv_path = os.environ.get("TWINBRU_CSV_PATH")
+    csv_path = os.getenv("TWINBRU_CSV_PATH")
     if not csv_path:
         logger.error("TWINBRU_CSV_PATH environment variable not set")
         return
@@ -500,7 +488,12 @@ def main() -> None:
         return
 
     logger.info("Processing TwinBru CSV file: %s", csv_path)
-    sync_twin_bru_library(csv_path)
+
+    assets = search.load_assets_list(csv_path)
+    # maybe this ?
+    for asset in assets:
+        logger.debug("%s (%s)", asset.get("name"), asset.get("assetType"))
+    iterate_assets(assets)
 
 
 if __name__ == "__main__":

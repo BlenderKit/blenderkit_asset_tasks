@@ -6,7 +6,11 @@ parameter helpers, and UV mapping helpers when Blender's bpy is available.
 
 from __future__ import annotations
 
+import os
 import platform
+import re
+import subprocess
+import sys
 from collections.abc import Iterable
 from typing import Any
 
@@ -286,3 +290,98 @@ def get_bounds_worldspace(objects: Iterable[Any]) -> tuple[float, float, float, 
         return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
     return minx, miny, minz, maxx, maxy, maxz
+
+
+def get_scene_id() -> str | None:
+    """Get the current Blender scene's UUID."""
+    if not bpy:
+        return None
+    filepath = bpy.data.filepath
+    if not filepath:
+        return None
+
+    base = os.path.splitext(os.path.basename(filepath))[0]
+    if "_" not in base:
+        return None
+    # uuid is appended to to end of file path after last _
+    uuid = filepath.split("_")[-1]
+    # must be of length
+    # basic sanity check
+    max_len = 36
+    if len(uuid) != max_len:
+        return None
+    # basic regex check 9003cef0-687f-4b01-8f44-2cdbdbd321fb
+    if not re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", uuid):
+        return None
+    return uuid
+
+
+def raise_on_missing_env_vars(var_names: list[str]) -> None:
+    """Raise EnvironmentError if any of the specified environment variables are missing or empty.
+
+    Args:
+        var_names: List of environment variable names to check.
+
+    Raises:
+        EnvironmentError if any variable is missing.
+    """
+    for var_name in var_names:
+        if not os.getenv(var_name):
+            logger.error("Missing environment variable: %s", var_name)
+            raise EnvironmentError(f"Missing environment variable: {var_name}")  # noqa: UP024
+
+
+# region Package installation helpers
+
+
+def _ensure_pip() -> None:
+    """Ensure that pip is available for installing packages."""
+    try:
+        import pip  # type: ignore # noqa: F401
+    except ImportError:
+        import ensurepip
+
+        ensurepip.bootstrap()
+
+    # update pip to the latest version
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+
+
+def _install_package(package: str | list[str]) -> None:
+    """Install a Python package using pip.
+
+    Args:
+        package: The name of the package to install.
+    """
+    _ensure_pip()
+
+    # we permit also list in package
+    # make sure the submitted value as a list
+    if isinstance(package, str):
+        package = [package]
+
+    subprocess.check_call([sys.executable, "-m", "pip", "install", *package])
+
+
+def ensure_installed(package: str, to_install: str | list[str]) -> None:
+    """Ensure that a Python package is installed.
+
+    Args:
+        package: The name of the package to check.
+        to_install: The name or list of names of the package(s) to install if missing.
+
+    Raises:
+        ImportError if the package is not installed.
+    """
+    try:
+        __import__(package)
+    except ImportError:
+        logger.exception("Missing required package: %s", package)
+        _install_package(to_install)
+        try:
+            __import__(package)
+        except ImportError:
+            raise ImportError(f"Failed to install required package: {package}")  # noqa: B904
+
+
+# endregion Package installation helpers

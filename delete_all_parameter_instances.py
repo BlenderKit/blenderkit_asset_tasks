@@ -5,7 +5,7 @@ parameter from each asset. Intended for DB cleanup and can be run manually.
 
 Notes:
 - Set ``param_name`` below to the parameter you want to delete.
-- Ensure the API key is available (paths.API_KEY).
+- Ensure the API key is available (config.BLENDERKIT_API_KEY).
 """
 
 import os
@@ -13,10 +13,12 @@ import tempfile
 import time
 from typing import Any
 
-from blenderkit_server_utils import log, paths, search, upload
+from blenderkit_server_utils import config, log, search, upload, utils
 
 # Module logger
 logger = log.create_logger(__name__)
+
+utils.raise_on_missing_env_vars(["API_KEY"])
 
 param_name: str = ""
 
@@ -42,7 +44,7 @@ def main() -> None:
         filepath,
         page_size=min(MAX_ASSETS, 100),
         max_results=MAX_ASSETS,
-        api_key=paths.API_KEY,
+        api_key=config.BLENDERKIT_API_KEY,
     )
     logger.info("Found %d assets to process", len(assets))
 
@@ -55,9 +57,9 @@ def main() -> None:
             asset_id=asset_id,
             param_name=param_name,
             param_value=param_value,
-            api_key=paths.API_KEY,
+            api_key=config.BLENDERKIT_API_KEY,
         )
-        upload.patch_asset_empty(asset_id=asset_id, api_key=paths.API_KEY)
+        upload.patch_asset_empty(asset_id=asset_id, api_key=config.BLENDERKIT_API_KEY)
 
         duration_s: float = time.time() - start_time
         logger.info("Asset %s processed in %.3f s", asset_id, duration_s)

@@ -13,22 +13,25 @@ import os
 import pathlib
 import shutil
 import tempfile
-import threading
-import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from blenderkit_server_utils import download, log, paths, search, send_to_bg
+from blenderkit_server_utils import concurrency, config, download, log, search, send_to_bg, utils
 
 # Assuming necessary imports are done at the top of the script
 from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 
 logger = log.create_logger(__name__)
 
+utils.raise_on_missing_env_vars([
+    "API_KEY",
+    "BLENDERS_PATH",
+    "CF_ACCESS_KEY",
+    "CF_ACCESS_SECRET",
+    "CF_ENDPOINT_URL",
+])
+
 # Constants
-MAX_ASSETS: int = int(os.environ.get("MAX_ASSET_COUNT", "100"))
-MAX_THREADS: int = int(os.environ.get("MAX_VALIDATION_THREADS", "8"))
 BUCKET_VALIDATION: str = "validation-renders"
 
 
@@ -234,6 +237,11 @@ def render_model_validation_thread(asset_data: dict[str, Any], api_key: str) -> 
     Returns:
         None
     """
+    # skip empty assets
+    if not asset_data or not asset_data.get("files"):
+        logger.warning("Skipping empty or invalid asset entry")
+        return
+
     destination_directory = tempfile.gettempdir()
     upload_id = _extract_upload_id(asset_data)
     if not upload_id:
@@ -277,41 +285,30 @@ def render_model_validation_thread(asset_data: dict[str, Any], api_key: str) -> 
 
 
 def iterate_assets(
-    filepath: str,
-    thread_function: Callable[[dict[str, Any], str], None] | None = None,
-    process_count: int = MAX_THREADS,
+    assets: list[dict[str, Any]],
+    process_count: int = config.MAX_VALIDATION_THREADS,
     api_key: str = "",
 ) -> None:
     """Iterate assets and dispatch validation render threads.
 
     Args:
-        filepath: Path to JSON file with the asset list (created by search helper).
-        thread_function: Callable to execute per-asset. Defaults to
-            :func:`render_model_validation_thread`.
+        assets: List of asset dictionaries to process.
         process_count: Maximum number of concurrent threads.
-        api_key: BlenderKit API key passed to the thread function.
-    """
-    if thread_function is None:
-        thread_function = render_model_validation_thread
-    assets = search.load_assets_list(filepath)
-    threads: list[threading.Thread] = []
-    for asset_data in assets:
-        if not asset_data:
-            logger.warning("Skipping empty asset entry")
-            continue
-        logger.info("Queueing model validation for %s", asset_data.get("name"))
-        thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
-        thread.start()
-        threads.append(thread)
-        # throttle by max concurrent threads
-        while len([t for t in threads if t.is_alive()]) >= process_count:
-            # prune finished threads periodically
-            threads = [t for t in threads if t.is_alive()]
-            time.sleep(0.1)
+        api_key: BlenderKit API key forwarded to the thread function.
 
-    # Wait for all threads to finish
-    for t in threads:
-        t.join()
+    Returns:
+        None
+    """
+    concurrency.run_asset_threads(
+        assets,
+        worker=render_model_validation_thread,
+        worker_kwargs={
+            "api_key": api_key,
+        },
+        asset_arg_position=0,
+        max_concurrency=process_count,
+        logger=logger,
+    )
 
 
 def cloudflare_cleanup() -> None:
@@ -347,9 +344,9 @@ def main() -> None:
     search.get_search_simple(
         params,
         filepath=filepath,
-        page_size=min(MAX_ASSETS, 100),
-        max_results=MAX_ASSETS,
-        api_key=paths.API_KEY,
+        page_size=min(config.MAX_ASSET_COUNT, 100),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
     )
 
     assets = search.load_assets_list(filepath)
@@ -358,10 +355,9 @@ def main() -> None:
         logger.debug("%s ||| %s", a.get("name"), a.get("assetType"))
 
     iterate_assets(
-        filepath,
+        assets,
         process_count=1,
-        api_key=paths.API_KEY,
-        thread_function=render_model_validation_thread,
+        api_key=config.BLENDERKIT_API_KEY,
     )
 
 

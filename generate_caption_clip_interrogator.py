@@ -17,15 +17,30 @@ import tempfile
 import time
 from typing import Any
 
-from clip_interrogator import Config, Interrogator
-from PIL import Image, UnidentifiedImageError
-import requests
-import torch
 
-from blenderkit_server_utils import paths, search, upload, log
+from blenderkit_server_utils import config, search, upload, log, utils
 
 
 logger = log.create_logger(__name__)
+
+utils.raise_on_missing_env_vars(["API_KEY"])
+
+utils.ensure_installed(
+    package="torch",
+    to_install=["torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu117"],
+)
+utils.ensure_installed(package="gradio", to_install=["gradio"])
+utils.ensure_installed(package="open_clip", to_install=["open_clip_torch"])
+utils.ensure_installed(package="clip_interrogator", to_install=["clip-interrogator"])
+utils.ensure_installed(package="requests", to_install=["requests"])
+utils.ensure_installed(package="PIL", to_install=["Pillow"])
+
+
+from clip_interrogator import Config, Interrogator  # noqa: E402
+from PIL import Image, UnidentifiedImageError  # noqa: E402
+import requests  # noqa: E402
+import torch  # noqa: E402
+
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100
@@ -100,12 +115,12 @@ def process_asset(ci: Interrogator, asset_data: dict[str, Any], dpath: str, para
             asset_id=asset_id,
             param_name=param_name,
             param_value=param_value,
-            api_key=paths.API_KEY,
+            api_key=config.BLENDERKIT_API_KEY,
         )
         upload.get_individual_parameter(
             asset_id=asset_id,
             param_name=param_name,
-            api_key=paths.API_KEY,
+            api_key=config.BLENDERKIT_API_KEY,
         )
     except requests.exceptions.RequestException:
         logger.exception("Failed to patch parameter for asset %s", asset_id)
@@ -130,7 +145,6 @@ def main() -> None:
     }
     dpath: str = tempfile.gettempdir()
     filepath: str = os.path.join(dpath, "assets_for_resolutions.json")
-    max_assets: int = int(os.environ.get("MAX_ASSET_COUNT", "100"))
 
     # Log torch details
     log_torch_info()
@@ -139,9 +153,9 @@ def main() -> None:
     assets: list[dict[str, Any]] = search.get_search_simple(
         params,
         filepath,
-        page_size=min(max_assets, PAGE_SIZE_LIMIT),
-        max_results=max_assets,
-        api_key=paths.API_KEY,
+        page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
     )
     if not assets:
         logger.info("No assets found to process.")

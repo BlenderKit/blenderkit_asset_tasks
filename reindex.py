@@ -7,16 +7,17 @@ as "version ID".
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from blenderkit_server_utils import log
+from blenderkit_server_utils import config, log, utils
 
 logger = log.create_logger(__name__)
+
+utils.raise_on_missing_env_vars(["API_KEY", "ASSET_BASE_ID"])
 
 RESPONSE_OK = 200
 REQUEST_TIMEOUT_SECONDS = 30
@@ -124,17 +125,5 @@ def trigger_reindex(server: str, api_key: str, asset_id: str) -> None:
 
 
 if __name__ == "__main__":
-    server = os.getenv("BLENDERKIT_SERVER")
-    if server is None:
-        raise RuntimeError("env variable BLENDERKIT_SERVER must be defined")
-
-    api_key = os.getenv("BLENDERKIT_API_KEY")
-    if api_key is None:
-        raise RuntimeError("env variable BLENDERKIT_API_KEY must be defined")
-
-    asset_base_id = os.getenv("ASSET_BASE_ID")
-    if asset_base_id is None:
-        raise RuntimeError("env variable ASSET_BASE_ID must be defined")
-
-    asset_id = get_asset_id(server, asset_base_id)
-    trigger_reindex(server, api_key, asset_id)
+    asset_id = get_asset_id(config.SERVER, config.ASSET_BASE_ID)
+    trigger_reindex(config.SERVER, config.BLENDERKIT_API_KEY, asset_id)

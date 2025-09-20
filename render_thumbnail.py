@@ -6,6 +6,7 @@ It supports both materials and models, with configurable rendering parameters.
 Required environment variables:
 BLENDERKIT_API_KEY - API key to be used
 BLENDERS_PATH - path to the folder with blender versions
+ASSET_BASE_ID - (optional) if set, only this asset will be processed
 
 Optional environment variables for thumbnail parameters:
 THUMBNAIL_USE_GPU - (bool) Use GPU for rendering
@@ -37,27 +38,22 @@ The script workflow:
 from __future__ import annotations
 
 import json
-import logging
 import os
 import tempfile
-import threading
-import time
 from pathlib import Path
 from typing import Any
 
-from blenderkit_server_utils import download, paths, search, send_to_bg, upload
+from blenderkit_server_utils import concurrency, config, download, log, search, send_to_bg, upload, utils
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
-# Configure basic logging only if root has no handlers (script usage)
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDERS_PATH"])
+
 
 # Required environment variables
-ASSET_BASE_ID = os.environ.get("ASSET_BASE_ID", None)
-MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
 PAGE_SIZE_LIMIT = 100
-SKIP_UPLOAD = os.environ.get("SKIP_UPLOAD", False) == "True"  # noqa: PLW1508
+SKIP_UPLOAD = os.getenv("SKIP_UPLOAD", False) == "True"  # noqa: FBT003, PLW1508
+
 
 # Thumbnail default parameters
 DEFAULT_THUMBNAIL_PARAMS: dict[str, Any] = {
@@ -94,7 +90,7 @@ def _env_bool(name: str, *, default: bool) -> bool:
         Boolean parsed from environment ("True"/"False").
     """
     default_str = "True" if default else "False"
-    return os.environ.get(name, default_str).lower() == "true"
+    return os.getenv(name, default_str).lower() == "true"
 
 
 def parse_json_params(json_str: str | None) -> dict[str, Any]:
@@ -189,11 +185,11 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
     # Update with environment variables (highest priority)
     env_updates = {
         "thumbnail_use_gpu": _env_bool("THUMBNAIL_USE_GPU", default=bool(params["thumbnail_use_gpu"])),
-        "thumbnail_samples": int(os.environ.get("THUMBNAIL_SAMPLES", params["thumbnail_samples"])),
-        "thumbnail_resolution": int(os.environ.get("THUMBNAIL_RESOLUTION", params["thumbnail_resolution"])),
+        "thumbnail_samples": int(os.getenv("THUMBNAIL_SAMPLES", params["thumbnail_samples"])),
+        "thumbnail_resolution": int(os.getenv("THUMBNAIL_RESOLUTION", params["thumbnail_resolution"])),
         "thumbnail_denoising": _env_bool("THUMBNAIL_DENOISING", default=bool(params["thumbnail_denoising"])),
         "thumbnail_background_lightness": float(
-            os.environ.get("THUMBNAIL_BACKGROUND_LIGHTNESS", params["thumbnail_background_lightness"]),
+            os.getenv("THUMBNAIL_BACKGROUND_LIGHTNESS", params["thumbnail_background_lightness"]),
         ),
     }
 
@@ -201,8 +197,8 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
     if asset_type == "material":
         env_updates.update(
             {
-                "thumbnail_type": os.environ.get("THUMBNAIL_TYPE", params["thumbnail_type"]),
-                "thumbnail_scale": float(os.environ.get("THUMBNAIL_SCALE", params["thumbnail_scale"])),
+                "thumbnail_type": os.getenv("THUMBNAIL_TYPE", params["thumbnail_type"]),
+                "thumbnail_scale": float(os.getenv("THUMBNAIL_SCALE", params["thumbnail_scale"])),
                 "thumbnail_background": _env_bool(
                     "THUMBNAIL_BACKGROUND",
                     default=bool(params["thumbnail_background"]),
@@ -216,8 +212,8 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
     elif asset_type == "model":
         env_updates.update(
             {
-                "thumbnail_angle": os.environ.get("THUMBNAIL_ANGLE", params["thumbnail_angle"]),
-                "thumbnail_snap_to": os.environ.get("THUMBNAIL_SNAP_TO", params["thumbnail_snap_to"]),
+                "thumbnail_angle": os.getenv("THUMBNAIL_ANGLE", params["thumbnail_angle"]),
+                "thumbnail_snap_to": os.getenv("THUMBNAIL_SNAP_TO", params["thumbnail_snap_to"]),
             },
         )
 
@@ -242,6 +238,11 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
         asset_data (dict): Asset metadata including ID, type, and other properties
         api_key (str): BlenderKit API key for authentication
     """
+    # skip empty assets
+    if not asset_data or not asset_data.get("files"):
+        logger.warning("Skipping empty or invalid asset entry")
+        return
+
     destination_directory = tempfile.gettempdir()
 
     # Get thumbnail parameters based on asset type and markThumbnailRender
@@ -346,36 +347,31 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
             logger.exception("Cleanup error for asset %s", asset_data.get("id"))
 
 
-def iterate_assets(filepath: str, api_key: str, process_count: int = 1) -> None:
+def iterate_assets(
+    assets: list[dict[str, Any]],
+    api_key: str,
+    process_count: int = 1,
+) -> None:
     """Process multiple assets concurrently using threading.
 
     Manages a pool of worker threads to process multiple assets simultaneously.
     Limits the number of concurrent processes to avoid system overload.
 
     Args:
-        filepath (str): Path to the JSON file containing asset data
+        assets (list[dict[str, Any]]): List of asset dictionaries to process
         api_key (str): BlenderKit API key for authentication
         process_count (int): Maximum number of concurrent thumbnail generations
     """
-    assets = search.load_assets_list(filepath)
-    threads: list[threading.Thread] = []
-
-    for asset_data in assets:
-        if not asset_data:
-            logger.warning("Skipping empty asset entry")
-            continue
-        logger.info("Processing thumbnail for %s", asset_data.get("name"))
-        thread = threading.Thread(target=render_thumbnail_thread, args=(asset_data, api_key))
-        thread.start()
-        threads.append(thread)
-
-        while len([t for t in threads if t.is_alive()]) >= process_count:
-            threads = [t for t in threads if t.is_alive()]
-            time.sleep(0.1)
-
-    # Wait for remaining threads
-    for thread in threads:
-        thread.join()
+    concurrency.run_asset_threads(
+        assets,
+        worker=render_thumbnail_thread,
+        worker_kwargs={
+            "api_key": api_key,
+        },
+        asset_arg_position=0,
+        max_concurrency=process_count,
+        logger=logger,
+    )
 
 
 def main() -> None:
@@ -394,8 +390,8 @@ def main() -> None:
     filepath = os.path.join(dpath, "assets_for_thumbnails.json")
 
     # Set up search parameters
-    if ASSET_BASE_ID:
-        params = {"asset_base_id": ASSET_BASE_ID}
+    if config.ASSET_BASE_ID:
+        params = {"asset_base_id": config.ASSET_BASE_ID}
     else:
         params = {
             "asset_type": "model,material",
@@ -407,15 +403,18 @@ def main() -> None:
     assets = search.get_search_simple(
         params,
         filepath,
-        page_size=min(MAX_ASSETS, PAGE_SIZE_LIMIT),
-        max_results=MAX_ASSETS,
-        api_key=paths.API_KEY,
+        page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
     )
+
+    assets = search.load_assets_list(filepath)
+
     logger.info("Found %s assets to process", len(assets))
     for asset in assets:
         logger.debug("%s (%s)", asset.get("name"), asset.get("assetType"))
 
-    iterate_assets(filepath, api_key=paths.API_KEY)
+    iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY)
 
 
 if __name__ == "__main__":

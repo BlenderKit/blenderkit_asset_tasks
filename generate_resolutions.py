@@ -1,10 +1,5 @@
 """Script to generate resolutions for assets that don't have them yet.
 
-Required environment variables:
-BLENDERKIT_API_KEY - API key to be used
-BLENDERS_PATH - path to the folder with multiple blender versions
-or BLENDER_PATH - to one executable, this will force this one version
-
 For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 """
 
@@ -15,21 +10,18 @@ import os
 import pathlib
 import shutil
 import tempfile
-import threading
-import time
-from collections.abc import Callable
 from typing import Any
 
-from blenderkit_server_utils import download, log, paths, search, send_to_bg, upload
+from blenderkit_server_utils import concurrency, config, download, log, search, send_to_bg, upload, utils
 
 logger = log.create_logger(__name__)
+
+utils.raise_on_missing_env_vars(["API_KEY", "BLENDER_PATH"])
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100
 
-ASSET_BASE_ID = os.environ.get("ASSET_BASE_ID", None)
-MAX_ASSETS = int(os.environ.get("MAX_ASSET_COUNT", "100"))
-SKIP_UPLOAD = os.environ.get("SKIP_UPLOAD", False) == "True"  # noqa: PLW1508
+SKIP_UPLOAD = os.getenv("SKIP_UPLOAD", False) == "True"  # noqa: FBT003, PLW1508
 
 
 def _maybe_unpack_asset(asset_data: dict[str, Any], asset_file_path: str, blender_binary_path: str) -> None:
@@ -171,16 +163,20 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
     Returns:
         None
     """
+    # skip empty assets
+    if not asset_data or not asset_data.get("files"):
+        logger.warning("Skipping empty or invalid asset entry")
+        return
+
     destination_directory = tempfile.gettempdir()
-    blender_binary_path = os.environ.get("BLENDER_PATH", "")
 
     asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
     if not asset_file_path:
         # wrong api key/plan, or private asset submitted
         return
 
-    _maybe_unpack_asset(asset_data, asset_file_path, blender_binary_path)
-    temp_folder, result_path = _send_to_bg_for_resolutions(asset_data, asset_file_path, blender_binary_path)
+    _maybe_unpack_asset(asset_data, asset_file_path, config.BLENDER_PATH)
+    temp_folder, result_path = _send_to_bg_for_resolutions(asset_data, asset_file_path, config.BLENDER_PATH)
 
     files = _read_result_files(result_path)
     if SKIP_UPLOAD:
@@ -196,42 +192,30 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
 
 
 def iterate_assets(
-    filepath: str,
-    thread_function: Callable[[dict[str, Any], str], None] | None = None,
+    assets: list[dict[str, Any]],
     process_count: int = 12,
     api_key: str = "",
 ) -> None:
     """Iterate through all assigned assets, check for those which need generation and send them to res gen.
 
     Args:
-        filepath (str): Path to the JSON file with asset data.
-        thread_function (callable, optional): Function to process each asset in a thread.
+        assets (list[dict[str, Any]]): List of asset dictionaries to process.
         process_count (int, optional): Number of concurrent processes to run.
         api_key (str, optional): API key for authentication.
 
     Returns:
         None
     """
-    assets = search.load_assets_list(filepath)
-    if thread_function is None:
-        thread_function = generate_resolution_thread
-    threads: list[threading.Thread] = []
-    for asset_data in assets:
-        if not asset_data:
-            logger.warning("Skipping empty asset entry")
-            continue
-        logger.info("Queueing resolutions generation for %s", asset_data.get("name"))
-        thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
-        thread.start()
-        threads.append(thread)
-        # throttle concurrent threads
-        while len([t for t in threads if t.is_alive()]) >= process_count:
-            threads = [t for t in threads if t.is_alive()]
-            time.sleep(0.1)
-
-    # Wait for remaining threads to finish
-    for t in threads:
-        t.join()
+    concurrency.run_asset_threads(
+        assets,
+        worker=generate_resolution_thread,
+        worker_kwargs={
+            "api_key": api_key,
+        },
+        asset_arg_position=0,
+        max_concurrency=process_count,
+        logger=logger,
+    )
 
 
 def main() -> None:
@@ -258,23 +242,26 @@ def main() -> None:
     }
 
     # if ASSET_BASE_ID was provided, get just a single asset
-    if ASSET_BASE_ID is not None:
+    if config.ASSET_BASE_ID is not None:
         params = {
-            "asset_base_id": ASSET_BASE_ID,
+            "asset_base_id": config.ASSET_BASE_ID,
         }
 
     assets = search.get_search_simple(
         params,
         filepath,
-        page_size=min(MAX_ASSETS, PAGE_SIZE_LIMIT),
-        max_results=MAX_ASSETS,
-        api_key=paths.API_KEY,
+        page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
     )
+
+    assets = search.load_assets_list(filepath)
+
     logger.info("Count of assets to be processed: %s", len(assets))
     for a in assets:
         logger.debug("%s ||| %s", a.get("name"), a.get("assetType"))
 
-    iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=generate_resolution_thread)
+    iterate_assets(assets, process_count=1, api_key=config.BLENDERKIT_API_KEY)
 
 
 if __name__ == "__main__":

@@ -11,9 +11,22 @@ import sys
 import tempfile
 from typing import Any
 
-from blenderkit_server_utils import concurrency, datetime_utils, download, log, search, send_to_bg, upload
+from blenderkit_server_utils import (
+    concurrency,
+    config,
+    datetime_utils,
+    download,
+    log,
+    search,
+    send_to_bg,
+    upload,
+    utils,
+)
 
 logger = log.create_logger(__name__)
+
+utils.raise_on_missing_env_vars(["API_KEY", "BLENDER_PATH"])
+
 
 args = argparse.ArgumentParser()
 args.add_argument("--target_format", type=str, default="gltf_godot", help="Target export format")
@@ -25,7 +38,7 @@ if TARGET_FORMAT:
     logger.info("Using target format from args: %s", TARGET_FORMAT)
 if not TARGET_FORMAT:
     # use env var or default
-    TARGET_FORMAT = os.environ.get("TARGET_FORMAT", None)
+    TARGET_FORMAT = os.getenv("TARGET_FORMAT", None)
     if not TARGET_FORMAT:
         logger.info("No target format specified, defaulting to 'gltf_godot'")
 
@@ -190,17 +203,8 @@ def main() -> None:
 
     Reads configuration from environment variables, searches for assets, and
     triggers generation for each asset.
-
-    Environment Variables:
-        BLENDER_PATH: Absolute path to the Blender binary used for background processing.
-        BLENDERKIT_API_KEY: API key used to access and modify assets.
-        ASSET_BASE_ID: Optional ID to run against a single asset (validation hook mode).
-        MAX_ASSET_COUNT: Upper bound of assets to process in one run (default 100).
     """
-    blender_path = os.environ.get("BLENDER_PATH", "")
-    api_key = os.environ.get("BLENDERKIT_API_KEY", "")
-    asset_base_id = os.environ.get("ASSET_BASE_ID")
-    max_assets = int(os.environ.get("MAX_ASSET_COUNT", "100"))
+    asset_base_id = config.ASSET_BASE_ID
 
     if asset_base_id is not None:  # Single asset handling - for asset validation hook
         params = {
@@ -220,9 +224,9 @@ def main() -> None:
 
     assets = search.get_search_paginated(
         params,
-        page_size=min(max_assets, PAGE_SIZE_LIMIT),
-        max_results=max_assets,
-        api_key=api_key,
+        page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
     )
     logger.info("Found %s assets for GLTF (Godot) conversion", len(assets))
     for i, asset in enumerate(assets):
@@ -230,8 +234,8 @@ def main() -> None:
 
     iterate_assets(
         assets,
-        api_key=api_key,
-        binary_path=blender_path,
+        api_key=config.BLENDERKIT_API_KEY,
+        binary_path=config.BLENDER_PATH,
         target_format=TARGET_FORMAT,
     )
 

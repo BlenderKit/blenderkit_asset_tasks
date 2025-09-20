@@ -28,10 +28,10 @@ from __future__ import annotations
 import datetime as _dt
 import inspect
 import logging
+import os
 import re
 import sys
 from types import FrameType
-import os
 
 CALLER_STACK_LEVEL = 2  # create_logger -> caller wrapper (usually module)
 

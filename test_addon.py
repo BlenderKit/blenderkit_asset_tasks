@@ -3,24 +3,27 @@
 Note:
 - Potential future improvement: run `blender --command extension validate`.
 - Figure out how to propagate success/failure to an aggregating workflow that posts a comment.
+
+Required environment variables:
+- BLENDERKIT_API_KEY: API key used for downloading the asset.
+- ASSET_BASE_ID: Base ID of the add-on asset to test.
+- BLENDER_PATH: Path to the Blender binary to run in background.
 """
 
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from blenderkit_server_utils import download, search, send_to_bg
+from blenderkit_server_utils import config, download, log, search, send_to_bg, utils
 
-logger = logging.getLogger(__name__)
+logger = log.create_logger(__name__)
 
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "ASSET_BASE_ID", "BLENDER_PATH"])
 
 
 def test_addon(addon_data: dict[str, Any], api_key: str, binary_path: str) -> tuple[bool, dict[str, str]]:
@@ -84,12 +87,8 @@ def blender_validate_extension() -> None:
 
 def main() -> None:
     """Run the add-on smoke test and emit a JSON result file for CI consumption."""
-    blender_path = os.environ.get("BLENDER_PATH", "")
-    api_key = os.environ.get("BLENDERKIT_API_KEY", "")
-    asset_base_id = os.environ.get("ASSET_BASE_ID", "")
-
-    params = {"asset_base_id": asset_base_id, "asset_type": "addon"}
-    addons = search.get_search_paginated(params, api_key=api_key)
+    params = {"asset_base_id": config.ASSET_BASE_ID, "asset_type": "addon"}
+    addons = search.get_search_paginated(params, api_key=config.BLENDERKIT_API_KEY)
     if len(addons) == 0:
         raise RuntimeError("Addon not found in the database")
 
@@ -98,7 +97,7 @@ def main() -> None:
         logger.info("%s. %s: %s (%s)", i, asset.get("assetType"), asset.get("name"), asset.get("url"))
 
     # We just take 1st result
-    test_ok, test_results = test_addon(addons[0], api_key, binary_path=blender_path)
+    test_ok, test_results = test_addon(addons[0], config.BLENDERKIT_API_KEY, binary_path=config.BLENDER_PATH)
 
     output_file = Path("temp/test_addon_results.json")
     output_file.parent.mkdir(exist_ok=True)

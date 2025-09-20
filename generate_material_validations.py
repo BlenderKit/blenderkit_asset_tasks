@@ -9,19 +9,24 @@ from __future__ import annotations
 import os
 import pathlib
 import tempfile
-import threading
-import time
-from collections.abc import Callable
 from typing import Any
 
-from blenderkit_server_utils import download, log, paths, search, send_to_bg
+from blenderkit_server_utils import concurrency, config, download, log, search, send_to_bg, utils
 from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 
 logger = log.create_logger(__name__)
 
+
+utils.raise_on_missing_env_vars([
+    "API_KEY",
+    "BLENDERS_PATH",
+    "CF_ACCESS_KEY",
+    "CF_ACCESS_SECRET",
+    "CF_ENDPOINT_URL",
+])
+
+
 # Constants
-MAX_ASSETS: int = int(os.environ.get("MAX_ASSET_COUNT", "100"))
-MAX_THREADS: int = int(os.environ.get("MAX_VALIDATION_THREADS", "12"))
 BUCKET_VALIDATION: str = "validation-renders"
 
 
@@ -55,6 +60,11 @@ def render_material_validation_thread(asset_data: dict[str, Any], api_key: str) 
     Returns:
         None
     """
+    # skip empty assets
+    if not asset_data or not asset_data.get("files"):
+        logger.warning("Skipping empty or invalid asset entry")
+        return
+
     destination_directory = tempfile.gettempdir()
 
     upload_id = asset_data["files"][0]["downloadUrl"].split("/")[-2]
@@ -134,45 +144,30 @@ def render_material_validation_thread(asset_data: dict[str, Any], api_key: str) 
 
 
 def iterate_assets(
-    filepath: str,
-    thread_function: Callable[[dict[str, Any], str], None] | None = None,
-    process_count: int = MAX_THREADS,
+    assets: list[dict[str, Any]],
+    process_count: int = config.MAX_VALIDATION_THREADS,
     api_key: str = "",
 ) -> None:
     """Iterate assets and dispatch validation rendering threads.
 
     Args:
-        filepath: Path to JSON file with the asset list.
-        thread_function: Callable executed per asset; defaults to
-            ``render_material_validation_thread``.
+        assets: List of asset dictionaries to process.
         process_count: Maximum number of concurrent threads.
         api_key: BlenderKit API key forwarded to the thread function.
 
     Returns:
         None
     """
-    assets = search.load_assets_list(filepath)
-    if thread_function is None:
-        thread_function = render_material_validation_thread
-
-    threads: list[threading.Thread] = []
-    for asset_data in assets:
-        if not asset_data:
-            logger.warning("Skipping empty asset entry")
-            continue
-        logger.info("Queueing validation render for %s", asset_data.get("name"))
-        thread = threading.Thread(target=thread_function, args=(asset_data, api_key))
-        thread.start()
-        threads.append(thread)
-        # throttle by max concurrent threads
-        while len([t for t in threads if t.is_alive()]) >= process_count:
-            # prune finished threads periodically
-            threads = [t for t in threads if t.is_alive()]
-            time.sleep(0.1)
-
-    # Wait for remaining threads to finish
-    for t in threads:
-        t.join()
+    concurrency.run_asset_threads(
+        assets,
+        worker=render_material_validation_thread,
+        worker_kwargs={
+            "api_key": api_key,
+        },
+        asset_arg_position=0,
+        max_concurrency=process_count,
+        logger=logger,
+    )
 
 
 def main() -> None:
@@ -187,9 +182,9 @@ def main() -> None:
     search.get_search_simple(
         params,
         filepath=filepath,
-        page_size=min(MAX_ASSETS, 100),
-        max_results=MAX_ASSETS,
-        api_key=paths.API_KEY,
+        page_size=min(config.MAX_ASSET_COUNT, 100),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
     )
 
     assets = search.load_assets_list(filepath)
@@ -197,7 +192,7 @@ def main() -> None:
     for a in assets:
         logger.debug("%s ||| %s", a.get("name"), a.get("assetType"))
 
-    iterate_assets(filepath, process_count=1, api_key=paths.API_KEY, thread_function=render_material_validation_thread)
+    iterate_assets(assets, process_count=1, api_key=config.BLENDERKIT_API_KEY)
 
 
 if __name__ == "__main__":
