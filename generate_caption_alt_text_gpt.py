@@ -15,7 +15,7 @@ from blenderkit_server_utils import config, log, search, upload, utils
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["API_KEY", "OPENAI_API_KEY", "MAX_ASSET_COUNT"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "OPENAI_API_KEY", "MAX_ASSET_COUNT"])
 
 PAGE_SIZE_LIMIT: int = 100
 

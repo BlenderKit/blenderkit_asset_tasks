@@ -32,7 +32,16 @@ DEFAULT_WORKFLOW = "webhook_process_asset.yml"
 DEFAULT_REF = "main"
 
 
-def _bool_env(name: str, default: bool = False) -> bool:
+def _bool_env(name: str, *, default: bool = False) -> bool:
+    """Read a boolean environment variable.
+
+    Args:
+        name: Name of the environment variable.
+        default: Default value if the variable is not set.
+
+    Returns:
+        Boolean value of the environment variable.
+    """
     val = os.getenv(name)
     if val is None:
         return default
@@ -40,6 +49,7 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 
 def main() -> int:
+    """Main function to dispatch a GitHub workflow."""
     token = os.getenv("GITHUB_TOKEN")
     if not token:
         print("GITHUB_TOKEN env var required", file=sys.stderr)
@@ -69,22 +79,25 @@ def main() -> int:
         payload["inputs"]["verification_status"] = v
     if s := os.getenv("SOURCE_APP_VERSION_XY"):
         payload["inputs"]["source_app_version_xy"] = s
-    payload["inputs"]["is_private"] = _bool_env("IS_PRIVATE", False)
+    payload["inputs"]["is_private"] = _bool_env("IS_PRIVATE", default=False)
 
-    url = f"{API_BASE}/repos/{repo}/actions/workflows/{workflow}/dispatches"
     data = json.dumps(payload).encode("utf-8")
 
-    req = urllib.request.Request(url, data=data, method="POST")
+    url = f"{API_BASE}/repos/{repo}/actions/workflows/{workflow}/dispatches"
+
+    if not url.startswith("https://"):
+        raise ValueError("URL must start with https://")
+    req = urllib.request.Request(url, data=data, method="POST")  # noqa: S310
     req.add_header("Accept", "application/vnd.github.v3+json")
     req.add_header("Authorization", f"token {token}")
     req.add_header("Content-Type", "application/json")
 
     try:
-        with urllib.request.urlopen(req) as resp:  # noqa: S310 (controlled URL)
+        with urllib.request.urlopen(req) as resp:  # nosec B310  # noqa: S310
             if resp.status not in (200, 201, 202, 204):
                 print(f"Unexpected status: {resp.status}", file=sys.stderr)
                 return 1
-    except urllib.error.HTTPError as e:  # noqa: PERF203 (clarity)
+    except urllib.error.HTTPError as e:
         print(f"HTTPError: {e.code} {e.reason} - {e.read().decode('utf-8', 'ignore')}", file=sys.stderr)
         return 1
     except urllib.error.URLError as e:

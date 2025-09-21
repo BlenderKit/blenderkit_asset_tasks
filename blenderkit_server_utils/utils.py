@@ -323,7 +323,7 @@ def raise_on_missing_env_vars(var_names: list[str]) -> None:
         var_names: List of environment variable names to check.
 
     Raises:
-        EnvironmentError if any variable is missing.
+        EnvironmentError: If any variable is missing.
     """
     for var_name in var_names:
         if not os.getenv(var_name):
@@ -371,7 +371,7 @@ def ensure_installed(package: str, to_install: str | list[str]) -> None:
         to_install: The name or list of names of the package(s) to install if missing.
 
     Raises:
-        ImportError if the package is not installed.
+        ImportError: If the package is not installed.
     """
     try:
         __import__(package)

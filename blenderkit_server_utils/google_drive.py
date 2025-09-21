@@ -161,6 +161,9 @@ def ensure_folder_exists(service: Any, folder_name: str, parent_id: str = "", dr
 
     Returns:
         The ID of the located or created folder.
+
+    Raises:
+        HttpError: If folder creation or listing fails.
     """
     query = (
         f"name='{folder_name}' and '{parent_id}' in parents and "
@@ -212,6 +215,9 @@ def upload_file_to_folder(service: Any, file_path: str, folder_id: str) -> str:
 
     Returns:
         The ID of the newly created file on Google Drive.
+
+    Raises:
+        HttpError: If the upload fails.
     """
     file_metadata = {"name": os.path.basename(file_path), "parents": [folder_id]}
     media = MediaFileUpload(file_path)
@@ -242,6 +248,9 @@ def upload_folder_to_drive(service: Any, folder_path: str, drive_folder_id: str,
         folder_path: Path to the local folder to upload.
         drive_folder_id: ID of the folder on Google Drive to upload into.
         drive_id: Drive ID used for folder creation queries.
+
+    Raises:
+        OSError: If listing the local folder fails.
     """
     drive_subfolder_id = ensure_folder_exists(
         service,

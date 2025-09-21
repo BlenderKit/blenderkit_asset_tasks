@@ -17,7 +17,7 @@ from blenderkit_server_utils import config, log, utils
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["API_KEY", "ASSET_BASE_ID"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "ASSET_BASE_ID"])
 
 RESPONSE_OK = 200
 REQUEST_TIMEOUT_SECONDS = 30
@@ -51,11 +51,15 @@ def get_asset_id(server: str, asset_base_id: str) -> str:
     identified by asset_base_id (in admin presented as 'asset ID', in API as 'assetBaseId').
 
     Args:
-        server (str): BlenderKit server URL.
-        asset_base_id (str): Asset base ID.
+        server: BlenderKit server URL.
+        asset_base_id: Asset base ID.
+
+    Raises:
+        ValueError: If the asset ID cannot be found.
+        requests.RequestException: If there is an error making the request.
 
     Returns:
-        str: Asset ID (version ID).
+        Asset ID (version ID).
     """
     url = f"{server}/api/v1/search?query=asset_base_id:{asset_base_id}"
     session = _build_session()
@@ -99,9 +103,12 @@ def trigger_reindex(server: str, api_key: str, asset_id: str) -> None:
     We cannot use asset_base_id, so call the get_asset_id() to get the asset_id based on asset_base_id.
 
     Args:
-        server (str): BlenderKit server URL.
-        api_key (str): API key with permission to edit the asset.
-        asset_id (str): Asset ID (version ID).
+        server: BlenderKit server URL.
+        api_key: API key with permission to edit the asset.
+        asset_id: Asset ID (version ID).
+
+    Raises:
+        requests.RequestException: If there is an error making the request.
 
     Returns:
         None

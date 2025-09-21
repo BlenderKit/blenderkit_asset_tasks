@@ -162,8 +162,8 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
     3. Default values (lowest priority)
 
     Args:
-        asset_type (str): Type of asset ('material' or 'model')
-        mark_thumbnail_render (str, optional): JSON string from markThumbnailRender parameter
+        asset_type: Type of asset ('material' or 'model')
+        mark_thumbnail_render: JSON string from markThumbnailRender parameter (optional)
 
     Returns:
         dict: Combined dictionary of all thumbnail parameters
@@ -235,8 +235,8 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
     6. Cleans up temporary files
 
     Args:
-        asset_data (dict): Asset metadata including ID, type, and other properties
-        api_key (str): BlenderKit API key for authentication
+        asset_data: Asset metadata including ID, type, and other properties
+        api_key: BlenderKit API key for authentication
     """
     # skip empty assets
     if not asset_data or not asset_data.get("files"):
@@ -358,9 +358,9 @@ def iterate_assets(
     Limits the number of concurrent processes to avoid system overload.
 
     Args:
-        assets (list[dict[str, Any]]): List of asset dictionaries to process
-        api_key (str): BlenderKit API key for authentication
-        process_count (int): Maximum number of concurrent thumbnail generations
+        assets: List of asset dictionaries to process
+        api_key: BlenderKit API key for authentication
+        process_count: Maximum number of concurrent thumbnail generations
     """
     concurrency.run_asset_threads(
         assets,

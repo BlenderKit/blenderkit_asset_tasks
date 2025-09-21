@@ -27,6 +27,9 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "TEXTYBOT_API_KEY", "ASSE
 def read_result_files() -> OrderedDict[str, dict[str, Any]]:
     """Read all result JSON files from the temp folder.
 
+    Raises:
+        FileNotFoundError: If the temp directory does not exist.
+
     Returns:
         OrderedDict mapping Blender release name to its result dictionary.
     """
@@ -58,7 +61,10 @@ def generate_comment(results: OrderedDict[str, dict[str, Any]]) -> str:
     """Generate the comment text from the results dictionary.
 
     Args:
-        results (OrderedDict[str, dict]): Dictionary with test results.
+        results: Dictionary with test results.
+
+    Raises:
+        ValueError: If results are empty.
 
     Returns:
         str: Generated comment text.

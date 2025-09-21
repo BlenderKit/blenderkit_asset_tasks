@@ -42,7 +42,7 @@ MAXIMAL_GLTF: dict[str, Any] = MINIMAL_GLTF | {
 }
 
 
-def disable_subsurf_modifiers(obj) -> None:
+def disable_subsurf_modifiers(obj: bpy.types.Object) -> None:
     """Disable Subdivision Surface modifiers on an object.
 
     Args:
@@ -56,7 +56,7 @@ def disable_subsurf_modifiers(obj) -> None:
     logger.info("Disabled Subdivision Surface modifier for '%s'", obj.name)
 
 
-def make_uv_active(obj, name: str) -> None:
+def make_uv_active(obj: bpy.types.Object, name: str) -> None:
     """Set a UV layer active by name.
 
     Args:
@@ -71,11 +71,16 @@ def make_uv_active(obj, name: str) -> None:
     logger.warning("Active UV '%s' not found (unexpected)", name)
 
 
-def move_uv_to_bottom(obj, index: int) -> None:
+def move_uv_to_bottom(obj: bpy.types.Object, index: int) -> None:
     """Move a UV layer to the last position.
 
-    This is a hack, because we cannot directly modify ``obj.data.uv_layers`` ordering.
-    Instead we duplicate and remove to effectively move a layer to the bottom.
+    Args:
+        obj: Blender object with UV layers.
+        index: Index of the UV layer to move to the bottom.
+
+    Hint:
+        This is a hack, because we cannot directly modify ``obj.data.uv_layers`` ordering.
+        Instead we duplicate and remove to effectively move a layer to the bottom.
     """
     uvs = obj.data.uv_layers
     uvs.active_index = index
@@ -95,11 +100,15 @@ def move_uv_to_bottom(obj, index: int) -> None:
     uvs.active.name = new_name
 
 
-def make_active_uv_first(obj) -> None:
+def make_active_uv_first(obj: bpy.types.Object) -> None:
     """Reorder UVs so the active one becomes first.
 
-    Effectively copies UVs one by one (to last position). Skips the active UV,
-    so in the end the active is first and all other UVs follow in original order.
+    Args:
+        obj: Blender object with UV layers.
+
+    Hint:
+        Effectively copies UVs one by one (to last position). Skips the active UV,
+        so in the end the active is first and all other UVs follow in original order.
     """
     uvs = obj.data.uv_layers
     # log number of uvs
@@ -128,10 +137,17 @@ def make_active_uv_first(obj) -> None:
     logger.info("UVs after order: %s (%s is active)", list(uvs), uvs.active.name)
 
 
-def is_procedural_material(mat) -> bool:
+def is_procedural_material(mat: bpy.types.Material) -> bool:
     """Determine if a material is procedural.
 
-    Procedural is defined as using nodes without any Image Texture nodes.
+    Args:
+        mat: Blender material to check.
+
+    Returns:
+        True if the material is procedural, False otherwise.
+
+    Hint:
+        Procedural is defined as using nodes without any Image Texture nodes.
     """
     if not mat.use_nodes:
         return False
@@ -141,10 +157,14 @@ def is_procedural_material(mat) -> bool:
     return True
 
 
-def bake_all_procedural_textures(obj) -> None:  # noqa: C901
+def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901
     """Bake all procedural textures on a mesh object.
 
-    Baked images are packed inside the Blender file for portability.
+    Args:
+        obj: Blender object to bake procedural textures for.
+
+    Hint:
+        Baked images are packed inside the Blender file for portability.
     """
     procedural_materials = [mat for mat in obj.data.materials if mat and is_procedural_material(mat)]
     if not procedural_materials:
@@ -228,8 +248,13 @@ def bake_all_procedural_textures(obj) -> None:  # noqa: C901
 def generate_gltf(json_result_path: str, target_format: str) -> None:
     """Generate a GLB file for an asset and write results metadata.
 
-    On success, writes a JSON list with the GLTF file path to ``json_result_path``.
-    On failure, no JSON is written and the caller should detect the missing file.
+    Args:
+        json_result_path: Path to write the results JSON file.
+        target_format: The target export format, e.g., 'gltf_godot'.
+
+    Hint:
+        On success, writes a JSON list with the GLTF file path to ``json_result_path``.
+        On failure, no JSON is written and the caller should detect the missing file.
     """
     filepath = bpy.data.filepath.replace(".blend", ".glb")
 

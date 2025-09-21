@@ -4,7 +4,7 @@ Required environment variables:
 BLENDERKIT_API_KEY - API key to be used
 BLENDERS_PATH - path to the folder with blender versions
 
-"""
+"""  # noqa: N999
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def read_csv_file(file_path: str) -> list[dict[str, str]]:
     """Read a CSV file and return a list of dictionaries.
 
     Args:
-        file_path (str): Path to the CSV file.
+        file_path: Path to the CSV file.
 
     Returns:
         list: List of dictionaries representing the CSV rows.
@@ -63,8 +63,11 @@ def download_file(url: str, filepath: str) -> None:
     Write progress to console.
 
     Args:
-        url (str): URL of the file to download.
-        filepath (str): Path to save the downloaded file.
+        url: URL of the file to download.
+        filepath: Path to save the downloaded file.
+
+    Raises:
+        requests.RequestException: If there is an error during the download.
 
     Returns:
         None
@@ -91,7 +94,7 @@ def build_description_text(twinbru_asset: dict[str, Any]) -> str:
     """Build a description text for the asset.
 
     Args:
-        twinbru_asset (dict): Dictionary containing asset data.
+        twinbru_asset: Dictionary containing asset data.
 
     Returns:
         str: Description text for the asset.
@@ -114,7 +117,7 @@ def slugify_text(text: str) -> str:
     Remove special characters, replace spaces with underscores and make it lowercase.
 
     Args:
-        text (str): Text to slugify.
+        text: Text to slugify.
 
     Returns:
         str: Slugified text.
@@ -129,7 +132,7 @@ def build_tags_list(twinbru_asset: dict[str, Any]) -> list[str]:
     """Create a list of tags for the asset.
 
     Args:
-        twinbru_asset (dict): Dictionary containing asset data.
+        twinbru_asset: Dictionary containing asset data.
 
     Returns:
         list[str]: List of tags for the asset.
@@ -157,7 +160,7 @@ def dict_to_params(inputs: dict[str, Any]) -> list[dict[str, str]]:
     """Convert a dictionary to a list of parameters.
 
     Args:
-        inputs (dict): Dictionary to convert.
+        inputs: Dictionary to convert.
 
     Returns:
         list: List of parameters.
@@ -185,8 +188,8 @@ def get_thumbnail_path(temp_folder: str, twinbru_asset: dict[str, Any]) -> str |
     Thumbnails are stored in the /renders directory of the asset
 
     Args:
-        temp_folder (str): Path to the temporary folder.
-        twinbru_asset (dict): Dictionary containing asset data.
+        temp_folder: Path to the temporary folder.
+        twinbru_asset: Dictionary containing asset data.
 
     Returns:
         str: Path to the thumbnail image or None if not found.
@@ -230,7 +233,7 @@ def generate_upload_data(twinbru_asset: dict[str, Any]) -> dict[str, Any]:
     """Generate the upload data for the asset.
 
     Args:
-        twinbru_asset (dict): Dictionary containing asset data.
+        twinbru_asset: Dictionary containing asset data.
 
     Returns:
         dict: Dictionary containing the upload data.
@@ -315,7 +318,7 @@ def sync_twin_bru_library(file_path: str) -> None:
       2.8. Mark the asset for thumbnail generation
 
     Args:
-        file_path (str): Path to the CSV file.
+        file_path: Path to the CSV file.
 
     Returns:
         None
@@ -452,10 +455,9 @@ def iterate_assets(
     """Iterate through all assigned assets, check for those which need generation and send them to res gen.
 
     Args:
-        assets (list[dict[str, Any]]): List of asset dictionaries to process
-        thread_function (function, optional): function to run in thread. Defaults to None.
-        process_count (int, optional): number of parallel processes. Defaults to 12.
-        api_key (str, optional): API key to use. Defaults to "".
+        assets: List of asset dictionaries to process
+        process_count: number of parallel processes. Defaults to 12.
+        api_key: API key to use. Defaults to "".
 
     Returns:
         None

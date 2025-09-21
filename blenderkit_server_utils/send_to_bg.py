@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -111,7 +112,7 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
     if binary_type == "NEWEST":
         blender_target = max(blenders, key=lambda x: x[0])
-        
+
     # use latest blender version for hdrs
     if str(asset_data.get("assetType", "")).lower() == "hdr":
         blender_target = blenders[-1]
@@ -268,23 +269,44 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
     return returncode
 
 
+def _onerror_delete(func: Callable[[str], None], path: str, exc_info: tuple) -> None:
+    """Error handler for shutil.rmtree to handle read-only files.
+
+    Args:
+        func: The function that raised the exception (e.g., os.remove, os.rmdir).
+        path: The file or directory path on which the function failed.
+        exc_info: The exception information tuple.
+    """
+    logger.warning("Failed %s on %s: %s", func.__name__, path, exc_info[1])
+    # Example: try to chmod and retry if read-only
+    if not os.access(path, os.W_OK):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            logger.exception("Retry failed for %s", path)
+
+
 def _cleanup_paths(datafile: str, temp_folder: str, *, remove_temp_folder: bool) -> None:
-    """Remove temporary files/folders created by this module."""
+    """Remove temporary files/folders created by this module.
+
+    Args:
+        datafile: The path to the datafile to remove.
+        temp_folder: The path to the temporary folder to remove.
+        remove_temp_folder: Flag indicating whether to remove the temp folder.
+
+    Returns:
+        None
+    """
+    logger.debug("Cleaning up datafile: %s", datafile)
+    logger.debug("Cleaning up temp folder: %s", temp_folder)
     try:
         os.remove(datafile)
     except OSError:
         logger.debug("Failed to remove temp datafile: %s", datafile, exc_info=True)
     if remove_temp_folder:
         try:
-            # remove all files in temp folder first
-            for filename in os.listdir(temp_folder):
-                file_path = os.path.join(temp_folder, filename)
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            # remove completely empty temp folder
-            shutil.rmtree(temp_folder)
+            shutil.rmtree(temp_folder, onerror=_onerror_delete)
         except OSError:
             logger.debug("Failed to remove temp folder: %s", temp_folder, exc_info=True)
 

@@ -251,7 +251,7 @@ def delete_unfinished_file(file_name: str) -> None:
     except FileNotFoundError:
         logger.debug("Asset directory already removed: %s", asset_dir)
     except OSError as exc:
-        logger.debug("Could not remove asset directory '%s': %s", asset_dir, exc)
+        logger.warning("Could not remove asset directory '%s': %s", asset_dir, exc)
 
 
 def download_asset_file(
@@ -286,7 +286,7 @@ def download_asset_file(
     headers = utils.get_headers(api_key)
     res_file_info, _resolution = get_file_type(asset_data, resolution)
     if res_file_info is None or "url" not in res_file_info:
-        logger.warning("Missing URL for resolution '%s' in asset data", resolution)
+        logger.error("Missing URL for resolution '%s' in asset data", resolution)
         return None
 
     try:

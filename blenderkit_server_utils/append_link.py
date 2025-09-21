@@ -30,9 +30,6 @@ def append_material(
 
     Returns:
         The appended/linked material, or None if not found or on failure.
-
-    Raises:
-        RuntimeError: If loading the library fails due to IO/runtime issues.
     """
     # Local import to avoid hard dependency when not running inside Blender.
     import bpy  # type: ignore
@@ -87,6 +84,7 @@ def link_collection(  # noqa: PLR0913
         name: Name of the collection to find. If None, uses the first available.
         parent: Optional parent object to parent the collection root object(s) to.
 
+    Rra
     Returns:
         A tuple of (main_object, all_objects):
             - main_object: The first object without a parent, suitable as a root. None if none found.

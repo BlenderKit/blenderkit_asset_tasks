@@ -16,7 +16,7 @@ from blenderkit_server_utils import concurrency, config, download, log, search, 
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["API_KEY", "BLENDER_PATH"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDER_PATH"])
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100
@@ -157,8 +157,8 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
      4.patches asset data with a new parameter.
 
     Args:
-        asset_data (dict): Asset data dictionary.
-        api_key (str): API key for authentication.
+        asset_data: Asset data dictionary.
+        api_key: API key for authentication.
 
     Returns:
         None
@@ -199,9 +199,9 @@ def iterate_assets(
     """Iterate through all assigned assets, check for those which need generation and send them to res gen.
 
     Args:
-        assets (list[dict[str, Any]]): List of asset dictionaries to process.
-        process_count (int, optional): Number of concurrent processes to run.
-        api_key (str, optional): API key for authentication.
+        assets: List of asset dictionaries to process.
+        process_count: Number of concurrent processes to run. (optional)
+        api_key: API key for authentication. (optional)
 
     Returns:
         None

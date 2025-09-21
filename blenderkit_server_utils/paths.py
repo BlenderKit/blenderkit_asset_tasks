@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Any
+from collections.abc import Callable
+from typing import Any, ParamSpec, TypeVar, cast
 
 # Local imports used by some helpers.
 from . import config, log, utils
@@ -67,20 +68,27 @@ resolution_suffix: dict[str, str] = {
 }
 
 
-def ensure_bpy(func):
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def ensure_bpy(func: Callable[P, R]) -> Callable[P, R | None]:
     """Decorator to ensure bpy is available for functions that need it.
 
-    If bpy is not available, the decorated function will log a warning and return None.
+    If bpy is not available, the decorated function logs a warning and returns ``None``.
 
     Args:
         func: The function to decorate.
+
+    Returns:
+        A wrapped function that either invokes ``func`` (when bpy is available) or returns ``None``.
     """
 
-    def wrapper(*args, **kwargs):
-        if bpy is None:
-            logger.warning("bpy not available; cannot execute %s", func.__name__)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | None:  # type: ignore[override]
+        if bpy is None:  # type: ignore[name-defined]
+            logger.warning("bpy not available; cannot execute %s", getattr(func, "__name__", "<callable>"))
             return None
-        return func(*args, **kwargs)
+        return cast(R, func(*args, **kwargs))
 
     return wrapper
 
@@ -115,10 +123,6 @@ def get_download_dir(asset_type: str) -> str:
 
     Returns:
         Absolute path to the target download directory.
-
-    Raises:
-        KeyError: If asset_type is not recognized.
-        OSError: If directory creation fails.
     """
     subd_mapping = {
         "brush": "brushes",
@@ -338,7 +342,7 @@ def delete_asset_debug(asset_data: dict[str, Any]) -> None:
     """
     from . import download  # local import to avoid cycles
 
-    utils.raise_on_missing_env_vars(["API_KEY"])
+    utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 
     # utils.get_scene_id and api_key are context-dependent; left as in original code.
     try:

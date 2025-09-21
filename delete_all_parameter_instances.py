@@ -18,7 +18,7 @@ from blenderkit_server_utils import config, log, search, upload, utils
 # Module logger
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["API_KEY"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 
 param_name: str = ""
 

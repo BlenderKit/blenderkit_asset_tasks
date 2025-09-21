@@ -52,9 +52,6 @@ def get_orig_render_settings() -> dict[str, Any]:
 
     Returns:
         A dictionary snapshot of selected render and color settings.
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     rs = bpy.context.scene.render  # type: ignore[attr-defined]
@@ -77,9 +74,6 @@ def set_orig_render_settings(orig_settings: dict[str, Any]) -> None:
 
     Args:
         orig_settings: The dictionary captured by `get_orig_render_settings`.
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     rs = bpy.context.scene.render  # type: ignore[attr-defined]
@@ -119,9 +113,6 @@ def img_save_as(  # noqa: PLR0913 - API kept for backward compatibility
         compression: PNG compression (0-100).
         view_transform: View transform to use during saving.
         exr_codec: EXR codec when saving EXR files.
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     ors = get_orig_render_settings()
@@ -168,9 +159,6 @@ def analyze_image_is_true_hdr(image: Any) -> None:
 
     Args:
         image: Blender image object (`bpy.types.Image`).
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     import numpy as np  # local import to avoid hard dependency during tests
@@ -188,9 +176,6 @@ def generate_hdr_thumbnail() -> None:
 
     Reads UI properties from Blender to locate the HDR image, creates a JPG
     thumbnail (max dimension MAX_THUMBNAIL_SIZE), sets Linear colorspace, and saves it.
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     import numpy as np  # local import to avoid hard dependency during tests
@@ -355,9 +340,6 @@ def numpy_to_image(a: Any, iname: str, width: int = 0, height: int = 0, channels
 
     Returns:
         The Blender image object.
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     t_start = time.time()
@@ -420,9 +402,6 @@ def image_to_numpy_flat(i: Any) -> Any:
 
     Returns:
         A flat NumPy float array of size width*height*channels.
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     import numpy as np
@@ -443,9 +422,6 @@ def image_to_numpy(i: Any) -> Any:
 
     Returns:
         A NumPy float array shaped (height, width, channels) swapped to (width, height, channels).
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
     import numpy as np
@@ -644,9 +620,6 @@ def make_possible_reductions_on_image(
         input_filepath: Target file path for saving.
         do_reductions: When True, apply conversions like alpha drop, BW, JPEG.
         do_downscale: When True, downscale image by half with a minimum size.
-
-    Raises:
-        RuntimeError: If bpy is not available.
     """
     _require_bpy()
 

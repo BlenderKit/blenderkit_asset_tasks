@@ -67,6 +67,28 @@ jobs:
         if: always()
         run: uv run pydoclint .
 
+  version_testing:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: *python-versions
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - *checkout-code-lfs
+      - *setup-system
+      - *setup-python
+      - *install-uv
+      - *create-venv
+
+      - name: Run unit tests
+        working-directory: blenderkit_asset_tasks
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
+          timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+          uv run -m unittest discover -s ./.tests/unittests
+
+
   create_coverage:
     runs-on: ubuntu-latest
     steps:
@@ -78,13 +100,6 @@ jobs:
           python-version: "3.11"
       - *install-uv
       - *create-venv
-
-      - name: Run unit tests
-        working-directory: blenderkit_asset_tasks
-        run: |
-          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
-          timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-          uv run -m coverage run -m unittest discover -s ./.tests/unittests
 
       - name: Create coverage
         working-directory: blenderkit_asset_tasks
@@ -107,23 +122,3 @@ jobs:
           name: coverage-report-html
           path: blenderkit_asset_tasks/htmlcov
 
-  version_testing:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: *python-versions
-    env:
-      UV_PYTHON: ${{ matrix.python-version }}
-    steps:
-      - *checkout-code-lfs
-      - *setup-system
-      - *setup-python
-      - *install-uv
-      - *create-venv
-
-      - name: Run unit tests
-        working-directory: blenderkit_asset_tasks
-        run: |
-          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
-          timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-          uv run -m unittest discover -s ./.tests/unittests

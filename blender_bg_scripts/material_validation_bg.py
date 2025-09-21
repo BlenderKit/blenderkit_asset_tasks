@@ -80,6 +80,9 @@ def configure_cycles_gpu() -> None:
 def assign_preview_materials(mat: Any) -> tuple[Any | None, Any | None]:
     """Assign material to preview objects and build a second-slot variation.
 
+    Args:
+        mat: Material to assign to the preview mesh.
+
     Returns:
         A tuple of (mat1, principled_node) where mat1 is the duplicated
         material used in the second slot and principled_node is its Principled BSDF.
@@ -115,7 +118,13 @@ def assign_preview_materials(mat: Any) -> tuple[Any | None, Any | None]:
 
 
 def update_overlay_texts(asset_data: dict[str, Any], mat1: Any | None, principled: Any | None) -> None:
-    """Update overlay text fields like author, displacement, and SSS."""
+    """Update overlay text fields like author, displacement, and SSS.
+
+    Args:
+        asset_data: Dictionary with asset metadata.
+        mat1: The duplicated material assigned to the second slot.
+        principled: The Principled BSDF node in mat1, if available.
+    """
     # Author and name
     author = asset_data.get("author", {})
     first = author.get("firstName", "")
@@ -156,7 +165,13 @@ def update_overlay_texts(asset_data: dict[str, Any], mat1: Any | None, principle
 
 
 def render_material_validation(mat: Any, asset_data: dict[str, Any], filepath: str) -> None:
-    """Assign material, compute derived info, update overlays, and render."""
+    """Assign material, compute derived info, update overlays, and render.
+
+    Args:
+        mat: Material to assign to the preview mesh.
+        asset_data: Asset metadata; currently unused but reserved for future tweaks.
+        filepath: Output path for the rendered frames/movie as configured in the scene.
+    """
     mat1, principled = assign_preview_materials(mat)
     update_overlay_texts(asset_data, mat1, principled)
 

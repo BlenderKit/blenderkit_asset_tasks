@@ -142,6 +142,7 @@ class LoggingTestResult(unittest.TextTestResult):
         self._sep_minor = "-" * 70
 
     def startTest(self, test: unittest.case.TestCase) -> None:  # noqa: N802
+        """Log test start and record start time."""
         self._start_times[test] = time.perf_counter()
         self.logger.info(self._sep_major)
         self.logger.info("TEST START: %s", test.id())
@@ -154,26 +155,32 @@ class LoggingTestResult(unittest.TextTestResult):
         self.logger.info(self._sep_minor)
 
     def addSuccess(self, test: unittest.case.TestCase) -> None:  # noqa: N802
+        """Log test success."""
         super().addSuccess(test)
         self._finish("PASS", test, logging.INFO)
 
     def addFailure(self, test: unittest.case.TestCase, err) -> None:  # type: ignore[override] # noqa: N802
+        """Log test failure."""
         super().addFailure(test, err)
         self._finish("FAIL", test, logging.ERROR)
 
     def addError(self, test: unittest.case.TestCase, err) -> None:  # type: ignore[override] # noqa: N802
+        """Log test error."""
         super().addError(test, err)
         self._finish("ERROR", test, logging.ERROR)
 
     def addSkip(self, test: unittest.case.TestCase, reason: str) -> None:  # noqa: N802
+        """Log test skip."""
         super().addSkip(test, reason)
         self._finish(f"SKIP ({reason})", test, logging.WARNING)
 
     def addExpectedFailure(self, test: unittest.case.TestCase, err) -> None:  # type: ignore[override] # noqa: N802
+        """Log expected test failure."""
         super().addExpectedFailure(test, err)
         self._finish("XFAIL", test, logging.INFO)
 
     def addUnexpectedSuccess(self, test: unittest.case.TestCase) -> None:  # noqa: N802
+        """Log unexpected test success."""
         super().addUnexpectedSuccess(test)
         self._finish("XPASS", test, logging.WARNING)
 
@@ -258,7 +265,7 @@ if __name__ == "__main__":
     # Everything after -- are ours. VS Code or direct Python will pass all in sys.argv.
     if "--" in sys.argv:
         idx = sys.argv.index("--")
-        user_argv = sys.argv[idx + 1 :]
+        user_argv = sys.argv[idx + 1:]
     else:
         user_argv = sys.argv[1:]
     code = main(user_argv)

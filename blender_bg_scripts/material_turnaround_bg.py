@@ -44,13 +44,12 @@ def set_text(object_name: str, text: Any) -> None:
     textob.data.body = str(text)
 
 
-def render_material_turnaround(mat: Any, _asset_data: dict[str, Any], filepath: str) -> None:
+def render_material_turnaround(mat: Any, filepath: str) -> None:
     """Assign material to preview objects and render the turnaround animation.
 
     Args:
-      mat: Material to assign to the preview mesh.
-      _asset_data: Asset metadata; currently unused but reserved for future tweaks.
-      filepath: Output path for the rendered frames/movie as configured in the scene.
+        mat: Material to assign to the preview mesh.
+        filepath: Output path for the rendered frames/movie as configured in the scene.
     """
     # Assign material to all preview objects
     for ob in bpy.context.scene.objects:
@@ -151,7 +150,6 @@ def render_uploaded_material(data: dict[str, Any]) -> None:
     Args:
       data: Input data dict with keys: file_path, result_filepath, asset_data.
     """
-    asset_data = data.get("asset_data", {})
     result_filepath = data.get("result_filepath")
     if not result_filepath:
         logger.error("Missing result_filepath in input data")
@@ -171,7 +169,7 @@ def render_uploaded_material(data: dict[str, Any]) -> None:
         sys.exit(4)
 
     mat.use_fake_user = False
-    render_material_turnaround(mat, asset_data, result_filepath)
+    render_material_turnaround(mat, result_filepath)
 
 
 if __name__ == "__main__":

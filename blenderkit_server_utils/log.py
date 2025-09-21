@@ -111,7 +111,14 @@ class _TaskLogFormatter(logging.Formatter):
 def _derive_caller_info(stack_level: int = CALLER_STACK_LEVEL) -> tuple[str, str, int]:
     """Return (logger_name, func_name, line_no) from the call stack.
 
-    Falls back to root logger if unavailable.
+    Args:
+        stack_level: How many levels up the stack to inspect. Default is 2
+
+    Returns:
+        A tuple containing the logger name, function name, and line number.
+
+    Hint:
+        Falls back to root logger if unavailable.
     """
     frame: FrameType | None
     try:
@@ -127,7 +134,7 @@ def create_logger(name: str | None = None) -> logging.Logger:
     """Create (or retrieve) a logger with repository standard formatting.
 
     Args:
-        name (str | None): Explicit logger name. If omitted, derives from caller module.
+        name: Explicit logger name. If omitted, derives from caller module.
 
     Returns:
         logging.Logger: A configured logger (or adapter) instance.

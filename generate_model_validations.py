@@ -24,7 +24,7 @@ from blenderkit_server_utils.cloudflare_storage import CloudflareStorage
 logger = log.create_logger(__name__)
 
 utils.raise_on_missing_env_vars([
-    "API_KEY",
+    "BLENDERKIT_API_KEY",
     "BLENDERS_PATH",
     "CF_ACCESS_KEY",
     "CF_ACCESS_SECRET",

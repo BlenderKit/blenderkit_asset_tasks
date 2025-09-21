@@ -185,6 +185,8 @@ def _mark_assets(asset_data: dict[str, Any]) -> None:
         _mark_scene_asset()
     elif atype == "brush":
         data_block = _mark_brush_assets()
+    else:
+        logger.warning("Unrecognized asset type for marking: %s %s", atype, asset_data.get("id"))
 
     _set_asset_tags(data_block, asset_data)
 

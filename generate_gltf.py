@@ -7,6 +7,7 @@ the asset to indicate success or failure of the Godot-optimized export.
 import argparse
 import json
 import os
+import shutil
 import sys
 import tempfile
 from typing import Any
@@ -25,7 +26,7 @@ from blenderkit_server_utils import (
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["API_KEY", "BLENDER_PATH"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDER_PATH"])
 
 
 args = argparse.ArgumentParser()
@@ -99,7 +100,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
     # Send to background to generate GLTF
     temp_folder = tempfile.mkdtemp()
     result_path = os.path.join(temp_folder, asset_data["assetBaseId"] + "_resdata.json")
-
+    # should we remove the temp folder after use? yes, we do it in send_to_bg
     send_to_bg.send_to_bg(
         asset_data,
         asset_file_path=asset_file_path,
@@ -116,6 +117,10 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
     except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError) as exc:
         logger.exception("Error reading result JSON %s", result_path)
         error += f" {exc}"
+
+    # remove temp folder here, after we are done with reading the result json
+    # file no longer needed
+    shutil.rmtree(temp_folder, ignore_errors=True)
 
     if files is None:
         error += " Files are None"

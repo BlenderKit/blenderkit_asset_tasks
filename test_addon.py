@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -68,6 +69,8 @@ def test_addon(addon_data: dict[str, Any], api_key: str, binary_path: str) -> tu
         logger.exception("Error reading result JSON %s", result_path)
         # just fail it, when JSON is not present, it means something went wrong
         return False, {}
+    finally:
+        shutil.rmtree(temp_folder, ignore_errors=True)
 
     tests_ok = True
     for value in bg_results.values():

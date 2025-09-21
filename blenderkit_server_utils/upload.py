@@ -26,20 +26,7 @@ SUCCESS_STATUS_CODES_WITH_NO_CONTENT = {200, 201, 204}
 
 
 class UploadInChunks:
-    """Iterator that yields a file in chunks for streaming uploads.
-
-    Args:
-        filename: Path to the file being uploaded.
-        chunksize: Size of each read chunk in bytes (default: 8 KiB).
-        report_name: Label used in progress messages.
-
-    Attributes:
-        filename: File path.
-        chunksize: Chunk size in bytes.
-        totalsize: Total file size in bytes.
-        readsofar: Bytes read so far.
-        report_name: Display name for progress.
-    """
+    """Iterator that yields a file in chunks for streaming uploads."""
 
     def __init__(self, filename: str, chunksize: int = 1 << 13, report_name: str = "file") -> None:
         self.filename: str = filename
@@ -68,11 +55,17 @@ class UploadInChunks:
 def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
     """Upload a single file to S3 and confirm it with the BlenderKit API.
 
-    Expects ``upload_data`` to contain ``token`` and ``id``; ``f`` should have
-    ``type``, ``index``, and ``file_path`` keys.
+    Args:
+        upload_data: Dictionary with upload context, including API token and asset ID.
+        f: Dictionary describing the file to upload.
 
     Returns:
         True on success, False otherwise.
+
+    Hint:
+        Expects ``upload_data`` to contain ``token`` and ``id``; ``f`` should have
+        ``type``, ``index``, and ``file_path`` keys.
+
     """
     headers = utils.get_headers(upload_data["token"])
     version_id = upload_data["id"]
@@ -146,6 +139,10 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
 
 def upload_files(upload_data: dict[str, Any], files: Iterable[dict[str, Any]]) -> bool:
     """Upload several files in one run.
+
+    Args:
+        upload_data: Dictionary with upload context, including API token and asset ID.
+        files: Iterable of file descriptors with keys: type, index, file_path.
 
     Returns:
         True if all files uploaded successfully, False otherwise.
@@ -383,19 +380,19 @@ def mark_for_thumbnail(  # noqa: C901, PLR0912, PLR0913
     markThumbnailRender parameter of the asset. Only non-None parameters will be included.
 
     Args:
-        asset_id (str): The ID of the asset to update
-        api_key (str): BlenderKit API key
-        use_gpu (bool, optional): Use GPU for rendering
-        samples (int, optional): Number of render samples
-        resolution (int, optional): Resolution of render
-        denoising (bool, optional): Use denoising
-        background_lightness (float, optional): Background lightness (0-1)
-        angle (str, optional): Camera angle for models (DEFAULT, FRONT, SIDE, TOP)
-        snap_to (str, optional): Object placement for models (GROUND, WALL, CEILING, FLOAT)
-        thumbnail_type (str, optional): Type of material preview (BALL, BALL_COMPLEX, FLUID, CLOTH, HAIR)
-        scale (float, optional): Scale of preview object for materials
-        background (bool, optional): Use background for transparent materials
-        adaptive_subdivision (bool, optional): Use adaptive subdivision for materials
+        asset_id: The ID of the asset to update
+        api_key: BlenderKit API key
+        use_gpu: Use GPU for rendering (optional)
+        samples: Number of render samples (optional)
+        resolution: Resolution of render (optional)
+        denoising: Use denoising (optional)
+        background_lightness: Background lightness (0-1) (optional)
+        angle: Camera angle for models (DEFAULT, FRONT, SIDE, TOP) (optional)
+        snap_to: Object placement for models (GROUND, WALL, CEILING, FLOAT) (optional)
+        thumbnail_type: Type of material preview (BALL, BALL_COMPLEX, FLUID, CLOTH, HAIR) (optional)
+        scale: Scale of preview object for materials (optional)
+        background: Use background for transparent materials (optional)
+        adaptive_subdivision: Use adaptive subdivision for materials (optional)
 
     Returns:
         bool: True if successful, False otherwise

@@ -23,7 +23,7 @@ from blenderkit_server_utils import config, search, upload, log, utils
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["API_KEY"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 
 utils.ensure_installed(
     package="torch",
