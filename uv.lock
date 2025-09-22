@@ -133,72 +133,72 @@ name = "blenderkit-asset-tasks"
 version = "0.9.1"
 source = { virtual = "." }
 dependencies = [
-    { name = "boto3" },
-    { name = "botocore" },
     { name = "bpy" },
     { name = "certifi" },
     { name = "charset-normalizer" },
-    { name = "clip-interrogator" },
     { name = "google-api-python-client" },
     { name = "google-auth-httplib2" },
     { name = "google-auth-oauthlib" },
-    { name = "gradio" },
     { name = "idna" },
     { name = "numpy" },
-    { name = "open-clip-torch" },
-    { name = "openai" },
     { name = "pillow" },
     { name = "python-dotenv" },
     { name = "requests" },
-    { name = "torch" },
-    { name = "torchaudio" },
-    { name = "torchvision" },
     { name = "urllib3" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "bandit" },
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "clip-interrogator" },
     { name = "coverage" },
+    { name = "gradio" },
+    { name = "open-clip-torch" },
+    { name = "openai" },
     { name = "pre-commit" },
     { name = "pre-commit-hooks" },
     { name = "pydoclint" },
     { name = "ruff" },
+    { name = "torch" },
+    { name = "torchaudio" },
+    { name = "torchvision" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3" },
-    { name = "botocore" },
     { name = "bpy" },
     { name = "certifi", specifier = "==2025.8.3" },
     { name = "charset-normalizer", specifier = "==3.4.3" },
-    { name = "clip-interrogator", specifier = ">=0.6.0" },
     { name = "google-api-python-client", specifier = ">=2.181.0" },
     { name = "google-auth-httplib2", specifier = ">=0.2.0" },
     { name = "google-auth-oauthlib", specifier = ">=1.2.2" },
-    { name = "gradio" },
     { name = "idna", specifier = "==3.10" },
     { name = "numpy" },
-    { name = "open-clip-torch", specifier = ">=3.1.0" },
-    { name = "openai", specifier = ">=1.107.0" },
     { name = "pillow" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "requests", specifier = "==2.32.5" },
-    { name = "torch", specifier = ">=2.8.0", index = "https://download.pytorch.org/whl/cu126" },
-    { name = "torchaudio", specifier = ">=2.8.0" },
-    { name = "torchvision", specifier = ">=0.23.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "urllib3", specifier = "==2.5.0" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "bandit", specifier = ">=1.8.2" },
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "clip-interrogator", specifier = ">=0.6.0" },
     { name = "coverage", specifier = ">=7.6.10" },
+    { name = "gradio" },
+    { name = "open-clip-torch", specifier = ">=3.1.0" },
+    { name = "openai", specifier = ">=1.107.0" },
     { name = "pre-commit", specifier = ">=4.1.0" },
     { name = "pre-commit-hooks", specifier = ">=5.0.0" },
     { name = "pydoclint", specifier = ">=0.6.11" },
     { name = "ruff", specifier = "==0.12.12" },
+    { name = "torch", specifier = ">=2.8.0", index = "https://download.pytorch.org/whl/cu126" },
+    { name = "torchaudio", specifier = ">=2.8.0" },
+    { name = "torchvision", specifier = ">=0.23.0", index = "https://download.pytorch.org/whl/cu126" },
 ]
 
 [[package]]
