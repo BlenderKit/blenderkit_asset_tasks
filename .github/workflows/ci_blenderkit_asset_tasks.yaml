@@ -8,6 +8,7 @@ env:
   PYTHONPATH: "${{ github.workspace }}:${{ github.workspace }}/.tests:${{ github.workspace }}/.tests/unittests"
 
   PACKAGE_NAME: "CI_BLENDERKIT_ASSET_TASKS"
+  PACKAGEDIR: "blenderkit_asset_tasks"
 
 jobs:
   linting:
@@ -28,6 +29,21 @@ jobs:
         with:
           lfs: true
 
+      - name: Verify package directory
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          ls -al
+          if [ ! -d "$GITHUB_WORKSPACE/${PACKAGEDIR}" ]; then
+            echo "ERROR: Expected package directory '$PACKAGEDIR' not found."
+            echo "Contents of workspace:"
+            find "$GITHUB_WORKSPACE" -maxdepth 2 -type d
+            exit 1
+          fi
+          if [ ! -f "$GITHUB_WORKSPACE/${PACKAGEDIR}/pyproject.toml" ]; then
+            echo "WARNING: pyproject.toml not found in $PACKAGEDIR (is it at repo root instead?)."
+            ls -al "$GITHUB_WORKSPACE/${PACKAGEDIR}"
+          fi
+
       - &setup-system
         name: Setup system
         run: |
@@ -46,24 +62,26 @@ jobs:
 
       - &create-venv
         name: Create venv
-        working-directory: blenderkit_asset_tasks
+        working-directory: ${{ env.PACKAGEDIR }}
         run: |
+          echo "Creating venv in $PWD"
+          ls -al
           uv venv
           uv sync --all-groups --link-mode=copy
           uv run pip install -e .
 
       - name: Ruff
-        working-directory: blenderkit_asset_tasks
+        working-directory: ${{ env.PACKAGEDIR }}
         if: always()
         run: uv run ruff check
 
       - name: Bandit
-        working-directory: blenderkit_asset_tasks
+        working-directory: ${{ env.PACKAGEDIR }}
         if: always()
         run: uv run bandit -c _bandit.yaml -ll -r .
 
       - name: PyDocLint
-        working-directory: blenderkit_asset_tasks
+        working-directory: ${{ env.PACKAGEDIR }}
         if: always()
         run: uv run pydoclint .
 
@@ -82,7 +100,7 @@ jobs:
       - *create-venv
 
       - name: Run unit tests
-        working-directory: blenderkit_asset_tasks
+        working-directory: ${{ env.PACKAGEDIR }}
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
@@ -102,7 +120,7 @@ jobs:
       - *create-venv
 
       - name: Create coverage
-        working-directory: blenderkit_asset_tasks
+        working-directory: ${{ env.PACKAGEDIR }}
         run: |
           uv run coverage xml -i
           uv run coverage html -i
@@ -113,12 +131,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: blenderkit_asset_tasks/coverage.xml
+          path: ${{ env.PACKAGEDIR }}/coverage.xml
 
       - name: Upload HTML Coverage Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report-html
-          path: blenderkit_asset_tasks/htmlcov
+          path: ${{ env.PACKAGEDIR }}/htmlcov
 
