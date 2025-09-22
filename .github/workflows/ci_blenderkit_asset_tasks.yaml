@@ -8,7 +8,7 @@ env:
   PYTHONPATH: "${{ github.workspace }}:${{ github.workspace }}/.tests:${{ github.workspace }}/.tests/unittests"
 
   PACKAGE_NAME: "CI_BLENDERKIT_ASSET_TASKS"
-  PACKAGEDIR: "blenderkit_asset_tasks"
+  PACKAGEDIR: "."  # Adjust this if your package is in a subdirectory
 
 jobs:
   linting:
