@@ -45,8 +45,6 @@ def iterate_assets(
     Args:
         assets: A list of asset dictionaries to process.
         api_key: API key for authenticated server operations.
-        binary_path: Absolute path to the Blender executable for background tasks.
-        target_format: The target export format, e.g., 'gltf' or 'gltf_godot'.
     """
     concurrency.run_asset_threads(
         assets,
