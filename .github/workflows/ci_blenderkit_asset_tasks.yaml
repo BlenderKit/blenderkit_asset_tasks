@@ -17,7 +17,6 @@ jobs:
       matrix:
         python-version: &python-versions
           - "3.11"
-          - "3.12"
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     steps:
@@ -110,10 +109,7 @@ jobs:
     steps:
       - *checkout-code-lfs
       - *setup-system
-      - name: Set up Python 311
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - *setup-python
       - *install-uv
       - *create-venv
 
