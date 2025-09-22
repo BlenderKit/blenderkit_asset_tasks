@@ -420,7 +420,7 @@ def get_download_filepaths(asset_data: dict[str, Any]) -> list[str]:
             else:
                 target_path = base_dir
             filepaths.append(target_path)
-        except (TypeError, AttributeError, KeyError):  # noqa: PERF203
+        except (TypeError, AttributeError, KeyError):
             logger.exception("Invalid file entry while deriving paths for asset id=%s", asset_id)
 
     if not filepaths:

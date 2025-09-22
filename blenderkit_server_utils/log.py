@@ -96,7 +96,7 @@ class _TaskLogFormatter(logging.Formatter):
         return inner_msg, inner_level, inner_func, inner_line
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = _dt.datetime.fromtimestamp(record.created, tz=_dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        ts = _dt.datetime.fromtimestamp(record.created, tz=_dt.UTC).strftime("%Y-%m-%d %H:%M:%S")
         millis = int(record.msecs)
         message = record.getMessage()
         collapsed_msg, inner_level, inner_func, inner_line = self._collapse_embedded(message)

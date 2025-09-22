@@ -123,7 +123,7 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                 return True
             message = f"Upload failed, retry. File : {f['type']} {os.path.basename(f['file_path'])}"
             logger.warning(message)
-        except requests.exceptions.RequestException:  # noqa: PERF203
+        except requests.exceptions.RequestException:
             logger.exception(
                 "Upload attempt raised exception for file %s (%s)",
                 f["file_path"],

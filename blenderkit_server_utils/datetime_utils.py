@@ -7,4 +7,4 @@ import datetime
 
 def today_date_iso() -> str:
     """Return today's date in ISO 8601 format (YYYY-MM-DD)."""
-    return datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d")
+    return datetime.datetime.now(tz=datetime.UTC).strftime("%Y-%m-%d")

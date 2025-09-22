@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 import boto3
@@ -235,7 +235,7 @@ class CloudflareStorage:
             x_days: The age threshold in days for deleting files.
         """
         paginator = self.client.get_paginator("list_objects_v2")
-        delete_before_date = datetime.now(timezone.utc) - timedelta(days=x_days)
+        delete_before_date = datetime.now(datetime.UTC) - timedelta(days=x_days)
 
         delete_batch: dict[str, list[dict[str, str]]] = {"Objects": []}
         for page in paginator.paginate(Bucket=bucket_name):
@@ -266,7 +266,7 @@ class CloudflareStorage:
             x_days: The age threshold in days for deleting files.
         """
         paginator = self.client.get_paginator("list_objects_v2")
-        delete_after_date = datetime.now(timezone.utc) - timedelta(days=x_days)
+        delete_after_date = datetime.now(datetime.UTC) - timedelta(days=x_days)
 
         delete_batch: dict[str, list[dict[str, str]]] = {"Objects": []}
         for page in paginator.paginate(Bucket=bucket_name):
