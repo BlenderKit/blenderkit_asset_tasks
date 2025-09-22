@@ -28,15 +28,16 @@ dev = [
     "pre-commit-hooks>=5.0.0",
     "ruff==0.12.12",
     "pydoclint>=0.6.11",
-    "boto3",
-    "botocore",
-    "openai>=1.107.0",
-    "torch>=2.8.0",
-    "torchvision>=0.23.0",
-    "torchaudio>=2.8.0",
-    "gradio",
-    "open_clip_torch>=3.1.0",
-    "clip-interrogator>=0.6.0",
+    ## not for github actions, only local use:
+    # "boto3",
+    # "botocore",
+    # "openai>=1.107.0",
+    # "torch>=2.8.0",
+    # "torchvision>=0.23.0",
+    # "torchaudio>=2.8.0",
+    # "gradio",
+    # "open_clip_torch>=3.1.0",
+    # "clip-interrogator>=0.6.0",
 ]
 
 [tool.setuptools.packages.find]
