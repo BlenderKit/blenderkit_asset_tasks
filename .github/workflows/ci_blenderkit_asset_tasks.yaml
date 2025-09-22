@@ -7,130 +7,87 @@ on:
 env:
   PYTHONPATH: "${{ github.workspace }}:${{ github.workspace }}/.tests:${{ github.workspace }}/.tests/unittests"
 
-  PACKAGE_NAME: "CI_BLENDERKIT_ASSET_TASKS"
-  PACKAGEDIR: "."  # Adjust this if your package is in a subdirectory
-
 jobs:
-  linting:
+  build_test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: &python-versions
+        python-version:
           - "3.11"
+          - "3.12"
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     steps:
-      - &checkout-code-lfs
-        name: Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           lfs: true
 
-      - name: Verify package directory
-        run: |
-          echo "Workspace: $GITHUB_WORKSPACE"
-          ls -al
-          if [ ! -d "$GITHUB_WORKSPACE/${PACKAGEDIR}" ]; then
-            echo "ERROR: Expected package directory '$PACKAGEDIR' not found."
-            echo "Contents of workspace:"
-            find "$GITHUB_WORKSPACE" -maxdepth 2 -type d
-            exit 1
-          fi
-          if [ ! -f "$GITHUB_WORKSPACE/${PACKAGEDIR}/pyproject.toml" ]; then
-            echo "WARNING: pyproject.toml not found in $PACKAGEDIR (is it at repo root instead?)."
-            ls -al "$GITHUB_WORKSPACE/${PACKAGEDIR}"
-          fi
-
-      - &setup-system
-        name: Setup system
+      - name: System deps
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-randr0 libxcb-shape0 libxcb-xfixes0 libxcb-sync1 libxcb1 libx11-xcb1 libsm6 libxext6 libgl1 libegl1
 
-      - &setup-python
-        name: Set up Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - &install-uv
-        name: Add UV
+      - name: Install uv
         run: pip install uv
 
-      - &create-venv
-        name: Create venv
-        working-directory: ${{ env.PACKAGEDIR }}
+      - name: Create venv & sync
         run: |
-          echo "Creating venv in $PWD"
-          ls -al
           uv venv
           uv sync --all-groups --link-mode=copy
           uv run pip install -e .
 
+      # Lint only once (on 3.11) to save time
       - name: Ruff
-        working-directory: ${{ env.PACKAGEDIR }}
-        if: always()
+        if: matrix.python-version == '3.11'
         run: uv run ruff check
 
       - name: Bandit
-        working-directory: ${{ env.PACKAGEDIR }}
-        if: always()
+        if: matrix.python-version == '3.11'
         run: uv run bandit -c _bandit.yaml -ll -r .
 
       - name: PyDocLint
-        working-directory: ${{ env.PACKAGEDIR }}
-        if: always()
+        if: matrix.python-version == '3.11'
         run: uv run pydoclint .
 
-  version_testing:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: *python-versions
-    env:
-      UV_PYTHON: ${{ matrix.python-version }}
-    steps:
-      - *checkout-code-lfs
-      - *setup-system
-      - *setup-python
-      - *install-uv
-      - *create-venv
-
-      - name: Run unit tests
-        working-directory: ${{ env.PACKAGEDIR }}
+      - name: Run unit tests (no coverage on non-primary)
+        if: matrix.python-version != '3.11'
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-          uv run -m unittest discover -s ./.tests/unittests
+            uv run -m unittest discover -s ./.tests/unittests
 
+      - name: Run tests with coverage (primary version)
+        if: matrix.python-version == '3.11'
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
+          timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+            uv run coverage run -m unittest discover -s ./.tests/unittests
 
-  create_coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - *checkout-code-lfs
-      - *setup-system
-      - *setup-python
-      - *install-uv
-      - *create-venv
-
-      - name: Create coverage
-        working-directory: ${{ env.PACKAGEDIR }}
+      - name: Coverage reports
+        if: matrix.python-version == '3.11'
         run: |
           uv run coverage xml -i
           uv run coverage html -i
           uv run coverage report -i
+          ls -al coverage.xml || true
 
-      - name: Save coverage report as artifact
-        if: always()
+      - name: Upload coverage XML
+        if: matrix.python-version == '3.11' && always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: ${{ env.PACKAGEDIR }}/coverage.xml
+          path: coverage.xml
 
-      - name: Upload HTML Coverage Report
-        if: always()
+      - name: Upload coverage HTML
+        if: matrix.python-version == '3.11' && always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report-html
-          path: ${{ env.PACKAGEDIR }}/htmlcov
+          path: htmlcov
 
