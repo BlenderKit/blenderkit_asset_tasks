@@ -1,6 +1,9 @@
 """Script to generate resolutions for assets that don't have them yet.
 
 For single asset processing, set ASSET_BASE_ID to the asset_base_id.
+
+BLENDER_PATH may be defined in environment or config.py for version of Blender to use.
+Otherwise, BLENDERS_PATH must be set to a folder with Blender versions.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from blenderkit_server_utils import concurrency, config, download, log, search, 
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDER_PATH"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDERS_PATH"])
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100
