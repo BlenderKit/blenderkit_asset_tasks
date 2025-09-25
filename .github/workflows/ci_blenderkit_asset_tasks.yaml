@@ -45,7 +45,7 @@ jobs:
 
       # Lint only once (on 3.11) to save time
       - name: Ruff
-        # if: matrix.python-version == '3.11'
+        if: matrix.python-version == '3.11'
         run: uv run ruff check
 
       - name: Bandit
@@ -56,8 +56,8 @@ jobs:
         if: matrix.python-version == '3.11'
         run: uv run pydoclint .
 
-      - name: Run unit tests (no coverage on non-primary python versions)
-        if: matrix.python-version != '3.11'
+      - name: Run unit tests
+        # if: matrix.python-version != '3.11'
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \

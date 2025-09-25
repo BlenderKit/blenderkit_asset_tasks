@@ -3,7 +3,7 @@ name = "blenderkit-asset_tasks"
 version = "0.9.1"
 description = "BlenderKit asset tasks"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 dependencies = [
     "python-dotenv>=1.0.1",
     "certifi==2025.8.3",
@@ -16,7 +16,8 @@ dependencies = [
     "google-auth-oauthlib>=1.2.2",
     "pillow",
     "numpy",
-    "bpy"
+    ## suported py3.11+
+    # "bpy"
 
 ]
 
