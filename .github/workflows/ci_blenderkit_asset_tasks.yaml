@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         python-version:
-          - "3.9"
+          # - "3.9" # cannot really test on blender 3.9, as no bpy for it
           - "3.11"
     env:
       UV_PYTHON: ${{ matrix.python-version }}
@@ -57,7 +57,7 @@ jobs:
         run: uv run pydoclint .
 
       - name: Run unit tests
-        # if: matrix.python-version != '3.11'
+        if: matrix.python-version != '3.11'
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
