@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from . import log, paths
+from . import config, log, paths
 
 logger = log.create_logger(__name__)
 
@@ -80,7 +80,7 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
     Raises:
         RuntimeError: If no binaries are found or the selected binary doesn't exist.
     """
-    blenders_path = paths.BLENDERS_PATH
+    blenders_path = config.BLENDERS_PATH
     blenders = []
     # Get available blender versions
     for fn in os.listdir(blenders_path):

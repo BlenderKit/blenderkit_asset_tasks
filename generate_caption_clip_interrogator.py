@@ -27,10 +27,9 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 
 utils.ensure_installed(
     package="torch",
-    to_install=["torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu117"],
+    to_install=["torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu126"],
 )
-utils.ensure_installed(package="gradio", to_install=["gradio"])
-utils.ensure_installed(package="open_clip", to_install=["open_clip_torch"])
+
 utils.ensure_installed(package="clip_interrogator", to_install=["clip-interrogator"])
 utils.ensure_installed(package="requests", to_install=["requests"])
 utils.ensure_installed(package="PIL", to_install=["Pillow"])
@@ -46,7 +45,12 @@ import torch  # noqa: E402
 PAGE_SIZE_LIMIT: int = 100
 REQUEST_TIMEOUT: int = 15
 CLIP_MODEL_NAME: str = "ViT-L-14/openai"
+CAPTION_MODEL_NAME: str = "blip-large"  # or blip-small
 IMAGE_FILENAME: str = "image_name.jpg"
+
+PARAM_NAME_TARGET: str = "imageCaptionInterrogator"
+
+SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
 def log_torch_info() -> None:
@@ -102,12 +106,17 @@ def process_asset(ci: Interrogator, asset_data: dict[str, Any], dpath: str, para
         return
 
     try:
-        param_value: str = ci.interrogate(image)
+        param_value: str = ci.interrogate_classic(image)
     except (RuntimeError, ValueError):
         logger.exception("Interrogation failed for asset %s", asset_id)
         return
 
     logger.info("Caption result for %s: %s", asset_id, param_value)
+
+    if SKIP_UPDATE:
+        logger.info("Processed in %.3f s", time.time() - start_time)
+        logger.info("SKIP_UPDATE is set, not patching the asset.")
+        return
 
     # Patch parameter
     try:
@@ -137,12 +146,18 @@ def main() -> None:
     2. Download the asset thumbnail and run CLIP Interrogator.
     3. Patch the generated caption as a parameter on the server.
     """
-    param_name: str = "imageCaptionInterrogator"
-    params: dict[str, Any] = {
-        "order": "-created",
-        "verification_status": "validated",
-        param_name + "_isnull": True,
-    }
+    asset_base_id = config.ASSET_BASE_ID
+    if asset_base_id is not None:  # Single asset handling - for asset validation hook
+        params = {
+            "asset_base_id": asset_base_id,
+        }
+    else:  # None asset specified - will run on 100 unprocessed assets - for nightly jobs
+        params = {
+            "order": "-created",
+            "verification_status": "validated",
+            PARAM_NAME_TARGET + "_isnull": True,
+        }
+
     dpath: str = tempfile.gettempdir()
     filepath: str = os.path.join(dpath, "assets_for_resolutions.json")
 
@@ -159,14 +174,21 @@ def main() -> None:
     )
     if not assets:
         logger.info("No assets found to process.")
+        utils.cleanup_temp(dpath)
         return
 
     # Initialize CLIP Interrogator once
-    ci = Interrogator(Config(clip_model_name=CLIP_MODEL_NAME))
+    cfg = Config(
+        clip_model_name=CLIP_MODEL_NAME,
+        caption_model_name=CAPTION_MODEL_NAME,
+        flavor_intermediate_count=512,  # fewer tags checked
+    )
+    ci = Interrogator(cfg)
 
     for asset_data in assets:
-        process_asset(ci=ci, asset_data=asset_data, dpath=dpath, param_name=param_name)
+        process_asset(ci=ci, asset_data=asset_data, dpath=dpath, param_name=PARAM_NAME_TARGET)
 
+    utils.cleanup_temp(dpath)
 
 if __name__ == "__main__":
     main()

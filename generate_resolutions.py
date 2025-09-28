@@ -24,7 +24,7 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDERS_PATH"])
 # Constants
 PAGE_SIZE_LIMIT: int = 100
 
-SKIP_UPLOAD = os.getenv("SKIP_UPLOAD", False) == "True"  # noqa: FBT003, PLW1508
+SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
 def _maybe_unpack_asset(asset_data: dict[str, Any], asset_file_path: str, blender_binary_path: str) -> None:
@@ -182,13 +182,15 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
     temp_folder, result_path = _send_to_bg_for_resolutions(asset_data, asset_file_path, config.BLENDER_PATH)
 
     files = _read_result_files(result_path)
-    if SKIP_UPLOAD:
-        logger.warning("SKIP_UPLOAD==True -> skipping upload")
+    result_state = _determine_result_and_upload(files, asset_data, api_key)
+    logger.info("Result state for asset %s: %s", asset_data.get("id"), result_state)
+
+    if SKIP_UPDATE:
+        logger.warning("SKIP_UPDATE==True -> skipping update")
         _cleanup(temp_folder, asset_file_path, asset_data.get("id"))
         return
 
-    result_state = _determine_result_and_upload(files, asset_data, api_key)
-    logger.info("Result state for asset %s: %s", asset_data.get("id"), result_state)
+
     upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
     _cleanup(temp_folder, asset_file_path, asset_data.get("id"))
     return

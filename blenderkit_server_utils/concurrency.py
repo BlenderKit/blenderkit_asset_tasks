@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import traceback
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
@@ -68,6 +69,8 @@ def run_asset_threads(  # noqa: PLR0913
                 worker(*a_args, **a_kwargs)
             except Exception:
                 logger.exception("Worker raised exception (asset keys=%s)", asset_keys_snapshot)
+                # complete traceback
+                logger.error(traceback.format_exc())  # noqa: TRY400
 
         try:
             asset_keys_snapshot = tuple(list(asset.keys())[:5])

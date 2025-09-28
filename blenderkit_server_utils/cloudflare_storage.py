@@ -288,3 +288,36 @@ class CloudflareStorage:
             except (ClientError, BotoCoreError):
                 logger.exception("Final batch delete failed (newer-than) for '%s'", bucket_name)
         logger.info("New files deletion pass completed for '%s'", bucket_name)
+
+
+def cloudflare_setup() -> CloudflareStorage:
+    """Setup Cloudflare Storage bucket if needed.
+
+    Returns:
+         CloudflareStorage: Configured CloudflareStorage instance.
+    """
+    # Initialize Cloudflare Storage with your credentials
+    cloudflare_storage = CloudflareStorage(
+        access_key=os.getenv("CF_ACCESS_KEY"),
+        secret_key=os.getenv("CF_ACCESS_SECRET"),
+        endpoint_url=os.getenv("CF_ENDPOINT_URL"),
+    )
+    return cloudflare_storage
+
+
+def cloudflare_cleanup(bucket_name: str) -> None:
+    """Cleanup old files from Cloudflare Storage.
+
+    Removes files older than a configured threshold and recent temp files to
+    keep the bucket tidy.
+
+    Args:
+        bucket_name: The name of the Cloudflare R2 bucket.
+
+    Returns:
+        None
+    """
+    # Initialize Cloudflare Storage with your credentials
+    cloudflare_storage = cloudflare_setup()
+    logger.info("Deleting old files in validation bucket")
+    cloudflare_storage.delete_old_files(bucket_name=bucket_name, x_days=30)

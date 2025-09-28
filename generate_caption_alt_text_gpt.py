@@ -9,15 +9,57 @@ import tempfile
 import time
 from typing import Any
 
-import openai
-
 from blenderkit_server_utils import config, log, search, upload, utils
 
 logger = log.create_logger(__name__)
 
 utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "OPENAI_API_KEY", "MAX_ASSET_COUNT"])
 
+utils.ensure_installed(package="openai", to_install=["openai>=1.0.0"])
+from openai import OpenAI  # noqa: E402
+
 PAGE_SIZE_LIMIT: int = 100
+
+PARAM_NAME_SOURCE: str = "imageCaptionInterrogator"
+PARAM_NAME_TARGET: str = "imageAltTextGen3"
+
+SKIP_UPDATE: bool = config.SKIP_UPDATE
+
+
+def _fetch_single_asset(
+    asset_base_id: str,
+    param_name_source: str,
+    param_name_target: str,
+    filepath: str,
+) -> list[dict[str, Any]]:
+    """Fetch a single asset by base id (fallback to full id), keeping original filters."""
+    # Must have source caption, and must not have target alt text yet
+    common = {
+        f"{param_name_source}_isnull": False,
+        f"{param_name_target}_isnull": True,
+    }
+
+    # Try as asset_base_id first
+    params = {**common, "asset_base_id": asset_base_id}
+    assets = search.get_search_simple(
+        params,
+        filepath,
+        page_size=1,
+        max_results=1,
+        api_key=config.BLENDERKIT_API_KEY,
+    )
+    if assets:
+        return assets
+
+    # Fallback: try as full id
+    params = {**common, "id": asset_base_id}
+    return search.get_search_simple(
+        params,
+        filepath,
+        page_size=1,
+        max_results=1,
+        api_key=config.BLENDERKIT_API_KEY,
+    )
 
 
 # Build the prompt for GPT
@@ -35,7 +77,7 @@ def get_gpt_request_text(asset_data: dict[str, Any]) -> str:
     name of 3d {asset_data["assetType"]}: "{asset_data["name"]}"
     category slug: "{asset_data["category"]}"
     description AI generated(based on {asset_data["assetType"]} thumbnail, don't trust it too much):
-    "{asset_data["dictParameters"]["imageCaptionInterrogator"]}"
+    "{asset_data["dictParameters"].get(PARAM_NAME_SOURCE, "")}"
     description user written:
     "{asset_data["description"]}"
     software used:
@@ -46,82 +88,100 @@ def get_gpt_request_text(asset_data: dict[str, Any]) -> str:
     return text
 
 
+def process_asset(asset_data: dict[str, Any], client: OpenAI) -> None:
+    """Process a single asset: generate alt text and patch it to the server."""
+    start_time = time.time()
+
+    logger.info("Processing asset %s: %s", asset_data["id"], asset_data["name"])
+    request_message = get_gpt_request_text(asset_data)
+
+    # OpenAI 1.x client call
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": "You are a chatbot"},
+                {"role": "user", "content": request_message},
+            ],
+        )
+    except Exception as e:
+        logger.exception("Error occurred while processing asset [%s] %s : %s", asset_data["id"], asset_data["name"], e)  # noqa: TRY401
+        if "'type': 'insufficient_quota'" in str(e):
+            logger.exception("Insufficient OpenAI quota, aborting further processing.")
+            raise SystemExit(1) from e
+        return
+
+    # Extract content
+    result = ""
+    for choice in response.choices:
+        content = getattr(choice.message, "content", "")
+        if isinstance(content, str):
+            result += content
+        else:
+            # Rare: list of content parts
+            try:
+                result += "".join(getattr(p, "text", str(p)) for p in content)
+            except Exception:
+                pass
+    param_value = result.strip()
+
+    logger.info("Generated alt text: %s", param_value)
+
+    if SKIP_UPDATE:
+        logger.info("Processed in %.3f s", time.time() - start_time)
+        logger.info("SKIP_UPDATE is set, not patching the asset.")
+        return
+
+    upload.patch_individual_parameter(
+        asset_id=asset_data["id"],
+        param_name=PARAM_NAME_TARGET,
+        param_value=param_value,
+        api_key=config.BLENDERKIT_API_KEY,
+    )
+
+
 # search for assets to process
 def main() -> None:
-    """Generate alt texts for assets using GPT-3.5-turbo.
+    """Generate alt texts for assets using OpenAI Chat Completions."""
+    if not config.OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY is not set; aborting.")
+        return
+    client = OpenAI(api_key=config.OPENAI_API_KEY)
 
-    We search for assets that have interrogator caption, but don't have gpt alt text yet.
-    """
-    param_name_source: str = "imageCaptionInterrogator"
-    param_name_target: str = "imageAltTextGen3"
-    params: dict[str, Any] = {
-        "order": "-created",
-        "asset_type": "model",
-        "verification_status": "validated",
-        param_name_source + "_isnull": False,
-        # just get those which already have interrogator data, but don't have the rest
-        param_name_target + "_isnull": True,  # just those that don't have gpt alt caption yet
-    }
+    asset_base_id = config.ASSET_BASE_ID
+    if asset_base_id is not None:  # Single asset handling - for asset validation hook
+        params = {"asset_base_id": asset_base_id}
+    else:  # None asset specified - will run on 100 unprocessed assets - for nightly jobs
+        params: dict[str, Any] = {
+            "order": "-created",
+            "asset_type": "model",
+            "verification_status": "validated",
+            PARAM_NAME_SOURCE + "_isnull": False,
+            # just get those which already have interrogator data, but don't have the rest
+            PARAM_NAME_TARGET + "_isnull": True,  # just those that don't have gpt alt caption yet
+        }
 
     dpath: str = tempfile.gettempdir()
     filepath: str = os.path.join(dpath, "assets_for_resolutions.json")
-    openai.api_key = config.OPENAI_API_KEY
-    if not openai.api_key:
-        logger.error("OPENAI_API_KEY is not set; aborting.")
-        return
 
-    assets: list[dict[str, Any]] = search.get_search_simple(
+    assets = search.get_search_simple(
         params,
         filepath,
         page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
         max_results=config.MAX_ASSET_COUNT,
         api_key=config.BLENDERKIT_API_KEY,
     )
+
     if not assets:
         logger.info("No assets found to process.")
+        utils.cleanup_temp(dpath)
         return
 
     # iterate assets and generate alt text for them
     for asset_data in assets:
-        start_time = time.time()
+        process_asset(asset_data, client)
 
-        logger.info("Processing asset %s: %s", asset_data["id"], asset_data["name"])
-        request_message = get_gpt_request_text(asset_data)
-        # putting everything into try statement since openai api is not very stable, can be overloaded etc.
-        try:
-            response: Any = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a chatbot"},
-                    {"role": "user", "content": request_message},
-                ],
-            )
-
-            result: str = ""
-            for choice in response.choices:
-                result += choice.message.content
-            param_value = result
-
-            # -------------------------------------------------------------------------------------
-
-            upload.patch_individual_parameter(
-                asset_id=asset_data["id"],
-                param_name=param_name_target,
-                param_value=param_value,
-                api_key=config.BLENDERKIT_API_KEY,
-            )
-            upload.get_individual_parameter(
-                asset_id=asset_data["id"],
-                param_name=param_name_target,
-                api_key=config.BLENDERKIT_API_KEY,
-            )
-
-            # -------------------------------------------------------------------------------------
-            logger.info("Processed in %.3f s", time.time() - start_time)
-            # -------------------------------------------------------------------------------------
-        except Exception:
-            logger.exception("Error processing asset %s", asset_data.get("id"))
-
+    utils.cleanup_temp(dpath)
 
 if __name__ == "__main__":
     main()

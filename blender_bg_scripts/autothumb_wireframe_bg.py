@@ -17,6 +17,7 @@ import math
 import os
 import sys
 from typing import Any
+import traceback
 
 import bpy
 
@@ -88,6 +89,27 @@ def center_objs_for_thumbnail(obs: list[Any]) -> None:
     r *= coef
     cam_z.scale = (r, r, r)
     bpy.context.view_layer.update()
+
+
+def replace_materials(obs: list[Any], material_name: str) -> None:
+    """Replace all materials on the given objects with a wireframe material.
+
+    Args:
+        obs: List of Blender objects to modify.
+        material_name: Name of the wireframe material to use.
+    """
+    # Create or get the wireframe material
+
+    if material_name in bpy.data.materials:
+        wireframe_mat = bpy.data.materials[material_name]
+    else:
+        return
+
+    # Assign the wireframe material to all objects
+    for ob in obs:
+        if ob.type == "MESH":
+            ob.data.materials.clear()
+            ob.data.materials.append(wireframe_mat)
 
 
 def render_thumbnails() -> None:
@@ -177,13 +199,39 @@ if __name__ == "__main__":
             "thumbnail_background_lightness"
         ]
 
+        wireframe = asset.get("render_mode") == "wireframe"
+        if wireframe:
+            # we do not need so much render samples for wireframe
+            scene.cycles.samples = min(scene.cycles.samples, 32)
+
+            # replace materials
+            replace_materials(all_objects, material_name="bkit wireframe")
+
+            bpy.data.materials["bkit background"].node_tree.nodes["Value"].outputs["Value"].default_value = 0.1
+            # modify other attributes
+            bpy.data.materials["bkit wireframe"].node_tree.nodes["Wireframe"].inputs[
+                "Size"
+            ].default_value = asset.get(
+                "wireframe_thickness",
+                1.0,
+            )
+
         # Set output resolution
         scene.render.resolution_x = int(asset["thumbnail_resolution"])
         scene.render.resolution_y = int(asset["thumbnail_resolution"])
 
         # Configure output path and start render
-        scene.render.filepath = data["result_filepath"]
-        logger.info("Rendering model thumbnail to %s", scene.render.filepath)
+
+        # make sure to use matching file format
+        output_path = data["result_filepath"]
+        ext = os.path.splitext(output_path)[1].lower()
+        if ext in [".jpg", ".jpeg"]:
+            scene.render.image_settings.file_format = "JPEG"
+        elif ext == ".png":
+            scene.render.image_settings.file_format = "PNG"
+            scene.render.film_transparent = True
+
+        scene.render.filepath = output_path
         render_thumbnails()
 
         logger.info("Background autothumbnailer (model) finished successfully")
@@ -191,4 +239,6 @@ if __name__ == "__main__":
 
     except Exception:
         logger.exception("Background autothumbnailer (model) failed")
+        # log full traceback above
+        logger.exception(traceback.format_exc())
         sys.exit(1)

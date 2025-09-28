@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Iterable
@@ -385,3 +386,56 @@ def ensure_installed(package: str, to_install: str | list[str]) -> None:
 
 
 # endregion Package installation helpers
+
+# regio: testing helpers
+
+
+def open_folder(path: str) -> bool:
+    """Open a folder in the system file explorer.
+
+    Args:
+        path: The path to the folder to open.
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    # check if we are running in git actions
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        logger.info("Running in GitHub Actions; not opening folder.")
+        return False
+
+    if not os.path.exists(path):
+        logger.error("Folder does not exist: %s", path)
+        return False
+    # make sure it's a folder
+    if not os.path.isdir(path):
+        path = os.path.dirname(path)
+
+    try:
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+    except Exception:
+        logger.exception("Failed to open folder: %s", path)
+        return False
+
+    return True
+
+
+# endregion testing helpers
+
+
+# region cleanup
+
+def cleanup_temp(temp_folder: str) -> None:
+    """Delete the temporary working folder if possible."""
+    try:
+        shutil.rmtree(temp_folder)
+    except (FileNotFoundError, PermissionError, OSError):
+        logger.exception("Error while deleting temp folder %s", temp_folder)
+
+
+# endregion cleanup

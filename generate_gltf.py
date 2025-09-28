@@ -7,7 +7,6 @@ the asset to indicate success or failure of the Godot-optimized export.
 import argparse
 import json
 import os
-import shutil
 import sys
 import tempfile
 from typing import Any
@@ -59,6 +58,8 @@ PARAM_ERROR: str = "gltfGeneratedError"
 if "godot" in TARGET_FORMAT:
     PARAM_SUCCESS = "gltfGodotGeneratedDate"
     PARAM_ERROR = "gltfGodotGeneratedError"
+
+SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
 def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, target_format: str) -> bool:
@@ -118,9 +119,9 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
         logger.exception("Error reading result JSON %s", result_path)
         error += f" {exc}"
 
-    # remove temp folder here, after we are done with reading the result json
-    # file no longer needed
-    shutil.rmtree(temp_folder, ignore_errors=True)
+    logger.info("Cleaning up temporary folder %s", temp_folder)
+    if files:
+        logger.info("Generated files: %s", files)
 
     if files is None:
         error += " Files are None"
@@ -128,6 +129,16 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
         error += " len(files)=0"
     else:
         logger.info("Generated files: %s", files)
+
+        if SKIP_UPDATE:
+            logger.info("SKIP_UPDATE is set, not patching the asset.")
+            opened = utils.open_folder(os.path.dirname(files[0]["path"]))
+            if not opened:
+                logger.error("Failed to open folder %s", os.path.dirname(files[0]["path"]))
+                utils.cleanup_temp(temp_folder)
+
+            return False
+
         try:
             upload.upload_resolutions(files, asset_data, api_key=api_key)
             today = datetime_utils.today_date_iso()
@@ -142,6 +153,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
                 param_name=PARAM_SUCCESS,
                 api_key=api_key,
             )
+
             logger.info("Patched %s=%s for asset %s", PARAM_SUCCESS, today, asset_data.get("id"))
         except Exception:  # upload module uses requests; narrow errors are internal
             logger.exception(
@@ -151,6 +163,8 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
             error += " upload/patch failed"
         else:
             # Success path
+            utils.cleanup_temp(temp_folder)
+
             return True
 
     # Failure path: patch error parameter
@@ -160,7 +174,14 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
         asset_data.get("id"),
         error.strip(),
     )
+
+    utils.cleanup_temp(temp_folder)
+
     try:
+        if SKIP_UPDATE:
+            logger.info("SKIP_UPDATE is set, not patching the asset.")
+            return False
+
         value = error.strip()
         upload.patch_individual_parameter(
             asset_id=asset_data["id"],

@@ -28,10 +28,11 @@ from __future__ import annotations
 import datetime as _dt
 import inspect
 import logging
-import os
 import re
 import sys
 from types import FrameType
+
+from . import config
 
 CALLER_STACK_LEVEL = 2  # create_logger -> caller wrapper (usually module)
 
@@ -145,8 +146,8 @@ def create_logger(name: str | None = None) -> logging.Logger:
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
-    # check env for debuglogging level
-    if "DEBUG_LOGGING" in os.environ:
+    # check env for debug logging level
+    if config.DEBUG_LOGGING:
         logger.setLevel(logging.DEBUG)
 
     # Attach a handler if none present.

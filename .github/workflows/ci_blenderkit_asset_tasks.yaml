@@ -57,13 +57,13 @@ jobs:
         run: uv run pydoclint .
 
       - name: Run unit tests
-        if: matrix.python-version != '3.11'
+        if: matrix.python-version == '3.11'
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
           timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
             uv run -m unittest discover -s ./.tests/unittests
 
-      - name: Run tests with coverage (primary python version)
+      - name: Run tests with coverage
         if: matrix.python-version == '3.11'
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
@@ -79,14 +79,14 @@ jobs:
           ls -al coverage.xml || true
 
       - name: Upload coverage XML
-        if: matrix.python-version == '3.11' && env.UPLOAD_COVERAGE
+        if: ${{matrix.python-version == '3.11' && env.UPLOAD_COVERAGE == '1'}}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
       - name: Upload coverage HTML
-        if: matrix.python-version == '3.11' && env.UPLOAD_COVERAGE
+        if: ${{matrix.python-version == '3.11' && env.UPLOAD_COVERAGE == '1'}}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report-html

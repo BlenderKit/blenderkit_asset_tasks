@@ -22,8 +22,18 @@ BLENDERS_PATH: str = os.getenv("BLENDERS_PATH", "")
 ASSET_BASE_ID: str | None = os.getenv("ASSET_BASE_ID", None)
 """Asset base ID to be processed."""
 
-MAX_ASSET_COUNT = int(os.getenv("MAX_ASSET_COUNT", "100"))
+MAX_ASSET_COUNT: int = int(os.getenv("MAX_ASSET_COUNT", "100"))
 """Maximum number of assets to process in one run."""
 
-MAX_VALIDATION_THREADS = int(os.getenv("MAX_VALIDATION_THREADS", "8"))
+MAX_VALIDATION_THREADS: int = int(os.getenv("MAX_VALIDATION_THREADS", "8"))
 """Maximum number of concurrent validation threads."""
+
+# DEBUGGING OPTIONS AND SPECIAL MODES
+DEBUG: bool = bool(os.getenv("DEBUG", "False") in ["1", "true", "True"])
+"""Modifies behavior for debugging purposes, e.g., shows images when generating captions."""
+
+DEBUG_LOGGING: bool = bool(os.getenv("DEBUG_LOGGING", "False") in ["1", "true", "True"])
+"""Enables debug-level logging output."""
+
+SKIP_UPDATE: bool = os.getenv("SKIP_UPDATE", "False") in ["1", "true", "True"]
+"""If True, skips updating assets on the server (for testing)."""
