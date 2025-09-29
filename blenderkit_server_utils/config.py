@@ -1,5 +1,7 @@
 """Constants for the BlenderKit server utils."""
 
+from __future__ import annotations
+
 import os
 
 SERVER: str = os.getenv("BLENDERKIT_SERVER", "https://www.blenderkit.com")
