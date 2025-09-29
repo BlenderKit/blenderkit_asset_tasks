@@ -27,7 +27,7 @@ from __future__ import annotations
 import os
 import shutil
 from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 # Local imports used by some helpers.
 from . import config, log, utils
@@ -68,11 +68,10 @@ resolution_suffix: dict[str, str] = {
 }
 
 
-P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def ensure_bpy(func: Callable[P, R]) -> Callable[P, R | None]:
+def ensure_bpy(func: Callable[..., R]) -> Callable[..., R | None]:
     """Decorator to ensure bpy is available for functions that need it.
 
     If bpy is not available, the decorated function logs a warning and returns ``None``.
@@ -84,7 +83,7 @@ def ensure_bpy(func: Callable[P, R]) -> Callable[P, R | None]:
         A wrapped function that either invokes ``func`` (when bpy is available) or returns ``None``.
     """
 
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R | None:  # type: ignore[override]
+    def wrapper(*args: Any, **kwargs: Any) -> R | None:  # type: ignore[override]
         if bpy is None:  # type: ignore[name-defined]
             logger.warning("bpy not available; cannot execute %s", getattr(func, "__name__", "<callable>"))
             return None

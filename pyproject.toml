@@ -91,7 +91,6 @@ ignore = [
     "Q000", # https://docs.astral.sh/ruff/rules/bad-quotes-inline-string/
     "RET504", # https://docs.astral.sh/ruff/rules/unnecessary-assign/
     "TRY003", # https://github.com/guilatrova/tryceratops/blob/main/docs/violations/TRY003.md
-    "UP038", # https://docs.astral.sh/ruff/rules/non-pep604-isinstance/
 ]
 
 [tool.ruff.lint.pydocstyle]
