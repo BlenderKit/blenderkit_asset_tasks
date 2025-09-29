@@ -15,6 +15,12 @@ THUMBNAIL_RESOLUTION - (int) Resolution of render
 THUMBNAIL_DENOISING - (bool) Use denoising
 THUMBNAIL_BACKGROUND_LIGHTNESS - (float) Background lightness (0-1)
 
+# Wireframe-specific (new):
+THUMBNAIL_WIREFRAME - (bool) Render wireframe thumbnail
+THUMBNAIL_WIREFRAME_OVERLAY - (bool) Overlay wireframe over shaded base (otherwise pure wireframe)
+THUMBNAIL_WIREFRAME_THICKNESS - (float) Line thickness (implementation-specific)
+THUMBNAIL_WIREFRAME_COLOR - (str) Color (e.g. "#FFFFFF" or "1,1,1")
+
 For materials:
 THUMBNAIL_TYPE - Type of material preview (BALL, BALL_COMPLEX, FLUID, CLOTH, HAIR)
 THUMBNAIL_SCALE - (float) Scale of preview object
@@ -52,6 +58,7 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDERS_PATH"])
 
 # Required environment variables
 PAGE_SIZE_LIMIT = 100
+
 SKIP_UPDATE = config.SKIP_UPDATE
 
 
@@ -62,6 +69,10 @@ DEFAULT_THUMBNAIL_PARAMS: dict[str, Any] = {
     "thumbnail_resolution": 2048,
     "thumbnail_denoising": True,
     "thumbnail_background_lightness": 0.9,
+    # Wireframe defaults (new)
+    "additional_outputs": "wireframe",  # this includes also separate wireframe render
+    "thumbnail_wireframe_thickness": 1.0,
+    "thumbnail_wireframe_color": None,  # if None, default color will be random
 }
 
 # Material-specific defaults
@@ -116,6 +127,8 @@ def parse_json_params(json_str: str | None) -> dict[str, Any]:
         "thumbnail_type",
         "thumbnail_angle",
         "thumbnail_snap_to",
+        # new string params
+        "thumbnail_wireframe_color",
     ]
     for param in string_params:
         if param in params and not isinstance(params[param], str):
@@ -214,6 +227,14 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
             {
                 "thumbnail_angle": os.getenv("THUMBNAIL_ANGLE", params["thumbnail_angle"]),
                 "thumbnail_snap_to": os.getenv("THUMBNAIL_SNAP_TO", params["thumbnail_snap_to"]),
+                # Wireframe env (new)
+                "thumbnail_wireframe_thickness": float(
+                    os.getenv("THUMBNAIL_WIREFRAME_THICKNESS", params["thumbnail_wireframe_thickness"]),
+                ),
+                "thumbnail_wireframe_color": os.getenv(
+                    "THUMBNAIL_WIREFRAME_COLOR",
+                    params["thumbnail_wireframe_color"],
+                ),
             },
         )
 
@@ -223,53 +244,19 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
     return params
 
 
-def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
-    """Process a single asset's thumbnail in a separate thread.
-
-    This function handles the complete thumbnail generation workflow for a single asset:
-    1. Downloads the asset file to a temporary directory
-    2. Sets up the thumbnail parameters based on asset type
-    3. Launches Blender in background mode to render the thumbnail
-    4. Uploads the resulting thumbnail
-    5. Updates the asset metadata with new thumbnail information
-    6. Cleans up temporary files
+def _select_script_template(asset_type: str) -> tuple[str, Path]:
+    """Return background script and template path for the given asset type.
 
     Args:
-        asset_data: Asset metadata including ID, type, and other properties
-        api_key: BlenderKit API key for authentication
+        asset_type: Type of asset ('material' or 'model')
+
+    Returns:
+        A tuple of (script_name, template_path)
+
+    Raises:
+        ValueError: If the asset type is unsupported.
     """
-    # skip empty assets
-    if not asset_data or not asset_data.get("files"):
-        logger.warning("Skipping empty or invalid asset entry")
-        return
-
-    destination_directory = tempfile.gettempdir()
-
-    # Get thumbnail parameters based on asset type and markThumbnailRender
-    thumbnail_params = get_thumbnail_params(
-        str(asset_data.get("assetType", "")).lower(),
-        mark_thumbnail_render=(asset_data.get("dictParameters") or {}).get("markThumbnailRender"),
-    )
-    # Download asset
-    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
-
-    if not asset_file_path:
-        logger.error("Failed to download asset %s", asset_data.get("name"))
-        return
-
-    # Create temp folder for results
-    temp_folder = tempfile.mkdtemp()
-    result_filepath = os.path.join(
-        temp_folder,
-        f"{asset_data['assetBaseId']}_thumb.{'jpg' if asset_data['assetType'] == 'model' else 'png'}",
-    )
-
-    # Update asset_data with thumbnail parameters
-    asset_data.update(thumbnail_params)
-
-    # Select appropriate script and template based on asset type
-    asset_type = asset_data.get("assetType")
-    script_template_map: dict[str, tuple[str, Path]] = {
+    mapping: dict[str, tuple[str, Path]] = {
         "material": (
             "autothumb_material_bg.py",
             Path(__file__).parent / "blend_files" / "material_thumbnailer_cycles.blend",
@@ -279,86 +266,118 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
             Path(__file__).parent / "blend_files" / "model_thumbnailer.blend",
         ),
     }
-    selected = script_template_map.get(str(asset_type))
+    selected = mapping.get(asset_type)
     if not selected:
-        logger.error("Unsupported asset type: %s", asset_type)
-        return
-    script_name, template_path = selected
+        raise ValueError(f"Unsupported asset type: {asset_type}")
+    return selected
 
-    # Send to background Blender for thumbnail generation
-    result = send_to_bg.send_to_bg(
+
+def _run_bg_render(
+    asset_data: dict[str, Any],
+    asset_file_path: str,
+    template_path: Path,
+    result_filepath: str,
+    script_name: str,
+) -> None:
+    """Run the background Blender render, raising on failure."""
+    ret = send_to_bg.send_to_bg(
         asset_data,
         asset_file_path=asset_file_path,
         template_file_path=str(template_path),
         result_path=result_filepath,
         script=script_name,
     )
-    if result:
-        logger.error("Background thumbnail rendering failed for asset %s", asset_data.get("name"))
-        try:
-            os.remove(asset_file_path)
-            os.rmdir(temp_folder)
-        except (FileNotFoundError, PermissionError, OSError):
-            logger.exception("Cleanup error for asset %s", asset_data.get("id"))
-        return
+    if ret:
+        raise RuntimeError(f"BG render failed (script={script_name}, ret={ret})")
 
-    # Check results and upload
-    if SKIP_UPDATE:
-        logger.warning("SKIP_UPDATE==True -> skipping upload")
-        from PIL import Image
+
+def _maybe_preview_and_return(result_filepath: str) -> bool:
+    """Preview result and return True when SKIP_UPDATE is enabled."""
+    if not SKIP_UPDATE:
+        return False
+    try:
+        from PIL import Image  # lazy import
 
         Image.open(result_filepath).show()
+    except OSError:
+        logger.debug("Preview failed for %s", result_filepath, exc_info=True)
+    opened = utils.open_folder(result_filepath)
+    if not opened:
+        logger.error("Failed to open folder %s", os.path.dirname(result_filepath))
+    return True
 
-        opened = utils.open_folder(result_filepath)
-        if not opened:
-            logger.error("Failed to open folder %s", os.path.dirname(result_filepath))
 
-            # Cleanup and return
-            try:
-                os.remove(asset_file_path)
-                utils.cleanup_temp(temp_folder)
-            except (FileNotFoundError, PermissionError, OSError):
-                logger.exception("Cleanup error for asset %s", asset_data.get("id"))
-        return
-
-    files_to_upload: list[dict[str, Any]] = [
-        {
-            "type": "thumbnail",
-            "index": 0,
-            "file_path": result_filepath,
-        },
-    ]
+def _upload_and_clear(asset_data: dict[str, Any], api_key: str, result_filepath: str) -> None:
+    """Upload the thumbnail and clear the markThumbnailRender flag, raising on failures."""
+    files_to_upload: list[dict[str, Any]] = [{"type": "thumbnail", "index": 0, "file_path": result_filepath}]
     upload_data: dict[str, Any] = {
         "name": asset_data.get("name"),
         "displayName": asset_data.get("displayName"),
         "token": api_key,
         "id": asset_data.get("id"),
     }
+    ok = upload.upload_files(upload_data, files_to_upload)
+    if not ok:
+        raise RuntimeError(f"Upload failed for {asset_data.get('name')}")
+
+    logger.info("Uploaded new thumbnail for %s", asset_data.get("name"))
+    cleared = upload.delete_individual_parameter(
+        asset_id=str(asset_data.get("id")),
+        param_name="markThumbnailRender",
+        param_value="",
+        api_key=api_key,
+    )
+    if not cleared:
+        raise RuntimeError(f"Failed to clear markThumbnailRender for {asset_data.get('name')}")
+    logger.info("Cleared markThumbnailRender for %s", asset_data.get("name"))
+
+
+def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
+    """Process a single asset's thumbnail in a separate thread."""
+    if not asset_data or not asset_data.get("files"):
+        logger.warning("Skipping empty or invalid asset entry")
+        return
+
+    asset_file_path: str | None = None
+    temp_folder: str | None = None
+
     try:
-        logger.info("Uploading thumbnail for %s", asset_data.get("name"))
-        ok = upload.upload_files(upload_data, files_to_upload)
-        if ok:
-            logger.info("Successfully uploaded new thumbnail for %s", asset_data.get("name"))
-            clear_ok = upload.delete_individual_parameter(
-                asset_id=str(asset_data.get("id")),
-                param_name="markThumbnailRender",
-                param_value="",
-                api_key=api_key,
-            )
-            if clear_ok:
-                logger.info("Cleared markThumbnailRender for %s", asset_data.get("name"))
-            else:
-                logger.error("Failed to clear markThumbnailRender for %s", asset_data.get("name"))
-        else:
-            logger.error("Failed to upload thumbnail for %s", asset_data.get("name"))
-    except Exception:  # Upstream may raise varied exceptions
-        logger.exception("Error processing thumbnail upload for %s", asset_data.get("name"))
+        destination_directory = tempfile.gettempdir()
+        asset_type = str(asset_data.get("assetType", "")).lower()
+        mark_json = (asset_data.get("dictParameters") or {}).get("markThumbnailRender")
+
+        # Resolve params and download asset
+        thumbnail_params = get_thumbnail_params(asset_type, mark_thumbnail_render=mark_json)
+        asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+
+        # Prepare output
+        temp_folder = tempfile.mkdtemp()
+        ext = {"model": "jpg", "material": "png"}.get(asset_type, "png")
+        result_filepath = os.path.join(temp_folder, f"{asset_data['assetBaseId']}_thumb.{ext}")
+
+        # Merge params and select BG job
+        asset_data.update(thumbnail_params)
+        script_name, template_path = _select_script_template(asset_type)
+
+        # Render and upload
+        _run_bg_render(asset_data, asset_file_path, template_path, result_filepath, script_name)
+        if _maybe_preview_and_return(result_filepath):
+            return
+        _upload_and_clear(asset_data, api_key, result_filepath)
+
+    except Exception:
+        logger.exception("Error processing thumbnail for %s", asset_data.get("name"))
     finally:
         try:
-            os.remove(asset_file_path)
-            os.rmdir(temp_folder)
-        except (FileNotFoundError, PermissionError, OSError):
-            logger.exception("Cleanup error for asset %s", asset_data.get("id"))
+            if asset_file_path and os.path.isfile(asset_file_path):
+                os.remove(asset_file_path)
+        except OSError:
+            logger.debug("Failed to remove asset file %s", asset_file_path, exc_info=True)
+        try:
+            if temp_folder and not SKIP_UPDATE:
+                utils.cleanup_temp(temp_folder)
+        except OSError:
+            logger.debug("Failed to cleanup temp folder %s", temp_folder, exc_info=True)
 
 
 def iterate_assets(

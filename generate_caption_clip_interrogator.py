@@ -36,7 +36,7 @@ utils.ensure_installed(package="PIL", to_install=["Pillow"])
 
 
 from clip_interrogator import Config, Interrogator  # noqa: E402
-from PIL import Image, UnidentifiedImageError  # noqa: E402
+from PIL import Image  # noqa: E402
 import requests  # noqa: E402
 import torch  # noqa: E402
 
@@ -101,13 +101,8 @@ def process_asset(ci: Interrogator, asset_data: dict[str, Any], dpath: str, para
     # Open image and interrogate
     try:
         image = Image.open(img_path).convert("RGB")
-    except (OSError, UnidentifiedImageError):
-        logger.exception("Failed to open image for asset %s", asset_id)
-        return
-
-    try:
         param_value: str = ci.interrogate_classic(image)
-    except (RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError):
         logger.exception("Interrogation failed for asset %s", asset_id)
         return
 

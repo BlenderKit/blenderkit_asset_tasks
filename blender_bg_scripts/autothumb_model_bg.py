@@ -10,12 +10,12 @@ containing:
 """
 
 from __future__ import annotations
-# isort: skip_file
 
 import json
 import math
 import os
 import sys
+import traceback
 from typing import Any
 
 import bpy
@@ -26,8 +26,7 @@ parent_path = os.path.join(dir_path, os.path.pardir)
 if parent_path not in sys.path:
     sys.path.append(parent_path)
 
-from blenderkit_server_utils import append_link, utils, log  # noqa: E402
-
+from blenderkit_server_utils import append_link, log, utils  # noqa: E402
 
 logger = log.create_logger(__name__)
 
@@ -90,6 +89,116 @@ def center_objs_for_thumbnail(obs: list[Any]) -> None:
     bpy.context.view_layer.update()
 
 
+def ensure_wireframe_material() -> None:
+    """Ensure the wireframe material exists in the current Blender context."""
+    if "bkit wireframe" not in bpy.data.materials:
+        from blenderkit_server_utils import materials
+
+        materials.bkit_wireframe()
+
+
+def replace_materials(obs: list[Any], material_name: str) -> None:
+    """Replace all materials on the given objects with a wireframe material.
+
+    Args:
+        obs: List of Blender objects to modify.
+        material_name: Name of the wireframe material to use.
+    """
+    # Create or get the wireframe material
+
+    if material_name in bpy.data.materials:
+        wireframe_mat = bpy.data.materials[material_name]
+    else:
+        return
+
+    # Assign the wireframe material to all objects
+    for ob in obs:
+        if ob.type == "MESH":
+            ob.data.materials.clear()
+            ob.data.materials.append(wireframe_mat)
+
+
+def _str_to_color(s: str) -> tuple[float, float, float] | None:
+    """Convert a color string to an RGB tuple.
+
+    Args:
+        s: Color string in the format "#RRGGBB" or "R,G,B".
+
+    Returns:
+        A tuple of (R, G, B) values as floats in the range [0.0, 1.0], or None.
+    """
+    hex_size = 7  # e.g. "#RRGGBB"
+    rgb_size = 5  # e.g. "R,G,B"
+    rgb_count = 3
+    s = s.strip()
+    if s.startswith("#") and len(s) == hex_size:
+        r = int(s[1:3], 16) / 255.0
+        g = int(s[3:5], 16) / 255.0
+        b = int(s[5:7], 16) / 255.0
+        return (r, g, b)
+    if len(s) == rgb_size:
+        parts = s.split(",")
+        if len(parts) == rgb_count:
+            try:
+                r = float(parts[0].strip())
+                g = float(parts[1].strip())
+                b = float(parts[2].strip())
+
+            except ValueError:
+                pass
+            else:
+                return (r, g, b)
+    # Default to None
+    return None
+
+
+def modify_wireframe_material(settings_data: dict[str, Any]) -> None:
+    """Modify wireframe material properties for better visibility.
+
+    Args:
+        settings_data: Dictionary containing settings for wireframe material adjustments.
+    """
+    if "bkit wireframe" not in bpy.data.materials:
+        logger.warning("Wireframe material 'bkit wireframe' not found.")
+        return
+
+    mat = bpy.data.materials["bkit wireframe"]
+    nodes = mat.node_tree.nodes
+    if "Wireframe" in nodes:
+        nodes["Wireframe"].inputs["Size"].default_value = settings_data.get(
+            "thumbnail_wireframe_thickness",
+            1.0,
+        )
+
+    # by default wireframe is random based on object ID
+    # check if we have a setting to make it non-random
+    if "thumbnail_wireframe_color" in settings_data and settings_data.get("thumbnail_wireframe_color") is not None:
+        clr = _str_to_color(settings_data["thumbnail_wireframe_color"])
+        if clr is not None:
+            if "custom_wire_color" in nodes:
+                nodes["custom_wire_color"].outputs[0].default_value = 1
+
+            if "wire_RGB" in nodes:
+                nodes["wire_RGB"].outputs[0].default_value = clr
+        else:
+            logger.warning("Invalid wireframe color: %s", settings_data["thumbnail_wireframe_color"])
+
+
+def modify_render_output(output_path: str) -> None:
+    """Set render output format based on file extension.
+
+    Args:
+        output_path: The file path where the render will be saved.
+    """
+    ext = os.path.splitext(output_path)[1].lower()
+    if ext in [".jpg", ".jpeg"]:
+        bpy.context.scene.render.image_settings.file_format = "JPEG"
+    elif ext == ".png":
+        bpy.context.scene.render.image_settings.file_format = "PNG"
+        bpy.context.scene.render.film_transparent = True
+    scene.render.filepath = output_path
+
+
 def render_thumbnails() -> None:
     """Render the current scene to a still image (no animation)."""
     bpy.ops.render.render(write_still=True, animation=False)
@@ -111,6 +220,9 @@ if __name__ == "__main__":
     try:
         thumbnail_use_gpu = data.get("thumbnail_use_gpu")
         asset = data["asset_data"]
+
+        # if debug spit out asset data
+        # >logger.debug("Asset data: %s", json.dumps(asset, indent=2))
 
         # Import the 3D model into the scene (linked to save memory)
         main_object, all_objects = append_link.link_collection(
@@ -182,13 +294,50 @@ if __name__ == "__main__":
         scene.render.resolution_y = int(asset["thumbnail_resolution"])
 
         # Configure output path and start render
-        scene.render.filepath = data["result_filepath"]
-        logger.info("Rendering model thumbnail to %s", scene.render.filepath)
+        # make sure to use matching file format
+        output_path = data["result_filepath"]
+        modify_render_output(output_path)
+        logger.info("Rendering model thumbnail to %s", output_path)
+
         render_thumbnails()
+
+        # check other outputs
+        additional_outputs = asset.get("additional_outputs", "")
+        # now check if we also render a wireframe thumbnail
+        if "wireframe" in additional_outputs:
+            # modify scene for wireframe render
+            bpy.data.materials["bkit background"].node_tree.nodes["Value"].outputs["Value"].default_value = 0.1
+            # we do not need so much render samples for wireframe
+            scene.cycles.samples = min(scene.cycles.samples, 32)
+
+            # check if we have a wireframe material
+            ensure_wireframe_material()
+            # modify other attributes
+            modify_wireframe_material(asset)
+
+            # replace materials
+            replace_materials(all_objects, material_name="bkit wireframe")
+
+            # modify file paths and render again
+            # check if we have a different path for wireframe
+            wire_output_path = asset.get("wireframe_result_filepath")
+            if wire_output_path is None:
+                # replace last part of the path with _wireframe
+                fn, ext = os.path.splitext(output_path)
+                new_fn = "_".join(fn.split("_")[:-1]) + "_wireframe"
+                wire_output_path = new_fn + ext
+
+            modify_render_output(wire_output_path)
+
+            logger.info("Rendering model wireframe thumbnail to %s", wire_output_path)
+
+            render_thumbnails()
 
         logger.info("Background autothumbnailer (model) finished successfully")
         sys.exit(0)
 
     except Exception:
         logger.exception("Background autothumbnailer (model) failed")
+        # full traceback logged above
+        logger.exception(traceback.format_exc())
         sys.exit(1)

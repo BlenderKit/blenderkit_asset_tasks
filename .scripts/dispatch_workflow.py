@@ -20,8 +20,8 @@ Usage inside VSCode: Use provided launch configurations which populate env vars.
 from __future__ import annotations
 
 import json
+import logging
 import os
-import sys
 import urllib.error
 import urllib.request
 from typing import Any
@@ -30,6 +30,10 @@ API_BASE = "https://api.github.com"
 DEFAULT_REPO = "blenderkit/blenderkit_asset_tasks"
 DEFAULT_WORKFLOW = "webhook_process_asset.yml"
 DEFAULT_REF = "main"
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 def _bool_env(name: str, *, default: bool = False) -> bool:
@@ -52,7 +56,7 @@ def main() -> int:
     """Main function to dispatch a GitHub workflow."""
     token = os.getenv("GITHUB_TOKEN")
     if not token:
-        print("GITHUB_TOKEN env var required", file=sys.stderr)
+        logger.error("GITHUB_TOKEN env var required")
         return 2
 
     repo = os.getenv("GITHUB_REPO", DEFAULT_REPO)
@@ -63,7 +67,7 @@ def main() -> int:
     asset_type = os.getenv("ASSET_TYPE")
 
     if not asset_base_id or not asset_type:
-        print("ASSET_BASE_ID and ASSET_TYPE are required", file=sys.stderr)
+        logger.error("ASSET_BASE_ID and ASSET_TYPE are required")
         return 2
 
     payload: dict[str, Any] = {
@@ -95,16 +99,16 @@ def main() -> int:
     try:
         with urllib.request.urlopen(req) as resp:  # nosec B310  # noqa: S310
             if resp.status not in (200, 201, 202, 204):
-                print(f"Unexpected status: {resp.status}", file=sys.stderr)
+                logger.error("Unexpected status: %s", resp.status)
                 return 1
     except urllib.error.HTTPError as e:
-        print(f"HTTPError: {e.code} {e.reason} - {e.read().decode('utf-8', 'ignore')}", file=sys.stderr)
+        logger.exception("HTTPError: %s %s - %s", e.code, e.reason, e.read().decode('utf-8', 'ignore'))
         return 1
     except urllib.error.URLError as e:
-        print(f"URLError: {e.reason}", file=sys.stderr)
+        logger.exception("URLError: %s", e.reason)
         return 1
 
-    print("Workflow dispatch triggered successfully")
+    logger.info("Workflow dispatch triggered successfully")
     return 0
 
 

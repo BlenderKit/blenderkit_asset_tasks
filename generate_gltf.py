@@ -62,7 +62,7 @@ if "godot" in TARGET_FORMAT:
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
-def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, target_format: str) -> bool:
+def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, target_format: str) -> bool:  # noqa: C901, PLR0915
     """Generate and upload a Godot-optimized GLTF for a single asset.
 
     Steps:

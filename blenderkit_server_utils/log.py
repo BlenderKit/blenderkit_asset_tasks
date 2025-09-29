@@ -75,9 +75,9 @@ class _TaskLogFormatter(logging.Formatter):
         if "STDOUT:" not in msg and "STDERR:" not in msg and re.match(_EMBEDDED_LINE_RE, msg) is None:
             return default_response
         if "STDOUT:" in msg:
-            prefix, _, remainder = msg.partition("STDOUT:")
+            _prefix, _, remainder = msg.partition("STDOUT:")
         elif "STDERR:" in msg:
-            prefix, _, remainder = msg.partition("STDERR:")
+            _prefix, _, remainder = msg.partition("STDERR:")
         else:  # math output
             remainder = msg
         remainder = remainder.strip()

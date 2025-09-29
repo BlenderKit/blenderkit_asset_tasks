@@ -58,7 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     Returns:
         Parsed arguments with start-dir and pattern.
     """
-    repo_root, _package_root, tests_root = _compute_paths()
+    _repo_root, _package_root, tests_root = _compute_paths()
     default_start = os.path.join(tests_root, "unittests")
 
     parser = argparse.ArgumentParser(description="Run unittests inside Blender")
