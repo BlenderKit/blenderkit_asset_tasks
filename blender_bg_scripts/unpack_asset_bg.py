@@ -54,6 +54,8 @@ def _get_texture_abs_path(texture_path: str) -> str:
             return texture_path
 
     scene_dir = _get_scene_directory()
+    # get just basename of texture_path
+    texture_path = os.path.basename(texture_path)
     return bpy.path.abspath(os.path.join(scene_dir, texture_path))
 
 
@@ -72,9 +74,9 @@ def _wait_for_resource(filepath: str, timeout: float = WAIT_TIME) -> bool:
         if os.path.exists(filepath):
             return True
         if time.time() - start_time > timeout:
-            logger.warning("Timeout waiting for file to be accessible: %s", filepath)
+            logger.debug("Timeout waiting for file to be accessible: %s", filepath)
             return False
-        logger.info("Waiting for file to be accessible: %s", filepath)
+        logger.debug("Waiting for file to be accessible: %s", filepath)
         time.sleep(0.1)
     return False
 
