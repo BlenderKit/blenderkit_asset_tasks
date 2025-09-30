@@ -12,7 +12,7 @@ env:
 
 jobs:
   RESOLUTIONS:
-    name: Generate resolutions (${{ matrix.asset_name }})
+    name: Generate RES (${{ matrix.asset_name }})
     runs-on: ubuntu-latest
     container: blenderkit/headless-blender:multi-version
     strategy:
