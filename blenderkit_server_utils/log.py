@@ -34,6 +34,12 @@ from types import FrameType
 
 from . import config
 
+# UTC fallback for Python < 3.11
+try:
+    _UTC_TZ = _dt.UTC  # type: ignore[attr-defined]
+except AttributeError:
+    _UTC_TZ = _dt.timezone.utc  # noqa: UP017
+
 CALLER_STACK_LEVEL = 2  # create_logger -> caller wrapper (usually module)
 
 
@@ -97,7 +103,7 @@ class _TaskLogFormatter(logging.Formatter):
         return inner_msg, inner_level, inner_func, inner_line
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = _dt.datetime.fromtimestamp(record.created, tz=_dt.UTC).strftime("%Y-%m-%d %H:%M:%S")
+        ts = _dt.datetime.fromtimestamp(record.created, tz=_UTC_TZ).strftime("%Y-%m-%d %H:%M:%S")
         millis = int(record.msecs)
         message = record.getMessage()
         collapsed_msg, inner_level, inner_func, inner_line = self._collapse_embedded(message)
