@@ -9,6 +9,8 @@ import traceback
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
+from . import exceptions
+
 DEFAULT_POLL_INTERVAL = 0.1
 
 
@@ -67,21 +69,37 @@ def run_asset_threads(  # noqa: PLR0913
         ) -> None:
             try:
                 worker(*a_args, **a_kwargs)
-            except Exception:
+                # raise exception to test error handling
+            except Exception as e:
                 logger.exception("Worker raised exception (asset keys=%s)", asset_keys_snapshot)
                 # complete traceback
                 logger.error(traceback.format_exc())  # noqa: TRY400
 
+                # reraise to mark thread as failed if needed
+                raise exceptions.ProcessingError(
+                    f"Error processing asset {asset_keys_snapshot}: {e}",
+                ) from e
+
         try:
-            asset_keys_snapshot = tuple(list(asset.keys())[:5])
+            logger.debug("Starting thread for asset %s", asset)
+            asset_keys_snapshot = (
+                asset.get("id", ""),
+                asset.get("type", ""),
+                asset.get("name", "N/A"),
+            )
             t = threading.Thread(
                 target=_thread_target,
                 args=(tuple(call_args), static_kwargs, asset_keys_snapshot),
             )
             t.start()
         except Exception:  # Thread creation or start failure
-            logger.exception("Failed to start thread for asset")
+            logger.exception("Failed to start thread for asset: %s", asset_keys_snapshot)
+
+            # FUTURE: decide if we want to continue processing other assets
+            # FUTURE: write processing error to database
+
             continue
+
         threads.append(t)
 
         while sum(1 for th in threads if th.is_alive()) >= max_concurrency:

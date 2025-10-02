@@ -14,7 +14,6 @@ import json
 import os
 import pathlib
 import shutil
-import sys
 import tempfile
 from typing import Any
 
@@ -27,13 +26,8 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 # if BLENDER_PATH is not defined but we have BLENDERS_PATH
 # get latest version from there
 if not config.BLENDER_PATH and config.BLENDERS_PATH:
-    logger.error("BLENDER_PATH not set, checking BLENDERS_PATH, result may be tainted.")
-    latest_version = utils.get_latest_blender_path(config.BLENDERS_PATH)
-    if latest_version:
-        config.BLENDER_PATH = latest_version
-if not config.BLENDER_PATH:
-    logger.error("At least one of BLENDER_PATH & BLENDERS_PATH must be set.")
-    sys.exit(1)
+    logger.error("BLENDER_PATH not set, will use latest version from BLENDERS_PATH.")
+
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100

@@ -179,7 +179,7 @@
         },
 
         {
-            "name": "[TASK] Validate resolution",
+            "name": "[TASK] Validate resolution Model",
             "type": "debugpy",
             "request": "launch",
             "python": "${workspaceFolder}/.venv/Scripts/python.exe",
@@ -194,11 +194,52 @@
                 "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset
                   // foosball table
-                "ASSET_BASE_ID": "eda7948f-a0a5-457a-b0a0-c4031bed093d"
+                "ASSET_BASE_ID": "67f55944-a088-48de-8a60-6132547cbf75"  // model
             }
 
         },
 
+        {
+            "name": "[TASK] Validate resolution Meterial",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_resolutions.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+                  // foosball table
+                "ASSET_BASE_ID": "f2389247-c173-4a33-ae88-e4a2682cb91e"  // material
+            }
+
+        },
+
+        {
+            "name": "[TASK] Validate resolution HDR",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_resolutions.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+                  // foosball table
+                "ASSET_BASE_ID": "066aa61d-6eb9-4e9a-8188-8f34c0b4d030"  // HDR
+            }
+
+        },
 
         {
             "name": "[TASK] Validate model",

@@ -19,10 +19,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          #https://www.blenderkit.com/get-blenderkit/67f55944-a088-48de-8a60-6132547cbf75/
           - asset_name: model
             ASSET_BASE_ID: '67f55944-a088-48de-8a60-6132547cbf75'   # model
+
+          #https://www.blenderkit.com/get-blenderkit/f2389247-c173-4a33-ae88-e4a2682cb91e/
           - asset_name: material
             ASSET_BASE_ID: 'f2389247-c173-4a33-ae88-e4a2682cb91e'   # material
+
+          #https://www.blenderkit.com/get-blenderkit/066aa61d-6eb9-4e9a-8188-8f34c0b4d030/
           - asset_name: hdr
             ASSET_BASE_ID: '066aa61d-6eb9-4e9a-8188-8f34c0b4d030'   # HDR
     env:
