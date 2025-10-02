@@ -15,7 +15,7 @@ import sys
 from collections.abc import Iterable
 from typing import Any
 
-from . import log
+from . import config, log
 
 logger = log.create_logger(__name__)
 
@@ -430,6 +430,7 @@ def open_folder(path: str) -> bool:
 
 # region cleanup
 
+
 def cleanup_temp(temp_folder: str) -> None:
     """Delete the temporary working folder if possible."""
     try:
@@ -439,3 +440,80 @@ def cleanup_temp(temp_folder: str) -> None:
 
 
 # endregion cleanup
+
+
+# region BLender version helpers
+
+# Version parsing helpers
+MIN_PARTS_FOR_MINOR: int = 2
+MIN_PARTS_FOR_PATCH: int = 3
+
+
+def version_to_float(version: str) -> float:
+    """Convert a version string like '3.6.2' to a sortable float.
+
+    Note: this retains original behavior where the third component has a small
+    weight. It is sufficient for nearest-version matching.
+    """
+    parts = version.split(".")
+    major = int(parts[0])
+    minor = int(parts[1]) if len(parts) >= MIN_PARTS_FOR_MINOR else 0
+    patch = int(parts[2]) if len(parts) >= MIN_PARTS_FOR_PATCH else 0
+    result = major + 0.01 * minor + 0.0001 * patch
+    return result
+
+
+def get_all_blender_versions(blenders_path: str | None) -> list[tuple[float, str]]:
+    """Get all Blender versions in the specified directory.
+
+    Args:
+        blenders_path: Directory containing Blender installations. If None, uses config.BLENDERS_PATH.
+
+    Returns:
+        Blender versions [(version_float, directory_name),..].
+    """
+    if not blenders_path and config.BLENDERS_PATH:
+        blenders_path = config.BLENDERS_PATH
+    else:
+        logger.error("No BLENDERS_PATH specified")
+        return None
+
+    blenders = []
+    for fn in os.listdir(blenders_path):
+        # Skip hidden files and non-version directories
+        if fn.startswith(".") or not any(c.isdigit() for c in fn):
+            continue
+        try:
+            version = version_to_float(fn)
+            blenders.append((version, fn))
+        except ValueError:
+            continue
+    return blenders
+
+
+def get_latest_blender_path(blenders_path: str | None) -> str | None:
+    """Get the path to the latest Blender version in the specified directory.
+
+    Args:
+        blenders_path: Directory containing Blender installations. If None, uses config.BLENDERS_PATH.
+
+    Returns:
+        The path to the latest Blender version, or None if not found.
+    """
+    if not blenders_path and config.BLENDERS_PATH:
+        blenders_path = config.BLENDERS_PATH
+    else:
+        logger.error("No BLENDERS_PATH specified")
+        return None
+
+    all_blenders = get_all_blender_versions(blenders_path)
+    if not all_blenders:
+        logger.error("No Blender versions found in %s", blenders_path)
+        return None
+
+    # Return the path to the latest Blender version
+    out = os.path.join(blenders_path, all_blenders[0][1])
+    return out
+
+
+# endregion BLender version helpers

@@ -1,0 +1,277 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    // define custom variables
+
+    "version": "0.2.0",
+    "configurations": [
+
+
+
+
+        {
+            "name": "[RUFF] Check All",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "module": "ruff",
+            "args": [
+                "check",
+                "--exclude", "scripts,tests,_debug,_bck,*.tmp,__pycache__,build,.venv,*.pyi,pic_lib.py",
+                ".",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "[RUFF] Fix All",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "module": "ruff",
+            "args": ["check", "--fix",
+                "--include", "*.py",
+                "--exclude", "scripts,tests,_debug,_bck,*.tmp,__pycache__,build,.venv,*.pyi,pic_lib.py",
+                ".",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+
+        {
+            "name": "[BANDIT] Check All",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "module": "bandit",
+            "args": [
+                "-c", "_bandit.yaml",
+                "-ll",
+                "-r", ".",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+
+        {
+            "name": "[PYDOCS] Check All",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "${workspaceFolder}/.venv/Scripts/pydoclint.exe",
+            "args": [
+                "--style", "google",
+                "--arg-type-hints-in-docstring", "false",
+                "--check-return-types", "false",
+                "--ignore-private-args", "true",
+                "--ignore-underscore-args", "true",
+                "--exclude", "\\.venv|\\.ruff_cache|build|__pycache__|\\.vscode|\\.git|\\.github|tests|_debug|_bck|.*\\.tmp|.*\\.pyi|pic_lib\\.py",
+                "."
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+
+        {
+            "name": "Run Project Setup",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "${workspaceFolder}/.scripts/setup_project.bat",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "[TASK] Generate GLTFs for Godot",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_gltf.py",
+            "args": [
+                "--target_format", "gltf_godot"
+                ],
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+            }
+        },
+
+        {
+            "name": "[TASK] Generate GLTFs",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_gltf.py",
+            "args": [
+                "--target_format", "gltf"
+                ],
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+            }
+        },
+
+        {
+            "name": "[TASK] Generate Clip Interrogator",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_caption_clip_interrogator.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+            }
+
+        },
+
+        {
+            "name": "[TASK] Generate Caption GPT",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_caption_alt_text_gpt.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+            }
+
+        },
+
+        {
+            "name": "[TASK] Render Thumbnails",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/render_thumbnail.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+            }
+
+        },
+
+        {
+            "name": "[TASK] Validate model",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_validations.py",
+            "args": [
+                "--validation_mode", "model"
+                ],
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+            }
+
+        },
+
+        {
+            "name": "[TASK] Validate material",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_validations.py",
+            "args": [
+                "--validation_mode", "material"
+                ],
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+            }
+
+        },
+
+
+        {
+            "name": "[GHA] Dispatch webhook_process_asset (basic)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/.scripts/dispatch_workflow.py",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                // Provide at least: GITHUB_TOKEN, ASSET_BASE_ID, ASSET_TYPE
+                "GITHUB_REPO": "blenderkit/blenderkit_asset_tasks",
+                "WORKFLOW_FILE": "webhook_process_asset.yml",
+                "GITHUB_REF": "ci_testing",
+                "ASSET_TYPE": "model",
+                "SKIP_UPDATE": "True",
+            },
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "[GHA] Dispatch webhook_process_asset (full inputs)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/.scripts/dispatch_workflow.py",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "GITHUB_REPO": "blenderkit/blenderkit_asset_tasks",
+                "WORKFLOW_FILE": "webhook_process_asset.yml",
+                "GITHUB_REF": "ci_testing",
+                "ASSET_TYPE": "model",
+                "ASSET_BASE_ID": "replace-me-asset-id",
+                "VERIFICATION_STATUS": "validated",
+                "IS_PRIVATE": "false",
+                "SOURCE_APP_VERSION_XY": "4.3",
+                "SKIP_UPDATE": "True"
+            },
+            "console": "integratedTerminal"
+        },
+
+        {
+            "name": "[BLACK] Run black addon",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/blenderkit_addon/.venv/Scripts/python.exe",
+            "module": "black",
+            "args": [
+                "blenderkit_addon/download.py",
+                "--check", "--diff",
+            ],
+            "console": "integratedTerminal"
+        }
+    ]
+}

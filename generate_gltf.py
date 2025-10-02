@@ -25,8 +25,16 @@ from blenderkit_server_utils import (
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDER_PATH"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 
+# if BLENDER_PATH is not defined but we have BLENDERS_PATH
+# get latest version from there
+if not config.BLENDER_PATH and config.BLENDERS_PATH:
+    config.BLENDER_PATH = utils.get_latest_blender_path(config.BLENDERS_PATH)
+
+if not config.BLENDER_PATH:
+    logger.error("At least one of BLENDER_PATH & BLENDERS_PATH must be set.")
+    sys.exit(1)
 
 args = argparse.ArgumentParser()
 args.add_argument("--target_format", type=str, default="gltf_godot", help="Target export format")

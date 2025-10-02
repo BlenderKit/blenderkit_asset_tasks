@@ -4,6 +4,7 @@ For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 
 BLENDER_PATH may be defined in environment or config.py for version of Blender to use.
 Otherwise, BLENDERS_PATH must be set to a folder with Blender versions.
+Fall back is to use the latest version in that folder.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import json
 import os
 import pathlib
 import shutil
+import sys
 import tempfile
 from typing import Any
 
@@ -19,7 +21,16 @@ from blenderkit_server_utils import concurrency, config, download, log, search, 
 
 logger = log.create_logger(__name__)
 
-utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY", "BLENDERS_PATH"])
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
+
+# if BLENDER_PATH is not defined but we have BLENDERS_PATH
+# get latest version from there
+if not config.BLENDER_PATH and config.BLENDERS_PATH:
+    config.BLENDER_PATH = utils.get_latest_blender_path(config.BLENDERS_PATH)
+
+if not config.BLENDER_PATH:
+    logger.error("At least one of BLENDER_PATH & BLENDERS_PATH must be set.")
+    sys.exit(1)
 
 # Constants
 PAGE_SIZE_LIMIT: int = 100

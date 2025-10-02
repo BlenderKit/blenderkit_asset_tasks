@@ -19,31 +19,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from . import config, log, paths
+from . import config, log, paths, utils
 
 logger = log.create_logger(__name__)
 
 # Verbosity constants
 VERBOSITY_STDERR: int = 1
 VERBOSITY_ALL: int = 2
-
-# Version parsing helpers
-MIN_PARTS_FOR_MINOR: int = 2
-MIN_PARTS_FOR_PATCH: int = 3
-
-
-def version_to_float(version: str) -> float:
-    """Convert a version string like '3.6.2' to a sortable float.
-
-    Note: this retains original behavior where the third component has a small
-    weight. It is sufficient for nearest-version matching.
-    """
-    parts = version.split(".")
-    major = int(parts[0])
-    minor = int(parts[1]) if len(parts) >= MIN_PARTS_FOR_MINOR else 0
-    patch = int(parts[2]) if len(parts) >= MIN_PARTS_FOR_PATCH else 0
-    result = major + 0.01 * minor + 0.0001 * patch
-    return result
 
 
 def get_blender_version_from_blend(blend_file_path: str) -> str:
@@ -81,17 +63,9 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         RuntimeError: If no binaries are found or the selected binary doesn't exist.
     """
     blenders_path = config.BLENDERS_PATH
-    blenders = []
+
     # Get available blender versions
-    for fn in os.listdir(blenders_path):
-        # Skip hidden files and non-version directories
-        if fn.startswith(".") or not any(c.isdigit() for c in fn):
-            continue
-        try:
-            version = version_to_float(fn)
-            blenders.append((version, fn))
-        except ValueError:
-            continue
+    blenders = utils.get_all_blender_versions(blenders_path)
 
     if len(blenders) == 0:
         raise RuntimeError(f"No valid Blender versions found in {blenders_path}")
@@ -99,13 +73,13 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
     if binary_type == "CLOSEST":
         # get asset's blender upload version
         source_ver = str(asset_data.get("sourceAppVersion", "0.0"))
-        asset_blender_version = version_to_float(source_ver)
+        asset_blender_version = utils.version_to_float(source_ver)
         logger.debug("Asset Blender version (metadata): %s -> %s", source_ver, asset_blender_version)
 
         asset_blender_version_from_blend = get_blender_version_from_blend(file_path) if file_path else "0.0"
         logger.debug("Asset Blender version (from blend): %s", asset_blender_version_from_blend)
 
-        asset_blender_version_from_blend_f = version_to_float(asset_blender_version_from_blend)
+        asset_blender_version_from_blend_f = utils.version_to_float(asset_blender_version_from_blend)
         asset_blender_version = max(asset_blender_version, asset_blender_version_from_blend_f)
         logger.debug("Asset Blender version (picked): %s", asset_blender_version)
 
