@@ -13,3 +13,4 @@ blender_test_results.txt
 blender_test_results.xml
 
 .env
+_debug/

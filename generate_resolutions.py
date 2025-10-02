@@ -4,7 +4,8 @@ For single asset processing, set ASSET_BASE_ID to the asset_base_id.
 
 BLENDER_PATH may be defined in environment or config.py for version of Blender to use.
 Otherwise, BLENDERS_PATH must be set to a folder with Blender versions.
-Fall back is to use the latest version in that folder.
+Fall back is to use the latest version in that folder. But exception will be raised if
+neither BLENDER_PATH nor BLENDERS_PATH is set.
 """
 
 from __future__ import annotations
@@ -26,8 +27,10 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 # if BLENDER_PATH is not defined but we have BLENDERS_PATH
 # get latest version from there
 if not config.BLENDER_PATH and config.BLENDERS_PATH:
-    config.BLENDER_PATH = utils.get_latest_blender_path(config.BLENDERS_PATH)
-
+    logger.error("BLENDER_PATH not set, checking BLENDERS_PATH, result may be tainted.")
+    latest_version = utils.get_latest_blender_path(config.BLENDERS_PATH)
+    if latest_version:
+        config.BLENDER_PATH = latest_version
 if not config.BLENDER_PATH:
     logger.error("At least one of BLENDER_PATH & BLENDERS_PATH must be set.")
     sys.exit(1)
@@ -133,6 +136,11 @@ def _determine_result_and_upload(
         return "error"
     if not files:
         return "skipped"
+
+    if SKIP_UPDATE:
+        logger.info("SKIP_UPDATE is set, not uploading resolutions.")
+        return "skipped"
+
     try:
         upload.upload_resolutions(files, asset_data, api_key=api_key)
     except Exception:
@@ -200,7 +208,6 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
         logger.warning("SKIP_UPDATE==True -> skipping update")
         _cleanup(temp_folder, asset_file_path, asset_data.get("id"))
         return
-
 
     upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
     _cleanup(temp_folder, asset_file_path, asset_data.get("id"))

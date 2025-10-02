@@ -53,9 +53,16 @@ def _get_texture_abs_path(texture_path: str) -> str:
         if os.path.exists(texture_path):
             return texture_path
 
-    scene_dir = _get_scene_directory()
     # get just basename of texture_path
     texture_path = os.path.basename(texture_path)
+
+    scene_dir = _get_scene_directory()
+    # does scene dir and /textures exist?
+    textures_dir = os.path.join(scene_dir, "textures")
+    if os.path.exists(textures_dir):
+        return bpy.path.abspath(os.path.join(textures_dir, texture_path))
+
+    # fallback to scene dir
     return bpy.path.abspath(os.path.join(scene_dir, texture_path))
 
 

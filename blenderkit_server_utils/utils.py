@@ -472,9 +472,10 @@ def get_all_blender_versions(blenders_path: str | None) -> list[tuple[float, str
     Returns:
         Blender versions [(version_float, directory_name),..].
     """
-    if not blenders_path and config.BLENDERS_PATH:
+    if not blenders_path:
         blenders_path = config.BLENDERS_PATH
-    else:
+
+    if not blenders_path:
         logger.error("No BLENDERS_PATH specified")
         return None
 
@@ -500,9 +501,10 @@ def get_latest_blender_path(blenders_path: str | None) -> str | None:
     Returns:
         The path to the latest Blender version, or None if not found.
     """
-    if not blenders_path and config.BLENDERS_PATH:
+    if not blenders_path:
         blenders_path = config.BLENDERS_PATH
-    else:
+
+    if not blenders_path:
         logger.error("No BLENDERS_PATH specified")
         return None
 
