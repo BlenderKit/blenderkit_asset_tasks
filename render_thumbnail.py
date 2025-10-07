@@ -291,10 +291,8 @@ def _run_bg_render(
         raise RuntimeError(f"BG render failed (script={script_name}, ret={ret})")
 
 
-def _maybe_preview_and_return(result_filepath: str) -> bool:
-    """Preview result and return True when SKIP_UPDATE is enabled."""
-    if not SKIP_UPDATE:
-        return False
+def _preview_and_return(result_filepath: str) -> bool:
+    """Preview result and return True is enabled."""
     try:
         from PIL import Image  # lazy import
 
@@ -304,6 +302,7 @@ def _maybe_preview_and_return(result_filepath: str) -> bool:
     opened = utils.open_folder(result_filepath)
     if not opened:
         logger.error("Failed to open folder %s", os.path.dirname(result_filepath))
+        return False
     return True
 
 
@@ -361,8 +360,16 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
 
         # Render and upload
         _run_bg_render(asset_data, asset_file_path, template_path, result_filepath, script_name)
-        if _maybe_preview_and_return(result_filepath):
+
+        if SKIP_UPDATE:
+            was_opened = _preview_and_return(result_filepath)
+            if not was_opened:
+                # clear temp folder if we failed to open it
+                if asset_file_path and os.path.isfile(asset_file_path):
+                    os.remove(asset_file_path)
+                utils.cleanup_temp(temp_folder)
             return
+
         _upload_and_clear(asset_data, api_key, result_filepath)
 
     except Exception:
