@@ -31,7 +31,7 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 # get latest version from there
 if not config.BLENDER_PATH and config.BLENDERS_PATH:
     logger.error("BLENDER_PATH not set, checking BLENDERS_PATH, result may be tainted.")
-    latest_version = utils.get_latest_blender_path(config.BLENDERS_PATH)
+    latest_version = utils.get_latest_blender_binary_path(config.BLENDERS_PATH)
     if latest_version:
         config.BLENDER_PATH = latest_version
 
@@ -39,27 +39,35 @@ if not config.BLENDER_PATH:
     logger.error("At least one of BLENDER_PATH & BLENDERS_PATH must be set.")
     sys.exit(1)
 
-
-args = argparse.ArgumentParser()
-args.add_argument("--target_format", type=str, default="gltf_godot", help="Target export format")
-
-
 # Constants
+AVAILABLE_TARGET_FORMATS = ["gltf", "gltf_godot"]
+DEFAULT_TARGET_FORMAT: str = "gltf_godot"
+
+# argparse for target format
+args = argparse.ArgumentParser()
+args.add_argument(
+    "--target_format",
+    type=str,
+    choices=AVAILABLE_TARGET_FORMATS,
+    default=DEFAULT_TARGET_FORMAT,
+    help="Target export format",
+)
+
+
+# Determine target format from args, env var, or default
 TARGET_FORMAT = args.parse_args().target_format
 if TARGET_FORMAT:
     logger.info("Using target format from args: %s", TARGET_FORMAT)
 if not TARGET_FORMAT:
     # use env var or default
     TARGET_FORMAT = os.getenv("TARGET_FORMAT", None)
-    if not TARGET_FORMAT:
-        logger.info("No target format specified, defaulting to 'gltf_godot'")
 
 if not TARGET_FORMAT:
-    logger.error("No target format specified, defaulting to 'gltf_godot'")
-    TARGET_FORMAT = "gltf_godot"
+    logger.error("No target format specified, defaulting to %s", DEFAULT_TARGET_FORMAT)
+    TARGET_FORMAT = DEFAULT_TARGET_FORMAT
 
 # target mode can be only one of these 2 now
-if TARGET_FORMAT not in ["gltf", "gltf_godot"]:
+if TARGET_FORMAT not in AVAILABLE_TARGET_FORMATS:
     logger.error("Invalid target format specified: %s", TARGET_FORMAT)
     sys.exit(1)
 
@@ -87,7 +95,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
         asset_data: Asset metadata returned from the search API.
         api_key: API key used for authenticated operations.
         binary_path: Absolute path to the Blender binary used for background operations.
-        target_format: The target export format, e.g., 'gltf_godot'.
+        target_format: The target export format, e.g., '{DEFAULT_TARGET_FORMAT=gltf_godot}'.
 
     Returns:
         True when the GLTF was generated and uploaded successfully; False otherwise.
@@ -144,9 +152,10 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
 
         if SKIP_UPDATE:
             logger.info("SKIP_UPDATE is set, not patching the asset.")
-            opened = utils.open_folder(os.path.dirname(files[0]["path"]))
+            logger.debug("Generated files: %s", files)
+            opened = utils.open_folder(os.path.dirname(files[0]["file_path"]))
             if not opened:
-                logger.error("Failed to open folder %s", os.path.dirname(files[0]["path"]))
+                logger.error("Failed to open folder %s", os.path.dirname(files[0]["file_path"]))
                 utils.cleanup_temp(temp_folder)
 
             return False

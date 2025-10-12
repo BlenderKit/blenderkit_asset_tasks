@@ -19,7 +19,7 @@
             "args": [
                 "check",
                 "--exclude", "scripts,tests,_debug,_bck,*.tmp,__pycache__,build,.venv,*.pyi,pic_lib.py",
-                ".",
+                "."
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"

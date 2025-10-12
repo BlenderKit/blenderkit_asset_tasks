@@ -61,6 +61,7 @@ target-version = "py311"
 line-length = 120
 include = ["pyproject.toml",
     "**/*.py",
+    "*.py"
     ]
 exclude = [
     "_debug/**",

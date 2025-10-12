@@ -206,6 +206,7 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
     """Run Blender with the given command and stream output per verbosity."""
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
     logger.info("Running Blender command: %s", command)
+    logger.debug("Raw command: %s", " ".join(command))
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
         if verbosity_level == VERBOSITY_ALL:
             stdout_thread = threading.Thread(
@@ -333,6 +334,7 @@ def send_to_bg(  # noqa: PLR0913
         Process return code from Blender.
     """
     binary_path = _select_binary_path(binary_path, asset_data, asset_file_path=asset_file_path, binary_type=binary_type)
+
     temp_folder, own_temp_folder = _ensure_temp_folder(temp_folder)
     payload = DataPayload(
         file_path=asset_file_path,

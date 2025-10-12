@@ -486,14 +486,25 @@ def get_all_blender_versions(blenders_path: str | None) -> list[tuple[float, str
             continue
         try:
             version = version_to_float(fn)
+            # add also full executable in in the directory
+            if sys.platform == "win32":
+                exe_path = os.path.join(blenders_path, fn, "blender.exe")
+            elif sys.platform == "darwin":
+                exe_path = os.path.join(blenders_path, fn, "blender.app", "Contents", "MacOS", "blender")
+            else:  # assume linux
+                exe_path = os.path.join(blenders_path, fn, "blender")
+
+            if not os.path.exists(exe_path):
+                continue
+
             blenders.append((version, fn))
         except ValueError:
             continue
     return blenders
 
 
-def get_latest_blender_path(blenders_path: str | None) -> str | None:
-    """Get the path to the latest Blender version in the specified directory.
+def get_latest_blender_binary_path(blenders_path: str | None) -> str | None:
+    """Get the path to the latest Blender binary version in the specified directory.
 
     Args:
         blenders_path: Directory containing Blender installations. If None, uses config.BLENDERS_PATH.
@@ -513,8 +524,22 @@ def get_latest_blender_path(blenders_path: str | None) -> str | None:
         logger.error("No Blender versions found in %s", blenders_path)
         return None
 
+    latest_blender = all_blenders[0][1]
+    # Handle different OS paths
+    if sys.platform == "darwin":  # macOS
+        binary = os.path.join(
+            blenders_path,
+            latest_blender,
+            "Contents",
+            "MacOS",
+            "Blender",
+        )
+    else:  # Windows and Linux
+        ext = ".exe" if sys.platform == "win32" else ""
+        binary = os.path.join(blenders_path, latest_blender, f"blender{ext}")
+
     # Return the path to the latest Blender version
-    out = os.path.join(blenders_path, all_blenders[0][1])
+    out = binary if os.path.exists(binary) else None
     return out
 
 

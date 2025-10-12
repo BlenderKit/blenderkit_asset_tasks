@@ -81,12 +81,14 @@ def run_asset_threads(  # noqa: PLR0913
                 ) from e
 
         try:
-            logger.debug("Starting thread for asset %s", asset)
             asset_keys_snapshot = (
                 asset.get("id", ""),
                 asset.get("assetType", ""),
                 asset.get("name", "N/A"),
             )
+
+            logger.debug("Starting thread for asset %s", asset_keys_snapshot)
+
             t = threading.Thread(
                 target=_thread_target,
                 args=(tuple(call_args), static_kwargs, asset_keys_snapshot),
