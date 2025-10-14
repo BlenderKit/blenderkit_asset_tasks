@@ -1,23 +1,47 @@
-# cloudflare_storage.py
-from datetime import datetime, timezone, timedelta
-import os
+"""Cloudflare R2 storage helper utilities.
+
+Typed helpers for basic S3-compatible operations against Cloudflare R2.
+"""
+
+from __future__ import annotations
+
 import json
+import os
+import tempfile
+from datetime import datetime, timedelta
+from typing import Any
+
 import boto3
-from botocore.exceptions import NoCredentialsError
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
+
+from . import log
+
+logger = log.create_logger(__name__)
+
+# S3 limit for batch delete operations
+S3_DELETE_BATCH_LIMIT = 1000
 
 
 class CloudflareStorage:
-    def __init__(self, access_key, secret_key, endpoint_url, region_name="auto"):
-        """
-        Initializes the connection to Cloudflare's S3-compatible storage.
+    """Client wrapper for Cloudflare R2 (S3-compatible) operations.
 
-        :param access_key: Cloudflare R2 access key.
-        :param secret_key: Cloudflare R2 secret key.
-        :param endpoint_url: URL endpoint for Cloudflare's S3-compatible storage.
-        :param region_name: Region name, default is 'auto' for Cloudflare.
-        """
-        self.session = boto3.session.Session()
-        self.client = self.session.client(
+    Args:
+        access_key: Cloudflare R2 access key.
+        secret_key: Cloudflare R2 secret key.
+        endpoint_url: URL endpoint for Cloudflare's S3-compatible storage.
+        region_name: R2 region name. Defaults to "auto".
+    """
+
+    def __init__(
+        self,
+        access_key: str,
+        secret_key: str,
+        endpoint_url: str,
+        region_name: str = "auto",
+    ) -> None:
+        self.session: boto3.session.Session = boto3.session.Session()
+        # "client" is the boto3 S3 client; type hinted as Any for broad compatibility.
+        self.client: Any = self.session.client(
             "s3",
             region_name=region_name,
             endpoint_url=endpoint_url,
@@ -25,217 +49,275 @@ class CloudflareStorage:
             aws_secret_access_key=secret_key,
         )
 
-    def upload_file(self, file_name, bucket_name, object_name=None):
-        """
-        Upload a file to an R2 bucket.
+    def upload_file(self, file_name: str, bucket_name: str, object_name: str | None = None) -> bool:
+        """Upload a file to an R2 bucket.
 
-        :param file_name: File to upload.
-        :param bucket_name: Bucket to upload to.
-        :param object_name: S3 object name. If not specified, file_name is used.
-        :return: True if file was uploaded, else False.
+        Args:
+            file_name: Local path of file to upload.
+            bucket_name: Name of the destination bucket.
+            object_name: Destination object key (path in bucket). Defaults to ``file_name``.
+
+        Returns:
+            True if the upload succeeded, False otherwise.
         """
         if object_name is None:
             object_name = file_name
 
         try:
-            response = self.client.upload_file(file_name, bucket_name, object_name)
-            print(f"File {file_name} uploaded to {bucket_name}/{object_name}")
-            return True
+            self.client.upload_file(file_name, bucket_name, object_name)
         except NoCredentialsError:
-            print("Credentials not available")
+            logger.exception("Credentials not available for Cloudflare R2")
             return False
-        except Exception as e:
-            print(f"Failed to upload {file_name}: {e}")
+        except (ClientError, BotoCoreError, OSError):
+            logger.exception(
+                "Failed to upload '%s' to '%s/%s'",
+                file_name,
+                bucket_name,
+                object_name,
+            )
             return False
+        else:
+            logger.info("Uploaded '%s' to '%s/%s'", file_name, bucket_name, object_name)
+            return True
 
-    def list_all_folders(self, bucket_name):
-        """
-        List all unique folder prefixes in the bucket.
+    def list_all_folders(self, bucket_name: str) -> set[str]:
+        """List all unique folder prefixes in the bucket.
 
-        :param bucket_name: Name of the Cloudflare R2 bucket.
-        :return: A set of all folder prefixes.
+        Args:
+            bucket_name: Name of the R2 bucket.
+
+        Returns:
+            A set of all folder prefixes; empty on error or if none found.
         """
         paginator = self.client.get_paginator("list_objects_v2")
-        folders = set()
+        folders: set[str] = set()
 
-        # Use a paginator to fetch all objects
-        for page in paginator.paginate(Bucket=bucket_name, Delimiter="/"):
-            for prefix in page.get("CommonPrefixes", []):
-                folders.add(prefix["Prefix"])
+        try:
+            for page in paginator.paginate(Bucket=bucket_name, Delimiter="/"):
+                for prefix in page.get("CommonPrefixes", []) or []:
+                    folders.add(prefix["Prefix"])
+        except (ClientError, BotoCoreError):
+            logger.exception("Failed to list folders for bucket '%s'", bucket_name)
 
         return folders
 
-    def list_folder_contents(self, bucket_name, folder_name):
-        """
-        List all objects in a specified folder within the Cloudflare R2 bucket.
+    def list_folder_contents(self, bucket_name: str, folder_name: str) -> list[dict[str, Any]]:
+        """List all objects within a folder prefix.
 
-        :param bucket_name: The name of the Cloudflare R2 bucket.
-        :param folder_name: The prefix of the folder to list contents from. Must end with '/'.
-        :return: A list of objects in the folder.
+        Args:
+            bucket_name: The name of the R2 bucket.
+            folder_name: The prefix of the folder to list contents from. A trailing slash is added if missing.
+
+        Returns:
+            A list of object dictionaries under the given prefix; empty if none.
         """
-        # Ensure the folder name ends with '/' to accurately match the folder structure
         if not folder_name.endswith("/"):
             folder_name += "/"
 
-        response = self.client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
-        return response.get("Contents", [])
+        try:
+            response = self.client.list_objects_v2(Bucket=bucket_name, Prefix=folder_name)
+        except (ClientError, BotoCoreError):
+            logger.exception(
+                "Failed to list folder contents for bucket '%s' and prefix '%s'",
+                bucket_name,
+                folder_name,
+            )
+            return []
+        return response.get("Contents", []) or []
 
-    def folder_exists(self, bucket_name, folder_name):
-        """
-        Check if a folder exists in a specified bucket.
+    def folder_exists(self, bucket_name: str, folder_name: str) -> bool:
+        """Check if a folder exists in a specified bucket.
 
-        :param bucket_name: Name of the bucket.
-        :param folder_name: The folder name (prefix) to check for.
-        :return: True if the folder exists, False otherwise.
+        Args:
+            bucket_name: Name of the bucket.
+            folder_name: The folder name (prefix) to check for.
+
+        Returns:
+            True if the folder exists, False otherwise.
         """
-        # Ensure the folder name ends with a '/' to accurately match the folder structure
         if not folder_name.endswith("/"):
             folder_name += "/"
 
-        response = self.client.list_objects_v2(
-            Bucket=bucket_name,
-            Prefix=folder_name,
-            MaxKeys=1,  # We only need to find one object to confirm the folder exists
-        )
-        return "Contents" in response and len(response["Contents"]) > 0
+        try:
+            response = self.client.list_objects_v2(
+                Bucket=bucket_name,
+                Prefix=folder_name,
+                MaxKeys=1,
+            )
+        except (ClientError, BotoCoreError):
+            logger.exception(
+                "Failed to check folder existence for bucket '%s' and prefix '%s'",
+                bucket_name,
+                folder_name,
+            )
+            return False
+        return bool(response.get("Contents"))
 
     def upload_folder(
-        self, local_folder_path, bucket_name, cloudflare_folder_prefix=""
-    ):
-        """
-        Recursively uploads a folder and its contents to Cloudflare R2, maintaining the folder structure,
-        and creates an index file in the top-level directory listing all uploaded files.
+        self,
+        local_folder_path: str,
+        bucket_name: str,
+        cloudflare_folder_prefix: str = "",
+    ) -> None:
+        """Recursively upload a folder to R2 and write an index.json.
 
-        :param local_folder_path: The local path to the folder to upload.
-        :param bucket_name: The Cloudflare R2 bucket to upload to.
-        :param cloudflare_folder_prefix: The prefix (including any folder structure) under which to store the files in R2.
+        Args:
+            local_folder_path: The local path to the folder to upload.
+            bucket_name: The Cloudflare R2 bucket to upload to.
+            cloudflare_folder_prefix: The prefix (including folder structure) to store the files under.
         """
-        uploaded_files = []  # To keep track of all uploaded files for the index
+        uploaded_files: list[str] = []
 
-        for root, dirs, files in os.walk(local_folder_path):
+        for root, _dirs, files in os.walk(local_folder_path):
             for filename in files:
                 local_path = os.path.join(root, filename)
                 relative_path = os.path.relpath(local_path, start=local_folder_path)
-                cloudflare_object_name = os.path.join(
-                    cloudflare_folder_prefix, relative_path
-                )
+                cloudflare_object_name = os.path.join(cloudflare_folder_prefix, relative_path)
                 cloudflare_object_name = cloudflare_object_name.replace("\\", "/")
 
                 # Upload the file
                 if self.upload_file(local_path, bucket_name, cloudflare_object_name):
-                    uploaded_files.append(
-                        cloudflare_object_name
-                    )  # Add successful uploads to the list
+                    uploaded_files.append(cloudflare_object_name)
 
-        # After all files are uploaded, create and upload the index.json file
-        # only do this if there are files to upload
         if not uploaded_files:
-            print("No files found to upload.")
+            logger.info("No files found to upload from '%s'", local_folder_path)
             return
-        index_file_path = (
-            "/tmp/index.json"
-            if cloudflare_folder_prefix
-            else cloudflare_folder_prefix + "index.json"
-        )
-        with open(index_file_path, "w") as index_file:
+
+        # Create a temporary index.json file with uploaded keys
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as index_file:
             json.dump(uploaded_files, index_file)
+            index_file_path = index_file.name
 
         # Upload the index file
-        cloudflare_object_name = os.path.join(cloudflare_folder_prefix, "index.json")
-        cloudflare_object_name = cloudflare_object_name.replace("\\", "/")
-        self.upload_file(index_file_path, bucket_name, cloudflare_object_name)
+        cloudflare_object_name = os.path.join(cloudflare_folder_prefix, "index.json").replace("\\", "/")
+        try:
+            self.upload_file(index_file_path, bucket_name, cloudflare_object_name)
+            logger.info("Uploaded index file to R2 at '%s'", cloudflare_object_name)
+        finally:
+            try:
+                os.unlink(index_file_path)
+            except OSError:
+                logger.exception("Failed to remove temporary index file '%s'", index_file_path)
 
-        print(
-            f"Uploaded index file to Cloudflare R2 storage at {cloudflare_folder_prefix}index.json"
-        )
+    def delete_folder_contents(self, bucket_name: str, folder_prefix: str) -> None:
+        """Delete all contents under a folder prefix.
 
-    def delete_folder_contents(self, bucket_name, folder_prefix):
+        Args:
+            bucket_name: The name of the Cloudflare R2 bucket.
+            folder_prefix: The prefix of the folder to delete contents from. A trailing slash is added if missing.
         """
-        Deletes all contents of a specified folder within the Cloudflare R2 bucket.
-
-        :param bucket_name: The name of the Cloudflare R2 bucket.
-        :param folder_prefix: The prefix of the folder to delete contents from. Must end with '/'.
-        """
-        # Ensure the folder prefix ends with '/' to avoid accidentally deleting unintended objects
         if not folder_prefix.endswith("/"):
             folder_prefix += "/"
 
-        # List all objects in the folder
-        response = self.client.list_objects_v2(Bucket=bucket_name, Prefix=folder_prefix)
-        objects = response.get("Contents", [])
+        try:
+            response = self.client.list_objects_v2(Bucket=bucket_name, Prefix=folder_prefix)
+        except (ClientError, BotoCoreError):
+            logger.exception("Failed to list objects for deletion under '%s'", folder_prefix)
+            return
+        objects = response.get("Contents", []) or []
 
-        # If there are objects to delete, prepare and execute the deletion
-        if objects:
-            delete_keys = {"Objects": [{"Key": obj["Key"]} for obj in objects]}
-            delete_response = self.client.delete_objects(
-                Bucket=bucket_name, Delete=delete_keys
-            )
-            print(f"Deleted objects: {delete_response}")
-        else:
-            print("No objects found to delete.")
+        if not objects:
+            logger.info("No objects found to delete in '%s'", folder_prefix)
+            return
 
-    def delete_old_files(self, bucket_name, x_days):
-        """
-        Deletes files that are older than x_days in the specified bucket.
+        delete_keys = {"Objects": [{"Key": obj["Key"]} for obj in objects]}
+        try:
+            delete_response = self.client.delete_objects(Bucket=bucket_name, Delete=delete_keys)
+            logger.info("Deleted objects response: %s", delete_response)
+        except (ClientError, BotoCoreError):
+            logger.exception("Failed to delete objects under '%s'", folder_prefix)
 
-        :param bucket_name: The name of the Cloudflare R2 bucket.
-        :param x_days: The age threshold in days for deleting files.
+    def delete_old_files(self, bucket_name: str, x_days: int) -> None:
+        """Delete files older than ``x_days`` in the bucket.
+
+        Args:
+            bucket_name: The name of the Cloudflare R2 bucket.
+            x_days: The age threshold in days for deleting files.
         """
         paginator = self.client.get_paginator("list_objects_v2")
-        delete_before_date = datetime.now(timezone.utc) - timedelta(days=x_days)
+        delete_before_date = datetime.now(datetime.UTC) - timedelta(days=x_days)
 
-        # Prepare a batch delete operation
-        delete_batch = {"Objects": []}
-
-        # Iterate through all objects in the bucket
+        delete_batch: dict[str, list[dict[str, str]]] = {"Objects": []}
         for page in paginator.paginate(Bucket=bucket_name):
-            for obj in page.get("Contents", []):
-                # If the object is older than the specified days, mark it for deletion
+            for obj in page.get("Contents", []) or []:
                 if obj["LastModified"] < delete_before_date:
                     delete_batch["Objects"].append({"Key": obj["Key"]})
 
-                    # Perform the deletion in batches of 1000 (S3 limit)
-                    if len(delete_batch["Objects"]) >= 1000:
-                        self.client.delete_objects(
-                            Bucket=bucket_name, Delete=delete_batch
-                        )
-                        delete_batch = {"Objects": []}  # Reset batch
+                    if len(delete_batch["Objects"]) >= S3_DELETE_BATCH_LIMIT:
+                        try:
+                            self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+                        except (ClientError, BotoCoreError):
+                            logger.exception("Batch delete failed (older-than) for '%s'", bucket_name)
+                        finally:
+                            delete_batch = {"Objects": []}
 
-        # Delete any remaining objects in the last batch
         if delete_batch["Objects"]:
-            self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+            try:
+                self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+            except (ClientError, BotoCoreError):
+                logger.exception("Final batch delete failed (older-than) for '%s'", bucket_name)
+        logger.info("Old files deletion pass completed for '%s'", bucket_name)
 
-        print("Old files deleted.")
+    def delete_new_files(self, bucket_name: str, x_days: int) -> None:
+        """Delete files newer than ``x_days`` in the bucket.
 
-    def delete_new_files(self, bucket_name, x_days):
-        """
-        Deletes files that are younger than x_days in the specified bucket.
-
-        :param bucket_name: The name of the Cloudflare R2 bucket.
-        :param x_days: The age threshold in days for deleting files.
+        Args:
+            bucket_name: The name of the Cloudflare R2 bucket.
+            x_days: The age threshold in days for deleting files.
         """
         paginator = self.client.get_paginator("list_objects_v2")
-        delete_after_date = datetime.now(timezone.utc) - timedelta(days=x_days)
+        delete_after_date = datetime.now(datetime.UTC) - timedelta(days=x_days)
 
-        # Prepare a batch delete operation
-        delete_batch = {"Objects": []}
-
-        # Iterate through all objects in the bucket
+        delete_batch: dict[str, list[dict[str, str]]] = {"Objects": []}
         for page in paginator.paginate(Bucket=bucket_name):
-            for obj in page.get("Contents", []):
-                # If the object is older than the specified days, mark it for deletion
-                if obj["LastModified"] < delete_after_date:
+            for obj in page.get("Contents", []) or []:
+                if obj["LastModified"] > delete_after_date:
                     delete_batch["Objects"].append({"Key": obj["Key"]})
 
-                    # Perform the deletion in batches of 1000 (S3 limit)
-                    if len(delete_batch["Objects"]) >= 1000:
-                        self.client.delete_objects(
-                            Bucket=bucket_name, Delete=delete_batch
-                        )
-                        delete_batch = {"Objects": []}  # Reset batch
+                    if len(delete_batch["Objects"]) >= S3_DELETE_BATCH_LIMIT:
+                        try:
+                            self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+                        except (ClientError, BotoCoreError):
+                            logger.exception("Batch delete failed (newer-than) for '%s'", bucket_name)
+                        finally:
+                            delete_batch = {"Objects": []}
 
-        # Delete any remaining objects in the last batch
         if delete_batch["Objects"]:
-            self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+            try:
+                self.client.delete_objects(Bucket=bucket_name, Delete=delete_batch)
+            except (ClientError, BotoCoreError):
+                logger.exception("Final batch delete failed (newer-than) for '%s'", bucket_name)
+        logger.info("New files deletion pass completed for '%s'", bucket_name)
 
-        print("New files deleted.")
+
+def cloudflare_setup() -> CloudflareStorage:
+    """Setup Cloudflare Storage bucket if needed.
+
+    Returns:
+         CloudflareStorage: Configured CloudflareStorage instance.
+    """
+    # Initialize Cloudflare Storage with your credentials
+    cloudflare_storage = CloudflareStorage(
+        access_key=os.getenv("CF_ACCESS_KEY"),
+        secret_key=os.getenv("CF_ACCESS_SECRET"),
+        endpoint_url=os.getenv("CF_ENDPOINT_URL"),
+    )
+    return cloudflare_storage
+
+
+def cloudflare_cleanup(bucket_name: str) -> None:
+    """Cleanup old files from Cloudflare Storage.
+
+    Removes files older than a configured threshold and recent temp files to
+    keep the bucket tidy.
+
+    Args:
+        bucket_name: The name of the Cloudflare R2 bucket.
+
+    Returns:
+        None
+    """
+    # Initialize Cloudflare Storage with your credentials
+    cloudflare_storage = cloudflare_setup()
+    logger.info("Deleting old files in validation bucket")
+    cloudflare_storage.delete_old_files(bucket_name=bucket_name, x_days=30)

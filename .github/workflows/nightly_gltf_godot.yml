@@ -24,4 +24,4 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
       - name: Generate GLTFs for Godot
-        run: python3 generate_gltf_godot.py
+        run: python3 generate_gltf.py --target_format gltf_godot

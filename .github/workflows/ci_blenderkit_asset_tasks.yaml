@@ -1,0 +1,94 @@
+name: CI Workflow
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  PYTHONPATH: "${{ github.workspace }}:${{ github.workspace }}/.tests:${{ github.workspace }}/.tests/unittests"
+  UPLOAD_COVERAGE: "0" # set to 1 to enable artifact upload
+
+jobs:
+  build_test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version:
+          # - "3.9" # cannot really test on blender 3.9, as no bpy for it
+          - "3.11"
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-randr0 libxcb-shape0 libxcb-xfixes0 libxcb-sync1 libxcb1 libx11-xcb1 libsm6 libxext6 libgl1 libegl1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Create venv & sync
+        run: |
+          uv venv
+          uv sync --all-groups --link-mode=copy
+          uv run pip install -e .
+
+      # Lint only once (on 3.11) to save time
+      - name: Ruff
+        if: matrix.python-version == '3.11'
+        run: uv run ruff check
+
+      - name: Bandit
+        if: matrix.python-version == '3.11'
+        run: uv run bandit -c _bandit.yaml -ll -r .
+
+      - name: PyDocLint
+        if: matrix.python-version == '3.11'
+        run: uv run pydoclint .
+
+      - name: Run unit tests
+        if: matrix.python-version == '3.11'
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
+          timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+            uv run -m unittest discover -s ./.tests/unittests
+
+      - name: Run tests with coverage
+        if: matrix.python-version == '3.11'
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/.tests:$GITHUB_WORKSPACE/.tests/unittests"
+          timeout 60s xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+            uv run coverage run -m unittest discover -s ./.tests/unittests
+
+      - name: Coverage reports
+        if: matrix.python-version == '3.11'
+        run: |
+          uv run coverage xml -i
+          uv run coverage html -i
+          uv run coverage report -i
+          ls -al coverage.xml || true
+
+      - name: Upload coverage XML
+        if: ${{matrix.python-version == '3.11' && env.UPLOAD_COVERAGE == '1'}}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      - name: Upload coverage HTML
+        if: ${{matrix.python-version == '3.11' && env.UPLOAD_COVERAGE == '1'}}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-html
+          path: htmlcov
+

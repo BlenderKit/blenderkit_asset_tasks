@@ -1,41 +1,72 @@
+"""Render model validation animations and export helper visualizations.
+
+This background Blender script loads a model asset, renders validation scenes
+(render, mesh checker, and mesh checker without modifiers), and exports helper
+visualizations such as node graphs using internal utilities.
+"""
+
+# isort: skip_file
+from __future__ import annotations
+
+import json
+import math
 import os
 import sys
-import math
+from typing import Any
+from collections.abc import Sequence
 
 import bpy
-import json
 
-# import utils- add path
+# Import utils - add path for Blender background execution
 dir_path = os.path.dirname(os.path.realpath(__file__))
 parent_path = os.path.join(dir_path, os.path.pardir)
-sys.path.append(parent_path)
+if parent_path not in sys.path:
+    sys.path.append(parent_path)
 
-from blenderkit_server_utils import paths, utils, render_nodes_graph
+from blenderkit_server_utils import render_nodes_graph, log, utils  # noqa: E402
 
 
-def getNode(mat, type):
-    for n in mat.node_tree.nodes:
-        if n.type == type:
-            return n
-    return None
+logger = log.create_logger(__name__)
+
+
+MAX_FACE_COUNT_FOR_GN = 300_000
 
 
 def link_collection(
-    file_name, obnames=[], location=(0, 0, 0), link=False, parent=None, **kwargs
-):
-    """link an instanced group - model type asset"""
+    file_name: str,
+    obnames: Sequence[str] | None = None,
+    location: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    *,
+    link: bool = False,
+    parent: str | None = None,
+    **kwargs: Any,
+) -> tuple[bpy.types.Object, list[bpy.types.Object]]:
+    """Link an instanced collection from a .blend file.
+
+    Args:
+        file_name: Path to the .blend file.
+        obnames: Unused; kept for API compatibility.
+        location: World location for the instance empty.
+        link: Whether to link instead of appending.
+        parent: Optional parent object name to parent the instance to.
+        **kwargs: Expected to include 'name' of the collection to instance and optional 'rotation'.
+
+    Returns:
+        A tuple of (instance empty object, list of newly linked objects [unused, empty]).
+    """
+    _ = obnames  # kept for API compatibility
     sel = utils.selection_get()
 
     with bpy.data.libraries.load(file_name, link=link, relative=True) as (
         data_from,
         data_to,
     ):
-        scols = []
+        name = kwargs.get("name")
         for col in data_from.collections:
-            if col == kwargs["name"]:
+            if name and col == name:
                 data_to.collections = [col]
 
-    rotation = (0, 0, 0)
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0)
     if kwargs.get("rotation") is not None:
         rotation = kwargs["rotation"]
 
@@ -57,41 +88,36 @@ def link_collection(
                 break
 
     # sometimes, the lib might already  be without the actual link.
-    if not main_object.instance_collection and kwargs["name"]:
-        col = bpy.data.collections.get(kwargs["name"])
+    if not main_object.instance_collection and kwargs.get("name"):
+        col = bpy.data.collections.get(kwargs.get("name"))
         if col:
             main_object.instance_collection = col
 
     main_object.name = main_object.instance_collection.name
 
-    # bpy.ops.wm.link(directory=file_name + "/Collection/", filename=kwargs['name'], link=link, instance_collections=True,
-    #                 autoselect=True)
-    # main_object = bpy.context.view_layer.objects.active
-    # if kwargs.get('rotation') is not None:
-    #     main_object.rotation_euler = kwargs['rotation']
-    # main_object.location = location
-
     utils.selection_set(sel)
     return main_object, []
 
 
-def add_text_line(strip, text):
-    bpy.data.scenes["Composite"].sequence_editor.sequences_all[strip].text += (
-        text + 10 * "    "
-    )
+def add_text_line(strip: str, text: str) -> None:
+    """Append a text line to a text strip in the Composite scene."""
+    bpy.data.scenes["Composite"].sequence_editor.sequences_all[strip].text += text + 10 * "    "
 
 
-def writeout_param(asset_data, param_name):
+def write_out_param(asset_data: dict[str, Any], param_name: str) -> None:
+    """Write out a parameter to the overlay if present."""
     pl = utils.get_param(asset_data, param_name)
     if pl is not None:
         add_text_line("asset", f"{param_name}:{pl}")
 
 
-def set_text(strip, text):
+def set_text(strip: str, text: str) -> None:
+    """Set the text on a given text strip in the Composite scene."""
     bpy.data.scenes["Composite"].sequence_editor.sequences_all[strip].text = text
 
 
-def scale_cameras(asset_data):
+def scale_cameras(asset_data: dict[str, Any]) -> None:
+    """Scale helper objects and set camera ortho scale based on asset bounds."""
     params = asset_data["dictParameters"]
     minx = params["boundBoxMinX"]
     miny = params["boundBoxMinY"]
@@ -104,7 +130,7 @@ def scale_cameras(asset_data):
     dy = maxy - miny
     dz = maxz - minz
 
-    print(dx, dy, dz)
+    logger.debug("asset bounds dx=%s dy=%s dz=%s", dx, dy, dz)
 
     r = math.sqrt(dx * dx + dy * dy + dz * dz)
     r *= 1.2
@@ -117,26 +143,11 @@ def scale_cameras(asset_data):
     # Set ortho scale to max of dimensions
     cam.data.ortho_scale = max(dx, dy, dz) * 1.1
 
-    # let's keep floor where it should be! so this is commented out:
-    # floor = bpy.data.objects['floor']
-    # floor.location.z = minz
-
-    # camZ = s.camera.parent.parent
-    # camZ.location.z = (maxz - minz) / 2
-    # dx = (maxx - minx)
-    # dy = (maxy - miny)
-    # dz = (maxz - minz)
-    # r = math.sqrt(dx * dx + dy * dy + dz * dz)
-    #
-    # scaler = bpy.context.view_layer.objects['scaler']
-    # scaler.scale = (r, r, r)
-    # coef = .7
-    # r *= coef
-    # camZ.scale = (r, r, r)
     bpy.context.view_layer.update()
 
 
-def check_for_flat_faces():
+def check_for_flat_faces() -> bool:
+    """Return True if any mesh polygon in the scene is not smooth shaded."""
     for ob in bpy.context.scene.objects:
         if ob.type == "MESH":
             for f in ob.data.polygons:
@@ -145,13 +156,15 @@ def check_for_flat_faces():
     return False
 
 
-def mark_freestyle_edges():
+def mark_freestyle_edges() -> None:
+    """Mark all mesh edges for Freestyle rendering (unused; kept for reference)."""
     for m in bpy.data.meshes:
         for e in m.edges:
             e.use_freestyle_mark = True
 
 
-def set_asset_data_texts(asset_data):
+def set_asset_data_texts(asset_data: dict[str, Any]) -> None:
+    """Populate overlay text with key asset properties."""
     set_text("asset", "")
     add_text_line("asset", asset_data["name"])
     dx = utils.get_param(asset_data, "dimensionX")
@@ -167,29 +180,40 @@ def set_asset_data_texts(asset_data):
     if check_for_flat_faces():
         add_text_line("asset", "Flat faces detected")
 
-    writeout_param(asset_data, "productionLevel")
-    writeout_param(asset_data, "shaders")
-    writeout_param(asset_data, "modifiers")
-    writeout_param(asset_data, "meshPolyType")
-    writeout_param(asset_data, "manifold")
-    writeout_param(asset_data, "objectCount")
-    writeout_param(asset_data, "nodeCount")
-    writeout_param(asset_data, "textureCount")
-    writeout_param(asset_data, "textureResolutionMax")
+    write_out_param(asset_data, "productionLevel")
+    write_out_param(asset_data, "shaders")
+    write_out_param(asset_data, "modifiers")
+    write_out_param(asset_data, "meshPolyType")
+    write_out_param(asset_data, "manifold")
+    write_out_param(asset_data, "objectCount")
+    write_out_param(asset_data, "nodeCount")
+    write_out_param(asset_data, "textureCount")
+    write_out_param(asset_data, "textureResolutionMax")
 
 
-def set_scene(name=""):
-    print(f"setting scene {name}")
+def set_scene(name: str = "") -> None:
+    """Switch active window to a scene by name."""
+    logger.info("setting scene %s", name)
     bpy.context.window.scene = bpy.data.scenes[name]
     c = bpy.context.scene.objects.get("Camera")
     if c is not None:
         bpy.context.scene.camera = c
     bpy.context.view_layer.update()
-    # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 
-def set_view_shading(shading_type="RENDERED", face_orientation=False, wireframe=False):
-    # bpy.data.workspaces['Layout'].screens['Layout'].areas[4].spaces[0].shading
+def set_view_shading(
+    shading_type: str = "RENDERED",
+    *,
+    face_orientation: bool = False,
+    wireframe: bool = False,
+) -> None:
+    """Set viewport shading and overlays across workspaces.
+
+    Args:
+        shading_type: Target shading mode (e.g., 'RENDERED', 'MATERIAL').
+        face_orientation: Whether to show face orientation overlay.
+        wireframe: Whether to show wireframes overlay.
+    """
     for w in bpy.data.workspaces:
         for a in w.screens[0].areas:
             if a.type == "VIEW_3D":
@@ -199,20 +223,32 @@ def set_view_shading(shading_type="RENDERED", face_orientation=False, wireframe=
                         s.overlay.show_wireframes = wireframe
                         s.overlay.show_face_orientation = face_orientation
     bpy.context.scene.display.shading.type = shading_type
-    # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 
-def set_workspace(name="Layout"):
-    for a in range(0, 2):
+def set_workspace(name: str = "Layout") -> None:
+    """Switch workspace a couple times to encourage UI refresh in background."""
+    for _ in range(2):
         bpy.context.window.workspace = bpy.data.workspaces[name]
         bpy.context.workspace.update_tag()
         bpy.context.view_layer.update()
-        # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
 
-def switch_off_all_modifiers():
-    # switches off all modifiers for render in the scene and stores and returns them in a list with original state.
-    original_states = []
+def _unlink_all_collection_instances() -> None:
+    """Unlink all collection instance empties from all scenes and collections."""
+    for scn in bpy.data.scenes:
+        coll = scn.collection
+        for ob in list(coll.objects):
+            if ob.instance_collection:
+                coll.objects.unlink(ob)
+    for coll in bpy.data.collections:
+        for ob in list(coll.objects):
+            if ob.instance_collection:
+                coll.objects.unlink(ob)
+
+
+def switch_off_all_modifiers() -> list[tuple[bpy.types.Object, bpy.types.Modifier, bool]]:
+    """Disable all mesh modifiers for render and record original states."""
+    original_states: list[tuple[bpy.types.Object, bpy.types.Modifier, bool]] = []
     for ob in bpy.context.scene.objects:
         if ob.type == "MESH":
             for m in ob.modifiers:
@@ -221,17 +257,16 @@ def switch_off_all_modifiers():
     return original_states
 
 
-def switch_on_all_modifiers(original_states):
-    # switches on all modifiers for render in the scene and restores them to the original state.
-    for ob, m, state in original_states:
+def switch_on_all_modifiers(original_states: list[tuple[bpy.types.Object, bpy.types.Modifier, bool]]) -> None:
+    """Restore modifiers' render state from a recorded list."""
+    for _ob, m, state in original_states:
         m.show_render = state
 
 
-def add_geometry_nodes_to_all_objects(group="wireNodes", dimensions=1):
-    # takes all visible objects in the scene and adds geometry nodes modifier with the group to them.
-    # avoids objects with more than 300k face.
+def add_geometry_nodes_to_all_objects(group: str = "wireNodes", dimensions: float = 1.0) -> None:
+    """Add a Geometry Nodes modifier to visible meshes under a face-count threshold."""
     for ob in bpy.context.scene.objects:
-        if ob.type == "MESH" and ob.visible_get() and len(ob.data.polygons) < 300000:
+        if ob.type == "MESH" and ob.visible_get() and len(ob.data.polygons) < MAX_FACE_COUNT_FOR_GN:
             bpy.context.view_layer.objects.active = ob
             bpy.ops.object.modifier_add(type="NODES")
             m = bpy.context.object.modifiers[-1]
@@ -240,10 +275,10 @@ def add_geometry_nodes_to_all_objects(group="wireNodes", dimensions=1):
             m["Socket_0"] = float(dimensions)
 
 
-def remove_geometry_nodes_from_all_objects(group="wireNodes"):
-    # takes all visible objects in the scene and removes geometry nodes modifier with the group to them.
+def remove_geometry_nodes_from_all_objects(group: str = "wireNodes") -> None:
+    """Remove the Geometry Nodes modifier with the given group from visible meshes."""
     for ob in bpy.context.scene.objects:
-        if ob.type == "MESH" and ob.visible_get() and len(ob.data.polygons) < 300000:
+        if ob.type == "MESH" and ob.visible_get() and len(ob.data.polygons) < MAX_FACE_COUNT_FOR_GN:
             bpy.context.view_layer.objects.active = ob
             # check if the modifier is there
             for m in ob.modifiers:
@@ -251,68 +286,38 @@ def remove_geometry_nodes_from_all_objects(group="wireNodes"):
                     bpy.context.object.modifiers.remove(m)
 
 
-def render_model_validation(asset_data, filepath):
-    # bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+def render_model_validation(asset_data: dict[str, Any], filepath: str) -> None:
+    """Render validation passes for the model into scene-defined outputs."""
+    logger.debug("Render target filepath: %s", filepath)
 
     # render basic render
     set_scene("Render")
-    # set_view_shading(shading_type='RENDERED')
-    # set_workspace('Render')
-    # set samples to just 1 for speed
-    # bpy.context.scene.cycles.samples = 1
-
     bpy.ops.render.render(animation=True)
-    # bpy.ops.render.opengl(animation=True, view_context=True)
 
     # render the Mesh checker
     # now in render
     set_scene("Mesh_checker")
-    # freestyle is crazy slow. Need better edge render :(
-    # mark_freestyle_edges()
-
-    # set_view_shading(shading_type='MATERIAL', wireframe = True, face_orientation=True)
-    # set_workspace('Mesh_checker')
-
     bpy.ops.render.render(animation=True)
-    # bpy.ops.render.opengl(animation=True, view_context=False)
-
-    # set_scene('Bevel_checker')
-    # bpy.ops.render.render(animation=True)
-
-    # render the UV Checker
-    # now in render
-    # set_scene('UV_checker')
-    # bpy.ops.render.render(animation=True, write_still=True)
 
     # switch off modifiers for this one
     set_scene("Mesh_checker_no_modif")
     original_states = switch_off_all_modifiers()
-    dimensionX = utils.get_param(asset_data, "dimensionX")
-    dimensionY = utils.get_param(asset_data, "dimensionY")
-    dimensionZ = utils.get_param(asset_data, "dimensionZ")
+    dimension_x = utils.get_param(asset_data, "dimensionX")
+    dimension_y = utils.get_param(asset_data, "dimensionY")
+    dimension_z = utils.get_param(asset_data, "dimensionZ")
     # Max length is taken as the dimension of the asset
-    dimensions = max(dimensionX, dimensionY, dimensionZ)
+    dimensions = max(dimension_x, dimension_y, dimension_z)
     add_geometry_nodes_to_all_objects(group="wireNodes", dimensions=dimensions)
     bpy.ops.render.render(animation=True)
     remove_geometry_nodes_from_all_objects(group="wireNodes")
     switch_on_all_modifiers(original_states)
-    # switch to composite and render video
-    # No video, in this one we render only large stills
-    # set_scene('Composite')
-    #
-    # bpy.context.scene.render.filepath = filepath
-    # print(filepath)
-    # # bpy.context.view_layer.update()
-    # # bpy.context.scene.update_tag()
-    # # bpy.context.view_layer.update()
-    # print(f'rendering validation preview for {asset_data["name"]}')
-    # bpy.ops.render.render(animation=True, write_still=True)
 
 
-def export_gltf(filepath=""):
-    # print all selected objects names first
+def export_gltf(filepath: str = "") -> None:
+    """Export selected objects to GLB using built-in exporter."""
+    # Log all selected object names first
     for ob in bpy.context.selected_objects:
-        print(ob.name)
+        logger.info("Exporting object: %s", ob.name)
     bpy.ops.export_scene.gltf(
         filepath=filepath,
         export_format="GLB",
@@ -387,85 +392,90 @@ def export_gltf(filepath=""):
     )
 
 
-def render_asset_bg(data):
+def render_asset_bg(data: dict[str, Any]) -> None:
+    """Entry point: load model, render validation animations, and export helpers."""
     asset_data = data["asset_data"]
     set_scene("Empty_start")
 
-    # first lets build the filepath and find out if its already rendered?
-    s = bpy.context.scene
+    try:
+        utils.enable_cycles_CUDA()
+    except Exception:
+        logger.exception("Failed to configure GPU devices for Cycles")
 
-    utils.enable_cycles_CUDA()
-
-    # first clean up all scenes.
-    for s in bpy.data.scenes:
-        c = s.collection
-        for ob in c.objects:
-            if ob.instance_collection:
-                c.objects.unlink(ob)
-
-    for c in bpy.data.collections:
-        for ob in c.objects:
-            if ob.instance_collection:
-                c.objects.unlink(ob)
+    # Clean up any existing collection instances
+    _unlink_all_collection_instances()
     bpy.ops.outliner.orphans_purge()
-    # if i ==1:
-    #     fal
 
-    fpath = data["file_path"]
-    if fpath:
-        try:
-            parent, new_obs = link_collection(
-                fpath,
-                location=(0, 0, 0),
-                rotation=(0, 0, 0),
-                link=True,
-                name=asset_data["name"],
-                parent=None,
-            )
+    fpath = data.get("file_path")
+    if not fpath:
+        logger.error("Missing file_path in input data")
+        return
 
-            # we need to realize for UV , texture, and nodegraph exports here..
-            utils.activate_object(parent)
-
-            bpy.ops.object.duplicates_make_real(
-                use_base_parent=True, use_hierarchy=True
-            )
-            all_obs = bpy.context.selected_objects[:]
-            bpy.ops.object.make_local(type="ALL")
-
-        except Exception as e:
-            print(e)
-            print("failed to append asset")
-            return
-        for s in bpy.data.scenes:
-            if s != bpy.context.scene:
-                # s.collection.objects.link(parent)
-                # try link all already realized.
-                for ob in all_obs:
-                    s.collection.objects.link(ob)
-
-        set_asset_data_texts(asset_data)
-
-        scale_cameras(asset_data)
-
-        # save the file to temp folder, so all files go there.
-        blend_file_path = os.path.join(
-            (data["temp_folder"]), f"{asset_data['name']}.blend"
+    try:
+        parent, _ = link_collection(
+            fpath,
+            location=(0, 0, 0),
+            rotation=(0, 0, 0),
+            link=True,
+            name=asset_data["name"],
+            parent=None,
         )
+
+        # Realize instances for UV, texture, and node graph exports
+        utils.activate_object(parent)
+        bpy.ops.object.duplicates_make_real(
+            use_base_parent=True,
+            use_hierarchy=True,
+        )
+        all_obs = bpy.context.selected_objects[:]
+        bpy.ops.object.make_local(type="ALL")
+    except (OSError, RuntimeError, ValueError):
+        logger.exception("Failed to link/realize asset from file: %s", fpath)
+        return
+
+    # Link realized objects into other scenes
+    for scn in bpy.data.scenes:
+        if scn != bpy.context.scene:
+            for ob in all_obs:
+                scn.collection.objects.link(ob)
+
+    set_asset_data_texts(asset_data)
+    scale_cameras(asset_data)
+
+    # Save to temp folder so all auxiliary files go there
+    blend_file_path = os.path.join(
+        data["temp_folder"],
+        f"{asset_data['name']}.blend",
+    )
+    try:
         bpy.ops.wm.save_as_mainfile(
-            filepath=blend_file_path, compress=False, copy=False, relative_remap=False
+            filepath=blend_file_path,
+            compress=False,
+            copy=False,
+            relative_remap=False,
         )
+    except Exception:
+        logger.exception("Failed to save temp blend file: %s", blend_file_path)
 
-        # first render the video
-        render_model_validation(asset_data, data["result_filepath"])
-        # then render the rest, since that makes total mess in the file...
+    # Render and export helpers
+    render_model_validation(asset_data, data["result_filepath"])
+    try:
         render_nodes_graph.visualize_and_save_all(
-            tempfolder=data["result_folder"], objects=all_obs
+            tempfolder=data["result_folder"],
+            objects=all_obs,
         )
+    except Exception:
+        logger.exception("Failed to export node graphs/auxiliary outputs")
 
 
 if __name__ == "__main__":
-    print("background resolution generator")
+    logger.info("Background model validation generator started")
     datafile = sys.argv[-1]
-    with open(datafile, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    try:
+        with open(datafile, encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError):
+        logger.exception("Failed to read/parse input JSON: %s", datafile)
+        sys.exit(1)
+
     render_asset_bg(data)

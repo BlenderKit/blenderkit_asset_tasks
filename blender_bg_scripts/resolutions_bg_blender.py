@@ -1,131 +1,227 @@
-import bpy
-import sys
-import os
-import json
+"""Generate lower resolutions for texture-based assets in Blender background.
 
-# import utils- add path
+This script iterates over all images in the current .blend, computes the
+closest standard resolution, creates downscaled copies into a resolution-
+specific textures directory, saves a new .blend copy per resolution level,
+and returns a JSON list of generated files.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from typing import Any
+
+import bpy
+
+# Path injection so Blender can import our utils when running in background
 dir_path = os.path.dirname(os.path.realpath(__file__))
 parent_path = os.path.join(dir_path, os.path.pardir)
-sys.path.append(parent_path)
-from blenderkit_server_utils import paths, image_utils
+if parent_path not in sys.path:
+    sys.path.append(parent_path)
+from blenderkit_server_utils import image_utils, paths, log  # isort: skip  # noqa: E402
 
-# import paths
-
-
-def get_current_resolution():
-  """finds maximum image resolution in the .blend file"""
-  actres = 0
-  for i in bpy.data.images:
-    if i.name != 'Render Result':
-      actres = max(actres, i.size[0], i.size[1])
-  return actres
+# Constants
+MIN_NO_PREVIEW_VERSION = (3, 0, 0)
 
 
-def generate_lower_resolutions(data) -> list[dict]:
-  '''Generate resolutions.
-  1. get current resolution of the asset
-  2. round it to the closest resolution like 4k, 2k, 1k, 512,
-  3. generate lower resolutions by downscaling the textures and saving in files with suffixes like _2k, _1k, _512
-  4. dumps a json file with the paths to the generated files, so they can be uploaded by the main thread.
-  '''
-  files = []
-  asset_data = data['asset_data']
-  base_fpath = bpy.data.filepath
+logger = log.create_logger(__name__)
 
-  actual_resolution = get_current_resolution()
-  print(f'current resolution of the asset is: {actual_resolution}')
-  if actual_resolution <= 0: # first let's skip procedural assets
-    print(f"resolution<=0, probably procedural asset -> skipping")
-    return []
 
-  p2res = paths.round_to_closest_resolution(actual_resolution)
-  orig_res = p2res
-  print(p2res)
-  
-  if p2res == [0]:
-    print(f"asset has lowest possible resolution already -> skipping")
-    return []
-  
-  original_textures_filesize = 0
-  for i in bpy.data.images:
-    abspath = bpy.path.abspath(i.filepath)
-    if os.path.exists(abspath):
-      original_textures_filesize += os.path.getsize(abspath)
+def get_current_resolution() -> int:
+    """Find the maximum image resolution in the .blend file.
 
-  finished = False
-  while not finished:
-    blend_file_name = os.path.basename(base_fpath)
+    Returns:
+        The maximum of width/height across all images excluding render/viewer.
+    """
+    actres = 0
+    for img in bpy.data.images:
+        if img.name not in {"Render Result", "Viewer Node"}:
+            actres = max(actres, img.size[0], img.size[1])
+    return actres
 
-    dirn = os.path.dirname(base_fpath)
-    fn_strip, ext = os.path.splitext(blend_file_name)
 
-    fn = fn_strip + paths.resolution_suffix[p2res] + ext
-    fpath = os.path.join(dirn, fn)
+def _compute_original_textures_size() -> int:
+    """Compute the total size of all existing image files in the scene."""
+    total = 0
+    for img in bpy.data.images:
+        abspath = bpy.path.abspath(img.filepath)
+        if os.path.exists(abspath):
+            try:
+                total += os.path.getsize(abspath)
+            except OSError:
+                logger.exception("Failed to stat image file: %s", abspath)
+    return total
 
-    tex_dir_path = paths.get_texture_directory(asset_data, resolution=p2res)
 
+def _prepare_texture_dir(asset_data: dict[str, Any], resolution: str) -> str:
+    """Ensure and return the Blender-relative texture directory for resolution."""
+    tex_dir_path = paths.get_texture_directory(asset_data, resolution=resolution)
     tex_dir_abs = bpy.path.abspath(tex_dir_path)
     if not os.path.exists(tex_dir_abs):
-      os.mkdir(tex_dir_abs)
+        os.makedirs(tex_dir_abs, exist_ok=True)
+    return tex_dir_path
 
-    reduced_textures_filessize = 0
-    for i in bpy.data.images:
-      if i.name not in ['Render Result', 'Viewer Node']:
-        print(f'scaling image {i.name} ({i.size[0]}x{i.size[1]})')
-        if i.size[0] == 0 or i.size[1] == 0:
-          print(f'image {i.name} is empty')
-          continue
 
-        fp = paths.get_texture_filepath(tex_dir_path, i, resolution=p2res)
+def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: str) -> int:
+    """Process and write all images for the given resolution; return total size."""
+    reduced_total = 0
+    for img in bpy.data.images:
+        if img.name in ["Render Result", "Viewer Node"]:
+            continue
+
+        logger.info("Scaling image %s (%dx%d)", img.name, img.size[0], img.size[1])
+        if img.size[0] == 0 or img.size[1] == 0:
+            logger.warning("Image %s is empty", img.name)
+            continue
+
+        fp = paths.get_texture_filepath(tex_dir_path, img, resolution=p2res)
         if p2res == orig_res:
-          # first, let's link the image back to the original one.
-          i['blenderkit_original_path'] = i.filepath
-          # first round also makes reductions on the image, while keeping resolution
-          image_utils.make_possible_reductions_on_image(i, fp, do_reductions=True, do_downscale=False)
-
+            img["blenderkit_original_path"] = img.filepath
+            image_utils.make_possible_reductions_on_image(
+                img,
+                fp,
+                do_reductions=True,
+                do_downscale=False,
+            )
         else:
-          # lower resolutions only downscale
-          image_utils.make_possible_reductions_on_image(i, fp, do_reductions=False, do_downscale=True)
+            image_utils.make_possible_reductions_on_image(
+                img,
+                fp,
+                do_reductions=False,
+                do_downscale=True,
+            )
 
-        abspath = bpy.path.abspath(i.filepath)
+        abspath = bpy.path.abspath(img.filepath)
         if os.path.exists(abspath):
-          reduced_textures_filessize += os.path.getsize(abspath)
+            try:
+                reduced_total += os.path.getsize(abspath)
+            except OSError:
+                logger.exception("Failed to stat generated image: %s", abspath)
 
-        i.pack()
-    # save
-    print(fpath)
-    # if this isn't here, blender crashes.
-    if bpy.app.version >= (3, 0, 0):
-      bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+        img.pack()
 
-    # save the file
-    bpy.ops.wm.save_as_mainfile(filepath=fpath, compress=True, copy=True)
-    # compare file sizes
-    
-    if reduced_textures_filessize < original_textures_filesize:
-      print(f'textures size was reduced from {original_textures_filesize} to {reduced_textures_filessize}')
-      # this limits from uploaidng especially same-as-original resolution files in case when there is no advantage.
-      # usually however the advantage can be big also for same as original resolution
-      files.append({"type": p2res, "index": 0, "file_path": fpath})
+    return reduced_total
+
+
+def _save_resolution_blend(fpath: str) -> bool:
+    """Save a copy of the current .blend to the given path, safely."""
+    if bpy.app.version >= MIN_NO_PREVIEW_VERSION:
+        bpy.context.preferences.filepaths.file_preview_type = "NONE"
+    try:
+        bpy.ops.wm.save_as_mainfile(filepath=fpath, compress=True, copy=True)
+    except RuntimeError:
+        logger.exception("Failed to save blend file: %s", fpath)
+        return False
     else:
-      print(f'skipping resolution: textures size was not reduced, original={original_textures_filesize}, generated={reduced_textures_filessize}')
+        return True
 
-    print('prepared resolution file: ', p2res)
-    if paths.rkeys.index(p2res) == 0:
-      finished = True
-    else:
-      p2res = paths.rkeys[paths.rkeys.index(p2res) - 1]
 
-  print(f'---> prepared resolution files: {files}')
-  return files
+def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Generate lower-resolution .blend copies with downscaled textures.
+
+    Steps:
+        1. Compute the current asset resolution.
+        2. Round to the nearest standard resolution (4k, 2k, 1k, 512).
+        3. For each step down, write textures into a resolution-specific directory and save a copy of the .blend.
+        4. Collect created files in a list for the caller to upload.
+
+    Args:
+        data: Input dict with 'asset_data'.
+
+    Returns:
+        List of dicts: [{"type", "index", "file_path"}].
+    """
+    files: list[dict[str, Any]] = []
+    asset_data = data["asset_data"]
+    base_fpath = bpy.data.filepath
+
+    actual_resolution = get_current_resolution()
+    logger.info("Current asset resolution: %d", actual_resolution)
+    if actual_resolution <= 0:
+        logger.info("resolution<=0, probably procedural asset -> skipping")
+        return []
+
+    p2res = paths.round_to_closest_resolution(actual_resolution)
+    orig_res = p2res
+    logger.info("Starting resolution key: %s", p2res)
+
+    if p2res == paths.rkeys[0]:
+        logger.info("Asset is at the lowest possible resolution -> skipping")
+        return []
+
+    original_textures_filesize = _compute_original_textures_size()
+
+    finished = False
+    while not finished:
+        blend_file_name = os.path.basename(base_fpath)
+        dirn = os.path.dirname(base_fpath)
+        fn_strip, ext = os.path.splitext(blend_file_name)
+
+        fn = fn_strip + paths.resolution_suffix[p2res] + ext
+        fpath = os.path.join(dirn, fn)
+
+        try:
+            tex_dir_path = _prepare_texture_dir(asset_data, p2res)
+        except OSError:
+            logger.exception("Failed to create texture directory for %s", p2res)
+            return []
+
+        reduced_textures_filessize = _process_images_for_resolution(
+            tex_dir_path,
+            p2res=p2res,
+            orig_res=orig_res,
+        )
+
+        logger.info("Saving resolution blend: %s", fpath)
+        if not _save_resolution_blend(fpath):
+            return []
+
+        if reduced_textures_filessize < original_textures_filesize:
+            logger.info(
+                "Textures size reduced from %d to %d",
+                original_textures_filesize,
+                reduced_textures_filessize,
+            )
+            files.append({"type": p2res, "index": 0, "file_path": fpath})
+        else:
+            logger.info(
+                "Skipping resolution %s: not reduced (orig=%d, gen=%d)",
+                p2res,
+                original_textures_filesize,
+                reduced_textures_filessize,
+            )
+
+        logger.info("Prepared resolution file: %s", p2res)
+        if paths.rkeys.index(p2res) == 0:
+            finished = True
+        else:
+            p2res = paths.rkeys[paths.rkeys.index(p2res) - 1]
+
+    logger.info("Prepared resolution files: %s", files)
+    return files
 
 
 if __name__ == "__main__":
-  print('background resolution generator')
-  datafile = sys.argv[-1]
-  with open(datafile, 'r', encoding='utf-8') as f:
-    data = json.load(f)
+    logger.info("Background resolution generator (non-HDR)")
+    datafile = sys.argv[-1]
+    try:
+        with open(datafile, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Failed to read JSON input: %s", datafile)
+        sys.exit(2)
 
-  result_files = generate_lower_resolutions(data)
-  with open(data['result_filepath'], 'w') as f:
-    json.dump(result_files, f, ensure_ascii=False, indent=4)
+    result_files = generate_lower_resolutions(data)
+    try:
+        with open(data["result_filepath"], "w", encoding="utf-8") as f:
+            json.dump(result_files, f, ensure_ascii=False, indent=4)
+    except OSError:
+        logger.exception(
+            "Failed to write result JSON: %s",
+            data.get("result_filepath"),
+        )
+        sys.exit(3)
+
+    sys.exit(0)

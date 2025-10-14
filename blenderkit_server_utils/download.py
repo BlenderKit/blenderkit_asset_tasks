@@ -1,133 +1,229 @@
+"""Download utilities for BlenderKit assets.
+
+This module provides helpers to resolve asset file URLs from the server and
+download them to a local directory. Functions include path resolution,
+existing-file checks, and a simple non-threaded downloader.
+
+All network operations use the requests library with basic error handling,
+and logging is used instead of print statements.
+"""
+
+from __future__ import annotations
+
 import os
+from typing import Any
+
 import requests
 
-from . import utils
-from . import paths
+from . import log, paths, utils
+
+logger = log.create_logger(__name__)
 
 SCENE_UUID = "5d22a2ce-7d4e-4500-9b1a-e5e79f8732c0"
+HTTP_SUCCESS_MAX = 399
+NAME_SLUG_MAX = 16
+MIN_CONTENT_LENGTH = 1000
+TWO_PATHS = 2
 
 
-def server_2_local_filename(asset_data, filename):
-    """Convert file name on server to file name local. This should get replaced."""
+def server_2_local_filename(asset_data: dict[str, Any], filename: str) -> str:
+    """Convert a server-side filename into a local filename.
 
+    Removes known prefixes from server filenames and prefixes with a slugified
+    asset name.
+
+    Args:
+        asset_data: Asset metadata containing at least a "name".
+        filename: Original filename from the server (e.g., from a URL).
+
+    Returns:
+        A sanitized local filename suitable for saving to disk.
+    """
     fn = filename.replace("blend_", "")
     fn = fn.replace("resolution_", "")
     n = paths.slugify(asset_data["name"]) + "_" + fn
     return n
 
 
-def files_size_to_text(size):
+def files_size_to_text(size: int) -> str:
+    """Render a human-readable size string for a byte length.
+
+    Args:
+        size: File size in bytes.
+
+    Returns:
+        A short textual size such as "123KB" or "12.3MB".
+    """
     fsmb = size / (1024 * 1024)
     fskb = size % 1024
     if fsmb == 0:
-        return f"{round(fskb)}KB"
-    else:
-        return f"{round(fsmb, 1)}MB"
+        text = f"{round(fskb)}KB"
+        return text
+    text = f"{round(fsmb, 1)}MB"
+    return text
 
 
-def get_file_type(asset_data, filetype="blend"):
-    """Iterates through asset_data["files"] and returns the item which fileType equals argument filetype."""
-    for file in asset_data["files"]:
-        if file["fileType"] == filetype:
-            orig = file
+def get_file_type(asset_data: dict[str, Any], filetype: str = "blend") -> tuple[dict[str, Any] | None, str]:
+    """Find the file entry for a specific type in the asset data.
+
+    Iterates over asset_data["files"] and returns the one whose "fileType"
+    equals the requested type.
+
+    Args:
+        asset_data: Asset metadata with a "files" list of dicts.
+        filetype: Desired file type identifier (e.g., "blend", "gltf").
+
+    Returns:
+        A tuple of (file_dict_or_None, canonical_type_string).
+    """
+    for f in asset_data.get("files", []):
+        if f.get("fileType") == filetype:
+            orig: dict[str, Any] = f
             return orig, "blend"
+    return None, filetype
 
 
-def get_download_url(asset_data, scene_id, api_key, tcom=None, resolution="blend"):
-    """'retrieves the download url. The server checks if user can download the item."""
-    print("getting download url")
+def get_download_url(
+    asset_data: dict[str, Any],
+    scene_id: str,
+    api_key: str,
+    tcom: Any | None = None,
+    resolution: str = "blend",
+) -> bool | str:
+    """Retrieve the download URL from the server for an asset.
+
+    The server validates permissions and responds with a downloadable file path.
+    On success, mutates the asset's selected file info with resolved URL and filename.
+
+    Args:
+        asset_data: Asset metadata.
+        scene_id: Scene UUID used for server tracking.
+        api_key: Authentication token for the API.
+        tcom: Optional communication object with attributes 'error' and 'report'.
+        resolution: File type key to resolve (legacy name "resolution").
+
+    Returns:
+        True on success; the string "Connection Error" on network failure; False on missing file type or HTTP error.
+    """
+    logger.debug("Requesting download URL for asset '%s'", asset_data.get("name"))
 
     headers = utils.get_headers(api_key)
-
     data = {"scene_uuid": scene_id}
-    r = None
 
     res_file_info, resolution = get_file_type(asset_data, resolution)
-    print(res_file_info)
-    try:
-        r = requests.get(res_file_info["downloadUrl"], params=data, headers=headers)
-    except Exception as e:
-        print(e)
+    if res_file_info is None:
+        logger.warning("No file type '%s' found in asset data", resolution)
         if tcom is not None:
             tcom.error = True
-    if r == None:
-        if tcom is not None:
-            tcom.report = "Connection Error"
-            tcom.error = True
-        return "Connection Error"
-    print(r.status_code, r.text)
+            tcom.report = f"Missing file type: {resolution}"
+        return False
 
-    if r.status_code < 400:
-        data = r.json()
-        url = data["filePath"]
+    logger.debug("Resolved file info entry: %s", res_file_info)
+
+    try:
+        r = requests.get(res_file_info["downloadUrl"], params=data, headers=headers, timeout=30)
+    except requests.RequestException:
+        logger.exception("Network error while getting download URL")
+        if tcom is not None:
+            tcom.error = True
+            tcom.report = "Connection Error"
+        return "Connection Error"
+
+    logger.debug("Server responded %s: %s", r.status_code, r.text[:200])
+
+    if r.status_code <= HTTP_SUCCESS_MAX:
+        payload = r.json()
+        url = payload["filePath"]
 
         res_file_info["url"] = url
         res_file_info["file_name"] = paths.extract_filename_from_url(url)
 
-        # print(res_file_info, url)
-        print("URL:", url)
-        return True
+        logger.info("Download URL resolved: %s", url)
+        success: bool = True
+        return success
+
+    logger.warning("Failed to get download URL. Status: %s", r.status_code)
+    if tcom is not None:
+        tcom.error = True
+        tcom.report = f"HTTP error: {r.status_code}"
+    failure: bool = False
+    return failure
 
 
 def get_download_filepath(
-    asset_data, resolution="blend", directory=None
-):
-    """Get all possible paths of the asset and resolution. Usually global and local directory."""
-    windows_path_limit = 250
+    asset_data: dict[str, Any],
+    resolution: str = "blend",
+    directory: str | None = None,
+) -> list[str]:
+    """Compute local file paths where the asset may be stored.
+
+    Will create the asset directory if it does not exist.
+
+    Args:
+        asset_data: Asset metadata.
+        resolution: File type key (legacy "resolution").
+        directory: Optional base directory; if None, uses global download dir by asset type.
+
+    Returns:
+        A list of candidate local file paths for the asset.
+    """
     if directory is None:
-        directory = paths.get_download_dir(asset_data["assetType"])
+        directory = paths.get_download_dir(asset_data["assetType"])  # type: ignore[index]
 
     res_file, resolution = get_file_type(asset_data, resolution)
-    name_slug = paths.slugify(asset_data["name"])
-    if len(name_slug) > 16:
-        name_slug = name_slug[:16]
-    asset_folder_name = f"{name_slug}_{asset_data['id']}"
+    name_slug = paths.slugify(asset_data["name"])  # type: ignore[index]
+    if len(name_slug) > NAME_SLUG_MAX:
+        name_slug = name_slug[:NAME_SLUG_MAX]
+    asset_folder_name = f"{name_slug}_{asset_data['id']}"  # type: ignore[index]
 
-    file_names = []
+    file_names: list[str] = []
 
     if not res_file:
         return file_names
     if res_file.get("url") is not None:
-        # Tweak the names a bit:
-        # remove resolution and blend words in names
-        #
-        fn = paths.extract_filename_from_url(res_file["url"])
+        logger.debug("Resolved file info entry: %s", res_file["url"])
+        fn = paths.extract_filename_from_url(res_file["url"])  # type: ignore[index]
         n = server_2_local_filename(asset_data, fn)
 
         asset_folder_path = os.path.join(directory, asset_folder_name)
 
         if not os.path.exists(asset_folder_path):
-            os.makedirs(asset_folder_path)
+            os.makedirs(asset_folder_path, exist_ok=True)
 
         file_name = os.path.join(asset_folder_path, n)
         file_names.append(file_name)
 
-    print("file paths", file_names)
+    logger.debug("Candidate file paths: %s", file_names)
 
     return file_names
 
 
-def check_existing(
-    asset_data, resolution="blend", directory=None
-):
-    """check if the object exists on the hard drive"""
+def check_existing(asset_data: dict[str, Any], resolution: str = "blend", directory: str | None = None) -> bool:
+    """Check if the asset file already exists on disk and sync between locations.
+
+    If one of the two preferred locations exists, copy it to the other to keep them in sync.
+
+    Args:
+        asset_data: Asset metadata.
+        resolution: File type key (legacy "resolution").
+        directory: Optional base directory.
+
+    Returns:
+        True if the expected primary file exists.
+    """
     fexists = False
 
-    if asset_data.get("files") == None:
-        # this is because of some very odl files where asset data had no files structure.
+    if asset_data.get("files") is None:
+        # Compatibility: old asset data may not have a files structure.
         return False
 
     file_names = get_download_filepath(asset_data, resolution, directory=directory)
-    print("check if file already exists" + str(file_names))
-    if len(file_names) == 2:
-        # TODO this should check also for failed or running downloads.
-        # If download is running, assign just the running thread. if download isn't running but the file is wrong size,
-        #  delete file and restart download (or continue downoad? if possible.)
+    logger.debug("Checking existing files: %s", file_names)
+    if len(file_names) == TWO_PATHS:
+        # If one exists and the other doesn't, copy to keep them in sync.
         if os.path.isfile(file_names[0]):  # and not os.path.isfile(file_names[1])
             utils.copy_asset(file_names[0], file_names[1])
-        elif not os.path.isfile(file_names[0]) and os.path.isfile(
-            file_names[1]
-        ):  # only in case of changed settings or deleted/moved global dict.
+        elif not os.path.isfile(file_names[0]) and os.path.isfile(file_names[1]):
             utils.copy_asset(file_names[1], file_names[0])
 
     if len(file_names) > 0 and os.path.isfile(file_names[0]):
@@ -135,79 +231,95 @@ def check_existing(
     return fexists
 
 
-def delete_unfinished_file(file_name):
-    """
-    Deletes download if it wasn't finished. If the folder it's containing is empty, it also removes the directory
-    Parameters
-    ----------
-    file_name
+def delete_unfinished_file(file_name: str) -> None:
+    """Delete an unfinished download and remove the directory if it becomes empty.
 
-    Returns
-    -------
-    None
+    Args:
+        file_name: Path to the partially downloaded file.
     """
     try:
         os.remove(file_name)
-    except Exception as e:
-        print(f"{e}")
+    except FileNotFoundError:
+        logger.debug("File already removed: %s", file_name)
+    except OSError as exc:
+        logger.warning("Failed to remove unfinished file '%s': %s", file_name, exc)
+
     asset_dir = os.path.dirname(file_name)
-    if len(os.listdir(asset_dir)) == 0:
-        os.rmdir(asset_dir)
-    return
+    try:
+        if len(os.listdir(asset_dir)) == 0:
+            os.rmdir(asset_dir)
+    except FileNotFoundError:
+        logger.debug("Asset directory already removed: %s", asset_dir)
+    except OSError as exc:
+        logger.warning("Could not remove asset directory '%s': %s", asset_dir, exc)
 
 
-def download_asset_file(asset_data, resolution="blend", api_key="", directory=None):
-    # this is a simple non-threaded way to download files for background resolution generation tool
-    file_names = get_download_filepath(
-        asset_data, resolution, directory=directory
-    )  # prefer global dir if possible.
+def download_asset_file(
+    asset_data: dict[str, Any],
+    resolution: str = "blend",
+    api_key: str = "",
+    directory: str | None = None,
+) -> str | None:
+    """Download a single asset file in a non-threaded manner.
+
+    Args:
+        asset_data: Asset metadata.
+        resolution: File type key (legacy "resolution").
+        api_key: Authentication token for the API.
+        directory: Optional base directory to place the file.
+
+    Returns:
+        The path to the downloaded file, or None if download was canceled/failed.
+    """
+    file_names = get_download_filepath(asset_data, resolution, directory=directory)
     if len(file_names) == 0:
         return None
 
     file_name = file_names[0]
 
     if check_existing(asset_data, resolution=resolution, directory=directory):
-        # this sends the thread for processing, where another check should occur, since the file might be corrupted.
-        # print('not downloading, already in db')
+        # File exists; return the path for further processing checks elsewhere.
         return file_name
 
     download_canceled = False
 
-    with open(file_name, "wb") as f:
-        print("Downloading %s" % file_name)
-        headers = utils.get_headers(api_key)
-        res_file_info, resolution = get_file_type(asset_data, resolution)
-        session = requests.Session()
+    headers = utils.get_headers(api_key)
+    res_file_info, _resolution = get_file_type(asset_data, resolution)
+    if res_file_info is None or "url" not in res_file_info:
+        logger.error("Missing URL for resolution '%s' in asset data", resolution)
+        return None
 
-        response = session.get(res_file_info["url"], stream=True)
-        total_length = response.headers.get("Content-Length")
+    try:
+        with requests.Session() as session, open(file_name, "wb") as f:
+            logger.info("Downloading %s", file_name)
+            response = session.get(res_file_info["url"], stream=True, headers=headers, timeout=(10, 300))
+            response.raise_for_status()
 
-        if total_length is None or int(total_length) < 1000:  # no content length header
-            download_canceled = True
-            print(response.content)
-        else:
-            total_length = int(total_length)
-            dl = 0
-            last_percent = 0
-            percent = 0
-            for data in response.iter_content(chunk_size=4096 * 10):
-                dl += len(data)
+            total_length_str = response.headers.get("Content-Length")
+            total_length = int(total_length_str) if total_length_str is not None else None
 
-                # the exact output you're looking for:
-                fs_str = files_size_to_text(total_length)
+            if total_length is None or total_length < MIN_CONTENT_LENGTH:  # no or too small content length
+                download_canceled = True
+                content_preview = response.content[:200]
+                logger.warning("Canceling download; invalid Content-Length. Preview: %s", content_preview)
+            else:
+                dl = 0
+                last_percent = 0
+                for data in response.iter_content(chunk_size=4096 * 10):
+                    dl += len(data)
 
-                percent = int(dl * 100 / total_length)
-                if percent > last_percent:
-                    last_percent = percent
-                    # sys.stdout.write('\r')
-                    # sys.stdout.write(f'Downloading {asset_data['name']} {fs_str} {percent}% ')  # + int(dl * 50 / total_length) * 'x')
-                    print(
-                        f'Downloading {asset_data["name"]} {fs_str} {percent}% '
-                    )  # + int(dl * 50 / total_length) * 'x')
-                    # sys.stdout.flush()
+                    if total_length:
+                        fs_str = files_size_to_text(total_length)
+                        percent = int(dl * 100 / total_length)
+                        if percent > last_percent:
+                            last_percent = percent
+                            logger.info("Downloading %s %s %s%%", asset_data.get("name"), fs_str, percent)
 
-                # print(int(dl*50/total_length)*'x'+'\r')
-                f.write(data)
+                    f.write(data)
+    except requests.RequestException:
+        logger.exception("Network error during download")
+        download_canceled = True
+
     if download_canceled:
         delete_unfinished_file(file_name)
         return None
@@ -215,25 +327,26 @@ def download_asset_file(asset_data, resolution="blend", api_key="", directory=No
     return file_name
 
 
-def download_asset(asset_data:dict, filetype:str="blend", api_key:str="", directory=None):
-    """
-    Download an asset non-threaded way.
-    
-    Parameters
-    ----------
-    - asset_data: search result from elastic or assets endpoints from API
-    - filetype: (prev resolution) which of asset_data['files'] to download, e.g.: blend, resolution_0_5K, resolution_1K, gltf
-    - api_key: used for auth on the server API
-    - directory: the path to which the file will be downloaded
+def download_asset(
+    asset_data: dict[str, Any],
+    filetype: str = "blend",
+    api_key: str = "",
+    directory: str | None = None,
+) -> str | None:
+    """Download an asset (non-threaded) by first resolving its URL.
 
-    Returns
-    -------
-    path to the resulting asset file or None if asset isn't accessible
-    """
+    Args:
+        asset_data: Search result from Elastic or assets endpoints from API.
+        filetype: Which of asset_data['files'] to download (e.g., 'blend', 'resolution_1K', 'gltf').
+        api_key: Used for auth on the server API.
+        directory: The path to which the file will be downloaded.
 
+    Returns:
+        Path to the resulting asset file, or None if asset isn't accessible/downloaded.
+    """
     has_url = get_download_url(asset_data, SCENE_UUID, api_key, tcom=None, resolution=filetype)
     if not has_url:
-        print("Could not get URL for the asset")
+        logger.warning("Could not get URL for the asset '%s'", asset_data.get("name"))
         return None
 
     fpath = download_asset_file(asset_data, resolution=filetype, api_key=api_key, directory=directory)

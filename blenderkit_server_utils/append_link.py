@@ -1,109 +1,133 @@
-def append_material(file_name, matname=None, link=False, fake_user=True):
-    """Append a material type asset
-    
+"""BlenderKit server utilities for appending and linking materials and collections."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from . import log
+
+if TYPE_CHECKING:  # Imported for type checking only; Blender not required at runtime.
+    from bpy.types import Material as BpyMaterial  # type: ignore
+    from bpy.types import Object as BpyObject  # type: ignore
+
+logger = log.create_logger(__name__)
+
+
+def append_material(
+    file_name: str,
+    *,
+    matname: str | None = None,
+    link: bool = False,
+    fake_user: bool = True,
+) -> BpyMaterial | None:
+    """Append or link a material from a .blend file.
+
     Args:
-        file_name (str): Path to the .blend file containing the material
-        matname (str, optional): Name of material to append. If None, appends first found. 
-        link (bool, optional): Link the material instead of appending. Defaults to False.
-        fake_user (bool, optional): Set fake user on appended material. Defaults to True.
-    
+        file_name: Path to the .blend file containing the material.
+        matname: Name of the material to append/link. If None, uses the first available.
+        link: If True, link the material instead of appending. Defaults to False.
+        fake_user: Set fake user on the appended material. Defaults to True.
+
     Returns:
-        bpy.types.Material: The appended/linked material or None if failed
+        The appended/linked material, or None if not found or on failure.
     """
-    import bpy
-    
+    # Local import to avoid hard dependency when not running inside Blender.
+    import bpy  # type: ignore
+
     mats_before = bpy.data.materials[:]
     try:
         with bpy.data.libraries.load(file_name, link=link, relative=True) as (
-                data_from,
-                data_to,
+            data_from,
+            data_to,
         ):
-            found = False
-            for m in data_from.materials:
-                if matname is None or m == matname:
-                    data_to.materials = [m]
-                    found = True
-                    break
-            
-            if not found:
+            selected = next(
+                (m for m in data_from.materials if matname is None or m == matname),
+                None,
+            )
+            if selected is None:
+                logger.warning("Material '%s' not found in '%s'", matname, file_name)
                 return None
-
+            data_to.materials = [selected]
+    except (OSError, RuntimeError, ValueError):
+        logger.exception("Failed to append/link material from '%s'", file_name)
+        return None
+    else:
         # Get the newly added material
         mats_after = bpy.data.materials[:]
         new_mats = [m for m in mats_after if m not in mats_before]
-        
         if not new_mats:
+            logger.warning("No new materials after append/link from '%s'", file_name)
             return None
-            
+
         mat = new_mats[0]
         if fake_user:
             mat.use_fake_user = True
-            
         return mat
-        
-    except Exception as e:
-        print(f"Failed to append material: {e}")
-        return None 
 
-def link_collection(
+
+def link_collection(  # noqa: PLR0913
     file_name: str,
-    location=(0, 0, 0),
-    rotation=(0, 0, 0),
-    link=False,
-    name=None,
-    parent=None,
-) -> tuple:
-    """Link/append a collection from a blend file.
-    
+    location: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    *,
+    link: bool = False,
+    name: str | None = None,
+    parent: BpyObject | None = None,
+) -> tuple[BpyObject | None, list[BpyObject]]:
+    """Link or append a collection from a .blend file.
+
     Args:
-        file_name: Path to the blend file
-        location: Location for the collection (default: origin)
-        rotation: Rotation for the collection (default: no rotation)
-        link: True to link, False to append
-        name: Name of collection to find (if None, uses first)
-        parent: Parent object to parent collection to
-        
+        file_name: Path to the .blend file.
+        location: Location to place the collection's root object(s).
+        rotation: Rotation to apply to the collection's root object(s).
+        link: True to link, False to append.
+        name: Name of the collection to find. If None, uses the first available.
+        parent: Optional parent object to parent the collection root object(s) to.
+
+    Rra
     Returns:
-        tuple: (main_object, all_objects)
-            - main_object: The parent/main object of the collection
-            - all_objects: List of all objects in the collection
+        A tuple of (main_object, all_objects):
+            - main_object: The first object without a parent, suitable as a root. None if none found.
+            - all_objects: All objects loaded from the collection.
     """
-    import bpy
+    # Local import to avoid hard dependency when not running inside Blender.
+    import bpy  # type: ignore
 
     # Store existing collections to find new ones
     collections_before = bpy.data.collections[:]
-    objects_before = bpy.data.objects[:]
 
     # Link/append the collection
-    with bpy.data.libraries.load(file_name, link=link) as (data_from, data_to):
-        found = False
-        for cname in data_from.collections:
-            if name is None or cname == name:
-                data_to.collections = [cname]
-                found = True
-                break
-                
-        if not found:
-            print(f"Collection {name} not found in file {file_name}")
-            return None, []
+    try:
+        with bpy.data.libraries.load(file_name, link=link) as (data_from, data_to):
+            selected = next(
+                (cname for cname in data_from.collections if name is None or cname == name),
+                None,
+            )
+            if selected is None:
+                logger.warning("Collection '%s' not found in '%s'", name, file_name)
+                return None, []
+            data_to.collections = [selected]
+    except (OSError, RuntimeError, ValueError):
+        logger.exception("Failed to link/append collection from '%s'", file_name)
+        return None, []
 
     # Find the newly added collection
     collections_after = bpy.data.collections[:]
     new_collections = [c for c in collections_after if c not in collections_before]
     if not new_collections:
-        print("No new collections found after linking/appending")
+        logger.warning("No new collections after link/append from '%s'", file_name)
         return None, []
-        
+
     new_collection = new_collections[0]
 
-    # Link the collection to the scene
-    if new_collection.name not in bpy.context.scene.collection.children:
+    # Link the collection to the scene (by name to avoid object-identity issues)
+    scene_children_names = {c.name for c in bpy.context.scene.collection.children}
+    if new_collection.name not in scene_children_names:
         bpy.context.scene.collection.children.link(new_collection)
 
     # Get all objects from the collection
-    all_objects = []
-    for obj in new_collection.all_objects:
-        all_objects.append(obj)
+    all_objects: list[BpyObject] = list(new_collection.all_objects)
+    for obj in all_objects:
         if obj.parent is None:
             obj.location = location
             obj.rotation_euler = rotation
@@ -111,10 +135,9 @@ def link_collection(
                 obj.parent = parent
 
     # Find main/parent object (first object without parent)
-    main_object = None
-    for obj in all_objects:
-        if obj.parent is None:
-            main_object = obj
-            break
+    main_object: BpyObject | None = next(
+        (o for o in all_objects if o.parent is None),
+        None,
+    )
 
-    return main_object, all_objects 
+    return main_object, all_objects

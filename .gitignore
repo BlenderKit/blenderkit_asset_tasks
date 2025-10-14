@@ -6,3 +6,11 @@ cache/
 blend_files/assets/
 *.blend1
 temp
+
+.ruff_cache
+
+blender_test_results.txt
+blender_test_results.xml
+
+.env
+_debug/
