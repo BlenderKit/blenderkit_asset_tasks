@@ -70,7 +70,7 @@ def get_search_simple(
     return results
 
 
-def get_search_paginated(  # noqa: C901, PLR0915
+def get_search_paginated(
     parameters: dict[str, Any],
     page_size: int = DEFAULT_PAGE_SIZE,
     max_results: int = DEFAULT_MAX_RESULTS,
@@ -90,12 +90,41 @@ def get_search_paginated(  # noqa: C901, PLR0915
     Raises:
         RuntimeError: If all retry attempts fail to get a valid response.
     """
-    headers = utils.get_headers(api_key)
     base_url = paths.get_api_url() + "/search/"
     # Construct query string
     request_url = base_url + "?query=" + "".join(f"+{k}:{v}" for k, v in parameters.items())
     request_url += f"&page_size={page_size}&dict_parameters=1"
 
+    results = _search_paginated(
+        request_url,
+        page_size=page_size,
+        max_results=max_results,
+        api_key=api_key,
+    )
+    return results
+
+
+def _search_paginated(  # noqa: C901
+    request_url: str,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    max_results: int = DEFAULT_MAX_RESULTS,
+    api_key: str = "",
+) -> list[dict[str, Any]]:
+    """Helper to perform paginated search requests with retries.
+
+    Args:
+        request_url: Fully constructed initial request URL.
+        page_size: Number of results per page.
+        max_results: Hard ceiling for accumulated results.
+        api_key: Optional API key for authenticated requests.
+
+    Returns:
+        List of result dictionaries.
+
+    Raises:
+        RuntimeError: If all retry attempts fail to get a valid response.
+    """
+    headers = utils.get_headers(api_key)
     logger.debug("Search request URL: %s", request_url)
     search_results: dict[str, Any] | None = None
     response: requests.Response | None = None
