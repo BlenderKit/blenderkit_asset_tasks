@@ -73,21 +73,6 @@ def _fetch_assets() -> list[dict[str, Any]]:
     return assets
 
 
-def tag_comparator(asset_data: dict[str, Any]) -> str | None:
-    """Compare and correct manufacturer tags for the given asset.
-
-    Placeholder implementation until the tag-cleanup heuristics are finalized.
-
-    Args:
-        asset_data: Dictionary containing asset information.
-
-    Returns:
-        Optional error message when a tag issue was found.
-    """
-    _ = asset_data
-    return None
-
-
 def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
     """Worker for a single asset; mode selects model/material pipeline."""
     # basic guards
