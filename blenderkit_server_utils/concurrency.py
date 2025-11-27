@@ -80,13 +80,13 @@ def run_asset_threads(  # noqa: PLR0913
                     f"Error processing asset {asset_keys_snapshot}: {e}",
                 ) from e
 
-        try:
-            asset_keys_snapshot = (
-                asset.get("id", ""),
+        asset_keys_snapshot = (
+                asset.get("asset_base_id", ""),
                 asset.get("assetType", ""),
                 asset.get("name", "N/A"),
             )
 
+        try:
             logger.debug("Starting thread for asset %s", asset_keys_snapshot)
 
             t = threading.Thread(

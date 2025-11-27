@@ -102,6 +102,7 @@ uv sync --group dev  # Install dev dependencies
 - `generate_resolutions.py` - Generate different resolution variants of assets
 - `generate_validations.py` - Validate asset integrity and compatibility
 - `render_thumbnail.py` - Generate thumbnail images for assets
+- `clean_manufacturer_tags.py` - Validate and clean manufacturer/designer metadata
 - `generate_caption_alt_text_gpt.py` - Generate captions using GPT
 - `generate_caption_clip_interrogator.py` - Generate captions using CLIP Interrogator
 - `reindex.py` - Reindex assets in the database
