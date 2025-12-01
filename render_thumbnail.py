@@ -442,7 +442,7 @@ def main() -> None:
     # Get assets to process
     assets = search.get_search_simple(
         params,
-        filepath,
+        filepath=filepath,
         page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
         max_results=config.MAX_ASSET_COUNT,
         api_key=config.BLENDERKIT_API_KEY,

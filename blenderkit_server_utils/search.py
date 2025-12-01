@@ -37,11 +37,11 @@ MAX_ELASTICSEARCH_RESULTS = 10_000  # Elasticsearch hard limit
 
 def get_search_simple(  # noqa: PLR0913
     parameters: dict[str, Any],
-    custom_tokens: list[str] | None = None,
     filepath: str | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,
     max_results: int = DEFAULT_MAX_RESULTS,
     api_key: str = "",
+    custom_tokens: list[str] | None = None,
     *,
     early_exit: bool = True,
 ) -> list[dict[str, Any]]:
@@ -49,11 +49,11 @@ def get_search_simple(  # noqa: PLR0913
 
     Args:
         parameters: Mapping of elastic parameter keys to values.
-        custom_tokens: Optional list of custom query tokens (e.g. ["mytoken:something",]).
         filepath: Optional path to write the resulting list as JSON.
         page_size: Page size for paginated API retrieval.
         max_results: Maximum number of results to accumulate.
         api_key: Optional BlenderKit API key for authenticated queries.
+        custom_tokens: Optional list of custom query tokens (e.g. ["mytoken:something",]).
         early_exit: If True, raise an exception if the search hits the max result limit.
 
     Returns:

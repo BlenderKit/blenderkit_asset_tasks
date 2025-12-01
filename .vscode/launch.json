@@ -225,7 +225,7 @@
                 "MAX_ASSET_COUNT": "3",
                 "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset "ASSET_BASE_ID"
-                 "ASSET_BASE_ID": "fd7b271b-bb38-4984-b51a-c85287cd3913"
+                "ASSET_BASE_ID": "fd7b271b-bb38-4984-b51a-c85287cd3913"
             }
 
         },
