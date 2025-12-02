@@ -308,7 +308,7 @@ if __name__ == "__main__":
             # modify scene for wireframe render
             bpy.data.materials["bkit background"].node_tree.nodes["Value"].outputs["Value"].default_value = 0.1
             # we do not need so much render samples for wireframe
-            scene.cycles.samples = min(scene.cycles.samples, 32)
+            scene.cycles.samples = min(scene.cycles.samples, asset["thumbnail_wireframe_samples"])
 
             # check if we have a wireframe material
             ensure_wireframe_material()

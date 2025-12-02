@@ -44,7 +44,7 @@ def _fetch_single_asset(
     params = {**common, "asset_base_id": asset_base_id}
     assets = search.get_search_simple(
         params,
-        filepath,
+        filepath=filepath,
         page_size=1,
         max_results=1,
         api_key=config.BLENDERKIT_API_KEY,
@@ -56,7 +56,7 @@ def _fetch_single_asset(
     params = {**common, "id": asset_base_id}
     return search.get_search_simple(
         params,
-        filepath,
+        filepath=filepath,
         page_size=1,
         max_results=1,
         api_key=config.BLENDERKIT_API_KEY,
@@ -165,7 +165,7 @@ def main() -> None:
 
     assets = search.get_search_simple(
         params,
-        filepath,
+        filepath=filepath,
         page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
         max_results=config.MAX_ASSET_COUNT,
         api_key=config.BLENDERKIT_API_KEY,

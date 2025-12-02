@@ -41,7 +41,7 @@ def main() -> None:
     logger.info("Fetching assets with param '%s' (max=%d)", param_name, MAX_ASSETS)
     assets: list[dict[str, Any]] = search.get_search_simple(
         params,
-        filepath,
+        filepath=filepath,
         page_size=min(MAX_ASSETS, 100),
         max_results=MAX_ASSETS,
         api_key=config.BLENDERKIT_API_KEY,

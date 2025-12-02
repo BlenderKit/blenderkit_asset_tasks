@@ -17,7 +17,7 @@
         "${workspaceFolder}/.tests",
         "${workspaceFolder}/.tests/unittests",
 
-        "D:/blender-4.5.2-windows-x64/4.5/scripts/modules",
+        "D:/blenders/4.5.3/4.5/scripts/modules",
     ],
 
     "python.analysis.extraPaths": [
@@ -26,7 +26,7 @@
         "${workspaceFolder}/.tests",
         "${workspaceFolder}/.tests/unittests",
 
-        "D:/blender-4.5.2-windows-x64/4.5/scripts/modules",
+        "D:/blenders/4.5.3/4.5/scripts/modules",
     ],
 
     "python.testing.unittestArgs": [
@@ -58,7 +58,6 @@
 
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",
-        // "editor.defaultFormatter": "ms-python.black-formatter",
 
         "editor.formatOnSave": true,
         "editor.renderFinalNewline": "on"
@@ -123,6 +122,8 @@
         "mili",
         "millis",
         "mtoa",
+        "nodegroup",
+        "nons",
         "nthreads",
         "opengl",
         "openning",
@@ -153,6 +154,7 @@
         "slategray",
         "slategrey",
         "Slugified",
+        "spammy",
         "spinboxes",
         "srgb",
         "STDV",

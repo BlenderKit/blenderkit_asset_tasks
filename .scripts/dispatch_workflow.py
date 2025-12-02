@@ -35,7 +35,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-
 def _bool_env(name: str, *, default: bool = False) -> bool:
     """Read a boolean environment variable.
 
@@ -102,7 +101,7 @@ def main() -> int:
                 logger.error("Unexpected status: %s", resp.status)
                 return 1
     except urllib.error.HTTPError as e:
-        logger.exception("HTTPError: %s %s - %s", e.code, e.reason, e.read().decode('utf-8', 'ignore'))
+        logger.exception("HTTPError: %s %s - %s", e.code, e.reason, e.read().decode("utf-8", "ignore"))
         return 1
     except urllib.error.URLError as e:
         logger.exception("URLError: %s", e.reason)

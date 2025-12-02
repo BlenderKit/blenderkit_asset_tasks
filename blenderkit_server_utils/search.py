@@ -22,7 +22,7 @@ from typing import Any
 
 import requests
 
-from . import log, paths, utils
+from . import exceptions, log, paths, utils
 
 logger = log.create_logger(__name__)
 
@@ -32,13 +32,18 @@ DEFAULT_MAX_RESULTS: int = 100_000_000
 RETRY_ATTEMPTS: int = 5
 RETRY_BASE_DELAY_S: float = 1.0  # delay grows quadratically by count**2
 
+MAX_ELASTICSEARCH_RESULTS = 10_000  # Elasticsearch hard limit
 
-def get_search_simple(
+
+def get_search_simple(  # noqa: PLR0913
     parameters: dict[str, Any],
     filepath: str | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,
     max_results: int = DEFAULT_MAX_RESULTS,
     api_key: str = "",
+    custom_tokens: list[str] | None = None,
+    *,
+    early_exit: bool = True,
 ) -> list[dict[str, Any]]:
     """Execute a search and optionally persist results to a JSON file.
 
@@ -48,15 +53,19 @@ def get_search_simple(
         page_size: Page size for paginated API retrieval.
         max_results: Maximum number of results to accumulate.
         api_key: Optional BlenderKit API key for authenticated queries.
+        custom_tokens: Optional list of custom query tokens (e.g. ["mytoken:something",]).
+        early_exit: If True, raise an exception if the search hits the max result limit.
 
     Returns:
         List of asset dictionaries returned by the search.
     """
     results = get_search_paginated(
-        parameters,
+        parameters=parameters,
+        custom_tokens=custom_tokens,
         page_size=page_size,
         max_results=max_results,
         api_key=api_key,
+        early_exit=early_exit,
     )
     if filepath:
         try:
@@ -70,38 +79,48 @@ def get_search_simple(
     return results
 
 
-def get_search_paginated(  # noqa: C901, PLR0915
+def get_search_paginated(  # noqa: C901, PLR0912, PLR0913, PLR0915
     parameters: dict[str, Any],
+    custom_tokens: list[str] | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,
     max_results: int = DEFAULT_MAX_RESULTS,
     api_key: str = "",
+    *,
+    early_exit: bool = False,
 ) -> list[dict[str, Any]]:
     """Low-level search helper performing paginated API requests.
 
     Args:
         parameters: Mapping of elastic query parameters.
+        custom_tokens: Optional list of custom query tokens (e.g. ["mytoken:something",]).
         page_size: Number of results per page.
         max_results: Hard ceiling for accumulated results.
         api_key: Optional API key.
+        early_exit: If True, raise an exception if the search hits the max result limit.
 
     Returns:
         List of result dictionaries.
 
     Raises:
-        RuntimeError: If all retry attempts fail to get a valid response.
+        exceptions.SearchRequestRepeatError: If all retry attempts fail to get a valid response.
+        exceptions.SearchResultLimitError: If early_exit is True and the search hits the max result limit.
     """
     headers = utils.get_headers(api_key)
     base_url = paths.get_api_url() + "/search/"
     # Construct query string
     request_url = base_url + "?query=" + "".join(f"+{k}:{v}" for k, v in parameters.items())
+
+    # Append custom tokens if any
+    if custom_tokens:
+        request_url += "".join(f"+{t}" for t in custom_tokens)
     request_url += f"&page_size={page_size}&dict_parameters=1"
 
     logger.debug("Search request URL: %s", request_url)
-    search_results: dict[str, Any] | None = None
-    response: requests.Response | None = None
+    search_results: dict[str, Any] = {}
+    response: requests.Response = None  # type: ignore[assignment]
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         try:
-            response = requests.get(request_url, headers=headers, timeout=30)
+            response: requests.Response = requests.get(request_url, headers=headers, timeout=30)
             response.raise_for_status()
             search_results = response.json()
             logger.info(
@@ -109,14 +128,22 @@ def get_search_paginated(  # noqa: C901, PLR0915
                 search_results.get("count"),
                 page_size,
             )
+            if early_exit and search_results.get("count") == MAX_ELASTICSEARCH_RESULTS:
+                raise exceptions.SearchResultLimitError(
+                    f"Search hit maximum result limit of {MAX_ELASTICSEARCH_RESULTS}.",
+                )
             break
         except requests.exceptions.HTTPError:
             status = getattr(response, "status_code", "?")
+            hdr_keys = ("Content-Type", "Content-Length", "CF-Ray", "X-Request-Id", "Date")
+            hdrs = {k: response.headers.get(k) for k in hdr_keys if hasattr(response, "headers")}
             logger.warning(
-                "HTTP error on search attempt %d/%d (status=%s)",
+                "HTTP error on search attempt %d/%d (status=%s) \nURL=%s \nHeaders=%s",
                 attempt,
                 RETRY_ATTEMPTS,
                 status,
+                request_url,
+                hdrs,
                 exc_info=True,
             )
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
@@ -132,14 +159,14 @@ def get_search_paginated(  # noqa: C901, PLR0915
             logger.warning("Generic request exception on attempt %d/%d", attempt, RETRY_ATTEMPTS, exc_info=True)
 
         if attempt == RETRY_ATTEMPTS:
-            raise RuntimeError(
+            raise exceptions.SearchRequestRepeatError(
                 f"Could not get search results after {RETRY_ATTEMPTS} attempts; connection or server issue.",
             )
         delay = attempt**2 * RETRY_BASE_DELAY_S
         logger.info("Retrying search attempt %d in %.1f seconds", attempt + 1, delay)
         time.sleep(delay)
 
-    if search_results is None:
+    if not search_results:
         # Defensive: should not happen due to raise above
         return []
 
@@ -151,16 +178,104 @@ def get_search_paginated(  # noqa: C901, PLR0915
     while search_results.get("next") and len(results) < max_results:
         next_url = search_results["next"]
         logger.debug("Fetching page %d/%d: %s", page_index, page_count, next_url)
-        try:
-            response = requests.get(next_url, headers=headers, timeout=30)
-            response.raise_for_status()
-            search_results = response.json()
-        except requests.RequestException:
-            logger.exception("Pagination request failed at page %d", page_index)
+        # Add retries for pagination similar to the initial page request
+        pagination_ok = False
+        response = None  # type: ignore[assignment]
+        for attempt in range(1, RETRY_ATTEMPTS + 1):
+            try:
+                response = requests.get(next_url, headers=headers, timeout=30)
+                response.raise_for_status()
+                search_results = response.json()
+                pagination_ok = True
+                break
+            except requests.exceptions.HTTPError:
+                status = getattr(response, "status_code", "?")
+                logger.warning(
+                    "Pagination HTTP error on page %d attempt %d/%d (status=%s) \nURL=%s",
+                    page_index,
+                    attempt,
+                    RETRY_ATTEMPTS,
+                    status,
+                    next_url,
+                    exc_info=True,
+                )
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                logger.warning(
+                    "Pagination connection/timeout error on page %d attempt %d/%d \nURL=%s",
+                    page_index,
+                    attempt,
+                    RETRY_ATTEMPTS,
+                    next_url,
+                    exc_info=True,
+                )
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                # Response received but JSON was invalid or unexpected
+                logger.warning(
+                    "Pagination JSON decode error on page %d attempt %d/%d \nURL=%s",
+                    page_index,
+                    attempt,
+                    RETRY_ATTEMPTS,
+                    next_url,
+                    exc_info=True,
+                )
+            except requests.exceptions.RequestException:
+                logger.warning(
+                    "Pagination generic request exception on page %d attempt %d/%d \nURL=%s",
+                    page_index,
+                    attempt,
+                    RETRY_ATTEMPTS,
+                    next_url,
+                    exc_info=True,
+                )
+
+            if attempt == RETRY_ATTEMPTS:
+                logger.error("Pagination request failed at page %d after %d attempts", page_index, RETRY_ATTEMPTS)
+                break
+            delay = attempt**2 * RETRY_BASE_DELAY_S
+            logger.info("Retrying pagination page %d attempt %d in %.1f seconds", page_index, attempt + 1, delay)
+            time.sleep(delay)
+
+        if not pagination_ok:
+            # Diagnostic fallback: if a single-item page fails with dict_parameters=1,
+            # try again without dict_parameters to identify the problematic asset id.
+            if page_size == 1 and isinstance(next_url, str) and "dict_parameters=1" in next_url:
+                alt_url = next_url.replace("dict_parameters=1", "dict_parameters=0")
+                try:
+                    diag_resp = requests.get(alt_url, headers=headers, timeout=30)
+                    diag_resp.raise_for_status()
+                    alt_json = diag_resp.json()
+                    alt_results = alt_json.get("results", []) if isinstance(alt_json, dict) else []
+                    if alt_results:
+                        suspect = alt_results[0]
+                        sid = suspect.get("id")
+                        name = suspect.get("name")
+                        logger.error(
+                            "Suspect asset causing 500 with dict_parameters=1 at page %d: id=%s name=%s URL=%s",
+                            page_index,
+                            sid,
+                            name,
+                            next_url,
+                        )
+                    else:
+                        logger.error(
+                            "Fallback without dict_parameters returned no results at page %d (URL=%s)",
+                            page_index,
+                            alt_url,
+                        )
+                except requests.RequestException:
+                    logger.exception(
+                        "Fallback without dict_parameters also failed for page %d (URL=%s)",
+                        page_index,
+                        alt_url,
+                    )
+                except (ValueError, requests.exceptions.JSONDecodeError):
+                    logger.exception(
+                        "Fallback without dict_parameters returned invalid JSON for page %d (URL=%s)",
+                        page_index,
+                        alt_url,
+                    )
             break
-        except (ValueError, requests.exceptions.JSONDecodeError):
-            logger.exception("Pagination JSON decode failed at page %d", page_index)
-            break
+
         results.extend(search_results.get("results", []))
         page_index += 1
 

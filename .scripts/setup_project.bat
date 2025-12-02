@@ -52,7 +52,7 @@ if not exist ".venv" (
 )
 
 if exist "pyproject.toml" (
-    echo Syncing dependencies from pyproject.toml...
+    echo "Syncing dependencies from pyproject.toml..."
     uv sync
 ) else (
     echo No pyproject.toml found at !REPO_FOLDER!, skipping dependency sync.

@@ -71,6 +71,7 @@ DEFAULT_THUMBNAIL_PARAMS: dict[str, Any] = {
     "thumbnail_background_lightness": 0.9,
     # Wireframe defaults (new)
     "additional_outputs": "wireframe",  # this includes also separate wireframe render
+    "thumbnail_wireframe_samples": 30,
     "thumbnail_wireframe_thickness": 1.0,
     "thumbnail_wireframe_color": None,  # if None, default color will be random
 }
@@ -151,6 +152,9 @@ def parse_json_params(json_str: str | None) -> dict[str, Any]:
         "thumbnail_resolution",
         "thumbnail_background_lightness",
         "thumbnail_scale",
+        # new string params
+        "thumbnail_wireframe_samples",
+        "thumbnail_wireframe_thickness",
     ]
     for param in numeric_params:
         if param in params:
@@ -228,6 +232,13 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
                 "thumbnail_angle": os.getenv("THUMBNAIL_ANGLE", params["thumbnail_angle"]),
                 "thumbnail_snap_to": os.getenv("THUMBNAIL_SNAP_TO", params["thumbnail_snap_to"]),
                 # Wireframe env (new)
+                "thumbnail_wireframe": _env_bool(
+                    "THUMBNAIL_WIREFRAME",
+                    default=bool(params["thumbnail_wireframe"]),
+                ),
+                "thumbnail_wireframe_samples": int(
+                    os.getenv("THUMBNAIL_WIREFRAME_SAMPLES", params["thumbnail_wireframe_samples"]),
+                ),
                 "thumbnail_wireframe_thickness": float(
                     os.getenv("THUMBNAIL_WIREFRAME_THICKNESS", params["thumbnail_wireframe_thickness"]),
                 ),
@@ -320,6 +331,20 @@ def _upload_and_clear(asset_data: dict[str, Any], api_key: str, result_filepath:
         raise RuntimeError(f"Upload failed for {asset_data.get('name')}")
 
     logger.info("Uploaded new thumbnail for %s", asset_data.get("name"))
+
+    # check for wire_thumbnail and upload if exists
+    fn, ext = os.path.splitext(result_filepath)
+    new_fn = "_".join(fn.split("_")[:-1]) + "_wireframe"
+    wire_output_path = new_fn + ext
+    if os.path.isfile(wire_output_path):
+        wire_files_to_upload: list[dict[str, Any]] = [
+            {"type": "wire_thumbnail", "index": 0, "file_path": wire_output_path},
+        ]
+        ok = upload.upload_files(upload_data, wire_files_to_upload)
+        if not ok:
+            raise RuntimeError(f"Wireframe upload failed for {asset_data.get('name')}")
+        logger.info("Uploaded new wireframe thumbnail for %s", asset_data.get("name"))
+
     cleared = upload.delete_individual_parameter(
         asset_id=str(asset_data.get("id")),
         param_name="markThumbnailRender",
@@ -442,7 +467,7 @@ def main() -> None:
     # Get assets to process
     assets = search.get_search_simple(
         params,
-        filepath,
+        filepath=filepath,
         page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
         max_results=config.MAX_ASSET_COUNT,
         api_key=config.BLENDERKIT_API_KEY,

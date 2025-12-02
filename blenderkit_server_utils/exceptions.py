@@ -15,3 +15,10 @@ class AssetNotFoundError(BlenderKitError):
 
 class AssetUploadError(BlenderKitError):
     """Exception raised when an asset fails to upload."""
+
+
+class SearchResultLimitError(BlenderKitError):
+    """Exception raised when search results exceed the maximum limit."""
+
+class SearchRequestRepeatError(BlenderKitError):
+    """Exception raised when repeated search request limit is reached."""
