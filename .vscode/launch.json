@@ -224,8 +224,8 @@
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
                 "MAX_ASSET_COUNT": "3",
                 "SKIP_UPDATE": "True",
-                 // optional, for testing a specific asset "ASSET_BASE_ID"
-                "ASSET_BASE_ID": "fd7b271b-bb38-4984-b51a-c85287cd3913"
+                // mercedes tires (real user asset) (should be valid)
+                "ASSET_BASE_ID": "14db28e6-eb8d-465e-bcc5-fd557ab3c539" //model
             }
 
         },
