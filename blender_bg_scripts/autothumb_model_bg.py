@@ -94,7 +94,7 @@ def render_thumbnails() -> None:
     bpy.ops.render.render(write_still=True, animation=False)
 
 
-def replace_materials(obs: list[Any], material_name: str) -> Union[bpy.types.Material, None]:
+def replace_materials(obs: list[Any], material_name: str) -> Union[bpy.types.Material, None]:  # noqa: UP007
     """Replace all materials on the given objects with a wireframe material.
 
     Args:
