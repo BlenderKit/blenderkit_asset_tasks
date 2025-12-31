@@ -100,6 +100,9 @@ def replace_materials(obs: list[Any], material_name: str) -> Union[bpy.types.Mat
     Args:
         obs: List of Blender objects to modify.
         material_name: Name of the wireframe material to use.
+
+    Returns:
+        The wireframe material if successful, else None.
     """
     # Create or get the wireframe material
     if material_name in bpy.data.materials:
