@@ -16,7 +16,7 @@ import math
 import os
 import sys
 import traceback
-from typing import Any
+from typing import Any, Union
 
 import bpy
 
@@ -89,33 +89,34 @@ def center_objs_for_thumbnail(obs: list[Any]) -> None:
     bpy.context.view_layer.update()
 
 
-def ensure_wireframe_material() -> None:
-    """Ensure the wireframe material exists in the current Blender context."""
-    if "bkit wireframe" not in bpy.data.materials:
-        from blenderkit_server_utils import materials
-
-        materials.bkit_wireframe()
+def render_thumbnails() -> None:
+    """Render the current scene to a still image (no animation)."""
+    bpy.ops.render.render(write_still=True, animation=False)
 
 
-def replace_materials(obs: list[Any], material_name: str) -> None:
+def replace_materials(obs: list[Any], material_name: str) -> Union[bpy.types.Material, None]:  # noqa: UP007
     """Replace all materials on the given objects with a wireframe material.
 
     Args:
         obs: List of Blender objects to modify.
         material_name: Name of the wireframe material to use.
+
+    Returns:
+        The wireframe material if successful, else None.
     """
     # Create or get the wireframe material
-
     if material_name in bpy.data.materials:
-        wireframe_mat = bpy.data.materials[material_name]
+        material = bpy.data.materials[material_name]
     else:
-        return
+        return None
 
     # Assign the wireframe material to all objects
     for ob in obs:
         if ob.type == "MESH":
+            # Clear all material slots and add the specified material
             ob.data.materials.clear()
-            ob.data.materials.append(wireframe_mat)
+            ob.data.materials.append(material)
+    return material
 
 
 def _str_to_color(s: str) -> tuple[float, float, float] | None:
@@ -181,7 +182,10 @@ def modify_wireframe_material(settings_data: dict[str, Any]) -> None:
             if "wire_RGB" in nodes:
                 nodes["wire_RGB"].outputs[0].default_value = clr
         else:
-            logger.warning("Invalid wireframe color: %s", settings_data["thumbnail_wireframe_color"])
+            logger.warning(
+                "Invalid wireframe color: %s",
+                settings_data["thumbnail_wireframe_color"],
+            )
 
 
 def modify_render_output(output_path: str) -> None:
@@ -197,11 +201,6 @@ def modify_render_output(output_path: str) -> None:
         bpy.context.scene.render.image_settings.file_format = "PNG"
         bpy.context.scene.render.film_transparent = True
     scene.render.filepath = output_path
-
-
-def render_thumbnails() -> None:
-    """Render the current scene to a still image (no animation)."""
-    bpy.ops.render.render(write_still=True, animation=False)
 
 
 if __name__ == "__main__":
@@ -308,10 +307,11 @@ if __name__ == "__main__":
             # modify scene for wireframe render
             bpy.data.materials["bkit background"].node_tree.nodes["Value"].outputs["Value"].default_value = 0.1
             # we do not need so much render samples for wireframe
-            scene.cycles.samples = min(scene.cycles.samples, asset["thumbnail_wireframe_samples"])
+            scene.cycles.samples = min(
+                scene.cycles.samples,
+                asset["thumbnail_wireframe_samples"],
+            )
 
-            # check if we have a wireframe material
-            ensure_wireframe_material()
             # modify other attributes
             modify_wireframe_material(asset)
 
@@ -332,8 +332,11 @@ if __name__ == "__main__":
             logger.info("Rendering model wireframe thumbnail to %s", wire_output_path)
 
             render_thumbnails()
+        ##  save this for debug next to images
+        # > fn, ext = os.path.splitext(data["result_filepath"])
+        # > bpy.ops.wm.save_as_mainfile(filepath=fn + ".blend")
+        # > logger.info("Background autothumbnailer (model) finished successfully")
 
-        logger.info("Background autothumbnailer (model) finished successfully")
         sys.exit(0)
 
     except Exception:

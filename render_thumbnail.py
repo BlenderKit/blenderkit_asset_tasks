@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -234,7 +235,7 @@ def get_thumbnail_params(asset_type: str, mark_thumbnail_render: str | None = No
                 # Wireframe env (new)
                 "thumbnail_wireframe": _env_bool(
                     "THUMBNAIL_WIREFRAME",
-                    default=bool(params["thumbnail_wireframe"]),
+                    default=bool(params.get("thumbnail_wireframe", True)),
                 ),
                 "thumbnail_wireframe_samples": int(
                     os.getenv("THUMBNAIL_WIREFRAME_SAMPLES", params["thumbnail_wireframe_samples"]),
@@ -291,13 +292,17 @@ def _run_bg_render(
     script_name: str,
 ) -> None:
     """Run the background Blender render, raising on failure."""
-    ret = send_to_bg.send_to_bg(
-        asset_data,
-        asset_file_path=asset_file_path,
-        template_file_path=str(template_path),
-        result_path=result_filepath,
-        script=script_name,
-    )
+    ret = 1
+    try:
+        ret = send_to_bg.send_to_bg(
+            asset_data,
+            asset_file_path=asset_file_path,
+            template_file_path=str(template_path),
+            result_path=result_filepath,
+            script=script_name,
+        )
+    except Exception:
+        logger.exception("BG render failed for %s", asset_data.get("name"))
     if ret:
         raise RuntimeError(f"BG render failed (script={script_name}, ret={ret})")
 
@@ -362,7 +367,7 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
         logger.warning("Skipping empty or invalid asset entry")
         return
 
-    asset_file_path: str | None = None
+    asset_file_path: str = ""
     temp_folder: str | None = None
 
     try:
@@ -372,7 +377,7 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
 
         # Resolve params and download asset
         thumbnail_params = get_thumbnail_params(asset_type, mark_thumbnail_render=mark_json)
-        asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+        asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)  # type: ignore
 
         # Prepare output
         temp_folder = tempfile.mkdtemp()
@@ -399,6 +404,7 @@ def render_thumbnail_thread(asset_data: dict[str, Any], api_key: str) -> None:
 
     except Exception:
         logger.exception("Error processing thumbnail for %s", asset_data.get("name"))
+        logger.exception(traceback.format_exc())
     finally:
         try:
             if asset_file_path and os.path.isfile(asset_file_path):
