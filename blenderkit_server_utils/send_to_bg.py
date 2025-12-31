@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -26,6 +27,7 @@ logger = log.create_logger(__name__)
 # Verbosity constants
 VERBOSITY_STDERR: int = 1
 VERBOSITY_ALL: int = 2
+STREAM_TAIL_LINE_LIMIT: int = 200
 
 
 def get_blender_version_from_blend(blend_file_path: str) -> str:
@@ -126,6 +128,28 @@ def _reader_thread(pipe: Any, func: Callable[[str], None]) -> None:
     pipe.close()
 
 
+def _collecting_callback(
+    callback: Callable[[str], None],
+    collector: deque[str],
+) -> Callable[[str], None]:
+    """Wrap a pipe callback so streamed lines are stored for later inspection."""
+
+    def wrapper(line: str) -> None:
+        collector.append(line)
+        callback(line)
+
+    return wrapper
+
+
+def _log_stream_tail(stream_name: str, lines: deque[str]) -> None:
+    """Log the captured trailing lines of a Blender stream for easier debugging."""
+    if not lines:
+        logger.error("%s stream produced no output before failure.", stream_name)
+        return
+    joined = "\n".join(lines)
+    logger.error("Captured %s tail (%d lines):\n%s", stream_name, len(lines), joined)
+
+
 def _select_binary_path(
     binary_path: str,
     asset_data: dict[str, Any],
@@ -207,40 +231,35 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
     logger.info("Running Blender command: %s", command)
     logger.debug("Raw command: %s", " ".join(command))
+    stdout_lines: deque[str] = deque(maxlen=STREAM_TAIL_LINE_LIMIT)
+    stderr_lines: deque[str] = deque(maxlen=STREAM_TAIL_LINE_LIMIT)
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
         if verbosity_level == VERBOSITY_ALL:
-            stdout_thread = threading.Thread(
-                target=_reader_thread,
-                args=(proc.stdout, lambda line: logger.info("STDOUT: %s", line)),
-            )
-            stderr_thread = threading.Thread(
-                target=_reader_thread,
-                args=(proc.stderr, lambda line: logger.error("STDERR: %s", line)),
-            )
+            stdout_callback = lambda line: logger.info("STDOUT: %s", line)  # noqa: E731
+            stderr_callback = lambda line: logger.error("STDERR: %s", line)  # noqa: E731
         elif verbosity_level == VERBOSITY_STDERR:
-            stdout_thread = threading.Thread(
-                target=_reader_thread,
-                args=(proc.stdout, lambda line: logger.debug("STDOUT: %s", line)),
-            )
-            stderr_thread = threading.Thread(
-                target=_reader_thread,
-                args=(proc.stderr, lambda line: logger.error("STDERR: %s", line)),
-            )
+            stdout_callback = lambda line: logger.debug("STDOUT: %s", line)  # noqa: E731
+            stderr_callback = lambda line: logger.error("STDERR: %s", line)  # noqa: E731
         else:
-            stdout_thread = threading.Thread(
-                target=_reader_thread,
-                args=(proc.stdout, lambda line: logger.debug("STDOUT: %s", line)),
-            )
-            stderr_thread = threading.Thread(
-                target=_reader_thread,
-                args=(proc.stderr, lambda line: logger.debug("STDERR: %s", line)),
-            )
+            stdout_callback = lambda line: logger.debug("STDOUT: %s", line)  # noqa: E731
+            stderr_callback = lambda line: logger.debug("STDERR: %s", line)  # noqa: E731
 
+        stdout_thread = threading.Thread(
+            target=_reader_thread,
+            args=(proc.stdout, _collecting_callback(stdout_callback, stdout_lines)),
+        )
+        stderr_thread = threading.Thread(
+            target=_reader_thread,
+            args=(proc.stderr, _collecting_callback(stderr_callback, stderr_lines)),
+        )
         stdout_thread.start()
         stderr_thread.start()
         stdout_thread.join()
         stderr_thread.join()
         returncode = proc.wait()
+    if returncode != 0:
+        _log_stream_tail("STDOUT", stdout_lines)
+        _log_stream_tail("STDERR", stderr_lines)
     return returncode
 
 
@@ -273,14 +292,14 @@ def _cleanup_paths(datafile: str, temp_folder: str, *, remove_temp_folder: bool)
     Returns:
         None
     """
-    logger.debug("Cleaning up datafile: %s", datafile)
-    logger.debug("Cleaning up temp folder: %s", temp_folder)
     try:
+        logger.debug("Cleaning up datafile: %s", datafile)
         os.remove(datafile)
     except OSError:
         logger.debug("Failed to remove temp datafile: %s", datafile, exc_info=True)
     if remove_temp_folder:
         try:
+            logger.debug("Cleaning up temp folder: %s", temp_folder)
             shutil.rmtree(temp_folder, onerror=_onerror_delete)
         except OSError:
             logger.debug("Failed to remove temp folder: %s", temp_folder, exc_info=True)

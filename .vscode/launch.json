@@ -225,7 +225,7 @@
                 "MAX_ASSET_COUNT": "3",
                 "SKIP_UPDATE": "True",
                 // mercedes tires (real user asset) (should be valid)
-                "ASSET_BASE_ID": "14db28e6-eb8d-465e-bcc5-fd557ab3c539" //model
+                "ASSET_BASE_ID": "2e34c4a5-44eb-4a57-bbca-b1d56a04d91d" //model
             }
 
         },
@@ -284,9 +284,12 @@
                 "DEBUG_LOGGGING": "1",
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
                 "MAX_ASSET_COUNT": "3",
-                "SKIP_UPDATE": "True",
+                // "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset
-                "ASSET_BASE_ID": "066aa61d-6eb9-4e9a-8188-8f34c0b4d030"  // HDR
+                // "ASSET_BASE_ID": "066aa61d-6eb9-4e9a-8188-8f34c0b4d030"  // HDR
+
+                // Nandu faulty hdri  ?
+                "ASSET_BASE_ID": "dc76c756-7cd2-46ce-91ab-c9a5444ddb98" // asset_type:hdr   Copy search term
             }
 
         },

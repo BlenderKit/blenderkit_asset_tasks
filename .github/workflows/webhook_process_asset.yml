@@ -32,11 +32,11 @@ jobs:
     name: Public & Validated -> generate resolutions
     runs-on: ubuntu-latest
     env:
-      BLENDER_PATH: /home/headless/blender/blender
+      BLENDERS_PATH: /home/headless/blenders
     if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
         (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
         (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy }}
+    container: blenderkit/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -88,26 +88,6 @@ jobs:
       - name: Generate GLTF for Godot
         run: python3 generate_gltf.py --target_format gltf_godot
 
-  CLEAN_MANUFACTURER_TAGS:
-    name: Public Uploaded/Validated Assets -> clean manufacturer tags
-    runs-on: ubuntu-latest
-    if: contains(fromJSON('["model","material","scene","printable"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
-      contains(fromJSON('["uploaded","validated"]'), github.event.inputs.verification_status || github.event.client_payload.verification_status) &&
-      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install openai
-      - name: Clean manufacturer tags
-        run: python clean_manufacturer_tags.py
 
   REINDEX-model:
     runs-on: ubuntu-latest
@@ -142,3 +122,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
       - run: python3 reindex.py
+
+  CLEAN_MANUFACTURER_TAGS:
+    name: Public Uploaded/Validated Assets -> clean manufacturer tags
+    runs-on: ubuntu-latest
+    if: contains(fromJSON('["model","material","scene","printable"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
+      contains(fromJSON('["uploaded","validated"]'), github.event.inputs.verification_status || github.event.client_payload.verification_status) &&
+      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install openai
+      - name: Clean manufacturer tags
+        run: python clean_manufacturer_tags.py
