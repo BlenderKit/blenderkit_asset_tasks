@@ -76,6 +76,7 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         # get asset's blender upload version
         source_ver = str(asset_data.get("sourceAppVersion", "0.0"))
         asset_blender_version = utils.version_to_float(source_ver)
+
         logger.debug("Asset Blender version (metadata): %s -> %s", source_ver, asset_blender_version)
 
         asset_blender_version_from_blend = get_blender_version_from_blend(file_path) if file_path else "0.0"
@@ -86,6 +87,11 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         logger.debug("Asset Blender version (picked): %s", asset_blender_version)
 
         blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
+
+        if asset_blender_version < 1.0:
+            asset_blender_version = 3.0  # default to 3.0 if not set
+            logger.debug("Defaulting asset Blender version to %s", asset_blender_version)
+
     if binary_type == "NEWEST":
         blender_target = max(blenders, key=lambda x: x[0])
 
