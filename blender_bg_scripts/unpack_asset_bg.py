@@ -24,7 +24,7 @@ parent_path = os.path.join(dir_path, os.path.pardir)
 if parent_path not in sys.path:
     sys.path.append(parent_path)
 
-from blenderkit_server_utils import paths, log  # isort: skip  # noqa: E402
+from blenderkit_server_utils import paths, log, utils  # isort: skip  # noqa: E402
 
 
 logger = log.create_logger(__name__)
@@ -100,6 +100,10 @@ def _ensure_tex_dir(asset_data: dict[str, Any], resolution: str) -> str:
 def _unpack_images_to(tex_dir_path: str, resolution: str) -> list[str]:
     """Write packed images to the target directory and repath image datablocks."""
     unpacked_files = []
+    # we need to monitor disk space on git specially for large textures
+    # current scene path
+    scene_dir = os.path.dirname(bpy.path.abspath(bpy.data.filepath))
+    logger.info("Disk space before unpacking: %sGB", utils.get_disk_free_space_gb(scene_dir))
     try:
         for image in bpy.data.images:
             if image.name == "Render Result":
@@ -126,6 +130,8 @@ def _unpack_images_to(tex_dir_path: str, resolution: str) -> list[str]:
             image.filepath_raw = fp
 
             unpacked_files.append(fp)
+
+            logger.info("Disk space after unpacking %s: %sGB", image.name, utils.get_disk_free_space_gb(scene_dir))
     except Exception:
         logger.exception("Error unpacking images")
     return unpacked_files
