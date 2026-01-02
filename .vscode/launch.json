@@ -289,7 +289,30 @@
                 // "ASSET_BASE_ID": "066aa61d-6eb9-4e9a-8188-8f34c0b4d030"  // HDR
 
                 // Nandu faulty hdri  ?
-                "ASSET_BASE_ID": "dc76c756-7cd2-46ce-91ab-c9a5444ddb98" // asset_type:hdr   Copy search term
+                "ASSET_BASE_ID": "dc76c756-7cd2-46ce-91ab-c9a5444ddb98" // asset_type:hdr
+            }
+
+        },
+
+        {
+            "name": "[TASK] Validate resolution MODEL",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_resolutions.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset
+                // "ASSET_BASE_ID": "066aa61d-6eb9-4e9a-8188-8f34c0b4d030"  // HDR
+
+                // tower with loads of textures ?
+                "ASSET_BASE_ID": "4074e4b5-6048-4931-a37d-294fe607af30" // asset_type:model
             }
 
         },

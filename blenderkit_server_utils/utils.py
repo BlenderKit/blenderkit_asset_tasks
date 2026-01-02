@@ -442,7 +442,7 @@ def cleanup_temp(temp_folder: str) -> None:
 # endregion cleanup
 
 
-# region BLender version helpers
+# region Blender version helpers
 
 # Version parsing helpers
 MIN_PARTS_FOR_MINOR: int = 2
@@ -543,4 +543,26 @@ def get_latest_blender_binary_path(blenders_path: str | None) -> str | None:
     return out
 
 
-# endregion BLender version helpers
+# endregion Blender version helpers
+
+
+# region disk monitor
+
+
+def get_disk_free_space_gb(folder_path: str, precision: int = 2) -> float:
+    """Get the free disk space in gigabytes for the given folder path.
+
+    Args:
+        folder_path: The path to the folder to check.
+        precision: Number of decimal places to round the result.
+
+    Returns:
+        Free disk space in gigabytes.
+    """
+    _total, _used, free = shutil.disk_usage(folder_path)
+    free_gb = free / (1024**3)  # Convert bytes to gigabytes
+    free_gb = round(free_gb, precision)
+    return free_gb
+
+
+# endregion disk monitor
