@@ -36,7 +36,7 @@ jobs:
     if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
         (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
         (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: blenderkit/headless-blender:multi-version
+    container: ghcr.io/blenderkit/headless-blender:blender-4.2 # LATEST STABLE
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -45,6 +45,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install -r requirements.txt
+      - name: Set BLENDER_PATH
+        run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
       - name: Generate resolutions
         run: python3 generate_resolutions.py
 
