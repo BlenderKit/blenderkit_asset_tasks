@@ -559,10 +559,14 @@ def get_disk_free_space_gb(folder_path: str, precision: int = 2) -> float:
     Returns:
         Free disk space in gigabytes.
     """
-    _total, _used, free = shutil.disk_usage(folder_path)
-    free_gb = free / (1024**3)  # Convert bytes to gigabytes
-    free_gb = round(free_gb, precision)
-    return free_gb
-
+    #fails nicely
+    try:
+        _total, _used, free = shutil.disk_usage(folder_path)
+        free_gb = free / (1024**3)  # Convert bytes to gigabytes
+        free_gb = round(free_gb, precision)
+    except FileNotFoundError:
+        return 0.0
+    else:
+        return free_gb
 
 # endregion disk monitor
