@@ -97,11 +97,6 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         logger.debug("Asset Blender version (picked): %s", asset_blender_version)
 
         blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
-
-        if asset_blender_version < 1.0:
-            asset_blender_version = 5.0  # default to 5.0 if not set
-            logger.debug("Defaulting asset Blender version to %s", asset_blender_version)
-
     if binary_type == "NEWEST":
         blender_target = max(blenders, key=lambda x: x[0])
 
