@@ -361,6 +361,24 @@
 
         },
 
+        {
+            "name": "[FIX] Reindex manually (basic)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/reindex.py",
+            "envFile": "${workspaceFolder}/.env",
+            "cwd": "${workspaceFolder}/",
+            "env": {
+                "DEBUG_LOGGGING": "1",
+                "ASSET_TYPE": "model",
+                "SKIP_UPDATE": "True",
+                // something that does not reindex on git ?
+                // "ASSET_BASE_ID": "d6b2f734-28eb-43c5-ab37-e6e13bc11c62" // asset_type:model
+                "ASSET_BASE_ID": "4074e4b5-6048-4931-a37d-294fe607af30"
+            },
+            "console": "integratedTerminal"
+        },
 
         {
             "name": "[GHA] Dispatch webhook_process_asset (basic)",

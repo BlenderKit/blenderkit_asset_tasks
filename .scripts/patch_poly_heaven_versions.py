@@ -10,6 +10,8 @@ We need to download the file for that.
 
 from __future__ import annotations
 
+import os
+import shutil
 import tempfile
 from typing import Any
 
@@ -33,7 +35,7 @@ VERSION_PARAM: str = "sourceAppVersion"
 def build_params() -> dict[str, Any]:
     """Build search parameters based on environment variables."""
     return {
-        "author_id": "118455", # poly heaven ID
+        "author_id": "118455",  # poly heaven ID
         "order": "-created",
         "asset_type": "model,scene,material,hdr,printable",
         "verification_status": "validated,uploaded",
@@ -49,7 +51,7 @@ def path_hdr(asset_data: dict, api_key: str) -> None:
     """
     asset_id = asset_data["id"]
 
-    # get data and check if at least 4.5
+    # get data and check if at least 3.0
     asset_ver_source = asset_data.get("sourceAppVersion", "1.0")
     asset_ver_float = float(asset_ver_source)
     if asset_ver_float >= MINIMUM_HDR_VERSION:
@@ -60,11 +62,10 @@ def path_hdr(asset_data: dict, api_key: str) -> None:
 
     logger.info("Patching asset %s (%s)", asset_data.get("name"), asset_id)
 
-    upload.patch_individual_parameter(
+    upload.patch_asset_metadata(
         asset_id=asset_data["id"],
-        param_name=VERSION_PARAM,
-        param_value=asset_ver_source,
         api_key=api_key,
+        data={VERSION_PARAM: asset_ver_source},
     )
 
 
@@ -98,7 +99,7 @@ def path_scene(asset_data: dict, api_key: str) -> None:
 
     # get data and check if at least 4.5
     asset_ver_source = asset_data.get("sourceAppVersion", "1.0")
-    asset_ver_float = float(asset_ver_source)
+    asset_ver_float = float(asset_ver_source.split(".")[0] + "." + asset_ver_source.split(".")[1])
     if asset_ver_float >= MINIMUM_VERSION:
         return
 
@@ -114,6 +115,9 @@ def path_scene(asset_data: dict, api_key: str) -> None:
     # get version
     head_version = read_header.detect_blender_version(ass_path)
 
+    # remove folder
+    shutil.rmtree(os.path.dirname(ass_path))
+
     logger.info("Header version detected: %s", head_version)
 
     if not head_version:
@@ -121,12 +125,19 @@ def path_scene(asset_data: dict, api_key: str) -> None:
 
     head_version = head_version["version"]
 
-    upload.patch_individual_parameter(
+    upload.patch_asset_metadata(
         asset_id=asset_data["id"],
-        param_name=VERSION_PARAM,
-        param_value=head_version,
         api_key=api_key,
+        data={VERSION_PARAM: asset_ver_source},
     )
+
+
+def _quick_version_compare(v1_str, min_v_str):
+    # convert to version tuples
+    v1_tuple = tuple(map(int, str(v1_str).split(".")))
+    min_tuple = tuple(map(int, str(min_v_str).split(".")))
+    return v1_tuple >= min_tuple
+
 
 def main() -> None:
     """Search only assets and log results."""
@@ -138,14 +149,18 @@ def main() -> None:
         max_results=config.MAX_ASSET_COUNT,
         api_key=config.BLENDERKIT_API_KEY,
     )
-    logger.info("Found %s assets", len(assets))
+    # filter assets with version bigger then min version
+    assets = [
+        ass for ass in assets if not _quick_version_compare(ass.get("sourceAppVersion", "1.0"), MINIMUM_HDR_VERSION)
+    ]
+    amount = len(assets)
+    logger.info("Found %s assets", amount)
     for i, asset in enumerate(assets):
-        logger.info("%s %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"))
+        logger.info("%s/%s %s ||| %s", i + 1, amount, asset.get("name"), asset.get("assetType"))
         if asset.get("assetType") in {"hdr"}:
             path_hdr(asset, api_key=config.BLENDERKIT_API_KEY)
         else:
             path_scene(asset, api_key=config.BLENDERKIT_API_KEY)
-            return
 
 
 if __name__ == "__main__":
