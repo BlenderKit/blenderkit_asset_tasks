@@ -35,7 +35,7 @@ VERSION_PARAM: str = "sourceAppVersion"
 def build_params() -> dict[str, Any]:
     """Build search parameters based on environment variables."""
     return {
-        "author_id": "118455", # poly heaven ID
+        "author_id": "118455",  # poly heaven ID
         "order": "-created",
         "asset_type": "model,scene,material,hdr,printable",
         "verification_status": "validated,uploaded",
@@ -61,7 +61,6 @@ def path_hdr(asset_data: dict, api_key: str) -> None:
     asset_ver_source = str(MINIMUM_HDR_VERSION)
 
     logger.info("Patching asset %s (%s)", asset_data.get("name"), asset_id)
-
 
     upload.patch_asset_metadata(
         asset_id=asset_data["id"],
@@ -132,11 +131,13 @@ def path_scene(asset_data: dict, api_key: str) -> None:
         data={VERSION_PARAM: asset_ver_source},
     )
 
+
 def _quick_version_compare(v1_str, min_v_str):
     # convert to version tuples
     v1_tuple = tuple(map(int, str(v1_str).split(".")))
     min_tuple = tuple(map(int, str(min_v_str).split(".")))
-    return (v1_tuple >= min_tuple)
+    return v1_tuple >= min_tuple
+
 
 def main() -> None:
     """Search only assets and log results."""
@@ -149,7 +150,9 @@ def main() -> None:
         api_key=config.BLENDERKIT_API_KEY,
     )
     # filter assets with version bigger then min version
-    assets = [ass for ass in assets if not _quick_version_compare(ass.get("sourceAppVersion", "1.0"), MINIMUM_HDR_VERSION)]
+    assets = [
+        ass for ass in assets if not _quick_version_compare(ass.get("sourceAppVersion", "1.0"), MINIMUM_HDR_VERSION)
+    ]
     amount = len(assets)
     logger.info("Found %s assets", amount)
     for i, asset in enumerate(assets):

@@ -105,8 +105,7 @@ def get_search_paginated(  # noqa: C901, PLR0912, PLR0913, PLR0915
         exceptions.SearchRequestRepeatError: If all retry attempts fail to get a valid response.
         exceptions.SearchResultLimitError: If early_exit is True and the search hits the max result limit.
     """
-    # headers = utils.get_headers(api_key)
-    headers: dict[str, str] = {"accept": "application/json",}
+    headers = utils.get_headers(api_key)
     base_url = paths.get_api_url() + "/search/"
     # Construct query string
     request_url = base_url + "?query=" + "".join(f"+{k}:{v}" for k, v in parameters.items())
