@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from . import config, log, paths, utils
+from . import config, log, paths, read_header, utils
 
 logger = log.create_logger(__name__)
 
@@ -35,6 +35,16 @@ def get_blender_version_from_blend(blend_file_path: str) -> str:
 
     Returns 'major.minor' as a string. Falls back to '2.93' if not detected.
     """
+    # we have slightly more advanced method in read_header, which supports compressed blends
+    version_data = None
+    try:
+        version_data = read_header.detect_blender_version(blend_file_path)
+    except Exception:
+        logger.exception("Failed to detect Blender version from blend header.")
+
+    if version_data and version_data["version"]:
+        return version_data
+
     with open(blend_file_path, "rb") as blend_file:
         header = blend_file.read(24)
         if header[0:7] == b"BLENDER":
@@ -89,7 +99,7 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
 
         if asset_blender_version < 1.0:
-            asset_blender_version = 3.0  # default to 3.0 if not set
+            asset_blender_version = 5.0  # default to 5.0 if not set
             logger.debug("Defaulting asset Blender version to %s", asset_blender_version)
 
     if binary_type == "NEWEST":
