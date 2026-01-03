@@ -7,6 +7,7 @@ as "version ID".
 
 from __future__ import annotations
 
+import platform
 from typing import Any
 
 import requests
@@ -44,7 +45,7 @@ def _build_session() -> requests.Session:
     return session
 
 
-def get_asset_id(server: str, asset_base_id: str) -> str:
+def get_asset_id(server: str, asset_base_id: str, api_key: str = "") -> str:
     """Get asset_id.
 
     (in admin also presented as 'version ID', in API as 'id') for the asset
@@ -53,6 +54,7 @@ def get_asset_id(server: str, asset_base_id: str) -> str:
     Args:
         server: BlenderKit server URL.
         asset_base_id: Asset base ID.
+        api_key: API key for authentication (optional).
 
     Raises:
         ValueError: If the asset ID cannot be found.
@@ -61,10 +63,11 @@ def get_asset_id(server: str, asset_base_id: str) -> str:
     Returns:
         Asset ID (version ID).
     """
+    headers = utils.get_headers(api_key)
     url = f"{server}/api/v1/search?query=asset_base_id:{asset_base_id}"
+    logger.debug("Fetching asset ID for asset_base_id %s from\n %s", asset_base_id, url)
     session = _build_session()
-    headers: dict[str, str] = {"Accept": "application/json"}
-    resp = session.get(url=url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    resp = session.get(url=url, stream=True, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     try:
         resp.raise_for_status()
     except requests.RequestException:
@@ -76,7 +79,6 @@ def get_asset_id(server: str, asset_base_id: str) -> str:
     except ValueError:
         logger.exception("Invalid JSON response when fetching asset ID for %s from %s", asset_base_id, url)
         raise
-
     count = resp_json.get("count")
     if count != 1:
         logger.error("Unexpected result count for %s: %s", asset_base_id, count)
@@ -132,5 +134,9 @@ def trigger_reindex(server: str, api_key: str, asset_id: str) -> None:
 
 
 if __name__ == "__main__":
-    asset_id = get_asset_id(config.SERVER, config.ASSET_BASE_ID)
+    asset_id = get_asset_id(
+        config.SERVER,
+        asset_base_id=config.ASSET_BASE_ID,
+        api_key=config.BLENDERKIT_API_KEY,
+    )
     trigger_reindex(config.SERVER, config.BLENDERKIT_API_KEY, asset_id)
