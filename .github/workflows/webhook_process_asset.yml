@@ -9,23 +9,35 @@ on:
         required: true
       asset_type:
         description: 'Asset Type'
+        default: 'model'
         required: true
+        type: choice
+        options:
+        - model
+        - material
+        - scene
+        - hdr
+        - brush
+        - nodegroup
+        - printable
       verification_status:
         description: 'Verification Status of the Asset'
+        default: 'validated'
       is_private:
         description: 'Asset Is Private'
         type: boolean
       source_app_version_xy:
-        description: 'Source app version X.Y'
-        required: true
+        description: 'Source app version X.Y (optional, defaults to latest stable)'
+        default: '5.0'
+        required: false
 
   repository_dispatch:
     types: [process-asset]
 
 env:
   BLENDERKIT_SERVER: 'https://www.blenderkit.com'
-  BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
-  ASSET_BASE_ID: '${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}'
+  BLENDERKIT_API_KEY: ${{ secrets.BLENDERKIT_API_KEY }}
+  ASSET_BASE_ID: ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
 
 jobs:
   RESOLUTIONS:
@@ -36,7 +48,8 @@ jobs:
     if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
         (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
         (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-5.0 # LATEST STABLE
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
+
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -56,7 +69,7 @@ jobs:
     if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-5.0 # LATEST STABLE
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -76,7 +89,7 @@ jobs:
     if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-5.0 # LATEST STABLE
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
