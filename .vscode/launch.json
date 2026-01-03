@@ -394,7 +394,7 @@
                 "ASSET_BASE_ID": "replace-me-asset-id",
                 "VERIFICATION_STATUS": "validated",
                 "IS_PRIVATE": "false",
-                "SOURCE_APP_VERSION_XY": "4.3",
+                "SOURCE_APP_VERSION_XY": "5.0",
                 "SKIP_UPDATE": "True"
             },
             "console": "integratedTerminal"

@@ -48,7 +48,7 @@ jobs:
     if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
         (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
         (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || '5.0'}}
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
 
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +69,7 @@ jobs:
     if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || '5.0'}} # defaults to latest stable if unset
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
@@ -89,7 +89,7 @@ jobs:
     if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
       (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
       (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || '5.0'}}
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
