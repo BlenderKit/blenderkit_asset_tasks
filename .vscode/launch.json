@@ -148,6 +148,7 @@
                 "MAX_ASSET_COUNT": "3",
                 "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset "ASSET_BASE_ID"
+                 "ASSET_BASE_ID": "d297fac0-4bad-4863-8ebf-2059eea13e1d"  // model
             }
         },
 
@@ -169,6 +170,7 @@
                 "MAX_ASSET_COUNT": "3",
                 "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset "ASSET_BASE_ID"
+                 "ASSET_BASE_ID": "d297fac0-4bad-4863-8ebf-2059eea13e1d"  // model
             }
         },
 

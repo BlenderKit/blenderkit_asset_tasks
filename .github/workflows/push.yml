@@ -14,7 +14,7 @@ env:
 jobs:
   RESOLUTIONS:
     runs-on: ubuntu-latest
-    container: blenderkit/headless-blender:multi-version
+    container: ghcr.io/blenderkit/headless-blender:blender-5.0 # LATEST STABLE
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release

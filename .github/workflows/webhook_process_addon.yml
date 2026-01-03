@@ -30,7 +30,7 @@ jobs:
     strategy:
       matrix:
         version: [4.2, 4.3, 4.4, 4.5, 5.0]
-    container: blenderkit/headless-blender:blender-${{ matrix.version }}
+    container: ghcr.io/blenderkit/headless-blender:blender-${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
