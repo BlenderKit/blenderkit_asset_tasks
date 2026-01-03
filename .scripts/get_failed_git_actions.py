@@ -29,7 +29,7 @@ def failed_runs():
         url = resp.links.get("next", {}).get("url")
 
 
-def rerun(run_id, *, failed_only=True):
+def rerun(run_id:str, *, failed_only:bool=True):
     """Rerun a workflow run by its ID.
 
     Args:
