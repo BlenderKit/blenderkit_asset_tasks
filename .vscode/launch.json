@@ -173,7 +173,7 @@
                 "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset "ASSET_BASE_ID"
                  // sci fi pyramid
-                 "ASSET_BASE_ID": "ea170c62-c925-4276-9c84-38db3912198e"  // model
+                 "ASSET_BASE_ID": "1a086253-4479-47b0-9a30-a0745c9b4620"  // model
 
             }
         },

@@ -508,6 +508,12 @@ def connect_baked_textures(obj: bpy.types.Object) -> None:
         if not img_node.image.packed_file:
             img_node.image.pack()
 
+        # for debug export the baked texture as a copy next to the blend file
+        if LOCAL_DEBUG:
+            img_node.image.filepath_raw = bpy.path.abspath(f"//baked_textures/{img_node.image.name}.png")
+            img_node.image.file_format = "PNG"
+            img_node.image.save()
+
     logger.info("Reconnected baked textures for object '%s'", obj.name)
 
 
@@ -591,28 +597,13 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:
         logger.error("Error during baking.: %s", e)  # noqa: TRY400
     logger.info("Baked procedural textures: %s", procedural_materials)
 
-    # for debug export the baked textures as copies next to the blend file
-    # otherwise while baking keep all material live
-    for mat in procedural_materials:
-        nodes = mat.node_tree.nodes
-        img_node = next(
-            (node for node in nodes if node.type == "TEX_IMAGE" and node.image.name == f"{obj.name}_{mat.name}_Bake"),
-            None,
-        )
-        if not img_node:
-            continue
-
-        # for debug export the baked texture as a copy next to the blend file
-        if LOCAL_DEBUG:
-            img_node.image.filepath_raw = bpy.path.abspath(f"//baked_textures/{img_node.image.name}.png")
-            img_node.image.file_format = "PNG"
-            img_node.image.save()
-
-        logger.info("Packed image '%s' into the Blender project.", img_node.image.name)
+    connect_baked_textures(obj)
+    make_uv_active(obj, UV_NAME)
+    make_active_uv_first(obj)
     logger.info("Baked textures assigned")
 
 
-def generate_gltf(json_result_path: str, target_format: str) -> None:  # noqa: C901
+def generate_gltf(json_result_path: str, target_format: str) -> None:
     """Generate a GLB file for an asset and write results metadata.
 
     Args:
@@ -636,15 +627,6 @@ def generate_gltf(json_result_path: str, target_format: str) -> None:  # noqa: C
             continue
         disable_subsurf_modifiers(obj)
         bake_all_procedural_textures(obj)
-
-    # after baking reconnect  baked images to shaders
-    for i, obj in enumerate(bpy.data.objects):
-        logger.info("Post-bake process object %d: %s", i, obj.name)
-        if obj.type != "MESH":
-            continue
-        connect_baked_textures(obj)
-        make_uv_active(obj, UV_NAME)
-        make_active_uv_first(obj)
 
     # save duplicate of the scene for debugging , with all the baking setups
     if LOCAL_DEBUG:
