@@ -137,6 +137,7 @@ def make_active_uv_first(obj: bpy.types.Object) -> None:
     logger.info("UVs after order: %s (%s is active)", list(uvs), uvs.active.name)
 
 
+
 def is_procedural_material(mat: bpy.types.Material) -> bool:
     """Determine if a material is procedural.
 
@@ -149,12 +150,55 @@ def is_procedural_material(mat: bpy.types.Material) -> bool:
     Hint:
         Procedural is defined as using nodes without any Image Texture nodes.
     """
-    if not mat.use_nodes:
+    if not mat.use_nodes:  # noqa: SIM103
         return False
-    for node in mat.node_tree.nodes:  # noqa: SIM110
-        if node.type == "TEX_IMAGE":
-            return False
+    # all shaders are procedural, if they heave more than texture
     return True
+    # > for node in mat.node_tree.nodes:
+    # >     if node.type == "TEX_IMAGE":
+    # >         return False
+    # > return True
+
+
+def _enable_bake_color_pass(scene: bpy.types.Scene) -> None:
+    """Ensures the bake color pass flag is enabled regardless of Blender version.
+
+    Args:
+        scene: Blender scene to adjust bake settings for.
+    """
+    cycles_settings = getattr(scene, "cycles", None)
+    if cycles_settings and hasattr(cycles_settings, "use_pass_color"):
+        logger.info("Enabling bake color pass in Cycles settings")
+        cycles_settings.use_pass_color = True
+        return
+
+    bake_settings = getattr(scene.render, "bake", None)
+    if bake_settings and hasattr(bake_settings, "use_pass_color"):
+        logger.info("Enabling bake color pass in Render Bake settings")
+        bake_settings.use_pass_color = True
+        return
+
+    logger.warning("Cannot enable bake color pass; API attribute missing")
+
+
+def _set_bake_margin(scene: bpy.types.Scene, margin: int) -> None:
+    """Set bake margin in a version-tolerant way.
+
+    Args:
+        scene: Blender scene to adjust bake settings for.
+        margin: Margin value to set for baking.
+    """
+    cycles_settings = getattr(scene, "cycles", None)
+    if cycles_settings and hasattr(cycles_settings, "bake_margin"):
+        cycles_settings.bake_margin = margin
+        return
+
+    bake_settings = getattr(scene.render, "bake", None)
+    if bake_settings and hasattr(bake_settings, "margin"):
+        bake_settings.margin = margin
+        return
+
+    logger.warning("Cannot set bake margin; API attribute missing")
 
 
 def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901
@@ -172,10 +216,14 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901
         return
 
     # Configure bake settings
-    bpy.context.scene.render.engine = "CYCLES"
-    bpy.context.scene.cycles.bake_type = "DIFFUSE"
-    bpy.context.scene.cycles.use_pass_color = True
-    bpy.context.scene.cycles.bake_margin = 16
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.bake_type = "DIFFUSE"
+    _enable_bake_color_pass(scene)
+    _set_bake_margin(scene, 16)
+    # set some render limit , some light passes take ages
+    scene.cycles.samples = 16
+    scene.cycles.use_denoising = False
 
     # Select the object and make it active
     bpy.ops.object.select_all(action="DESELECT")
@@ -188,8 +236,13 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901
 
     # Prepare materials for baking
     for mat in procedural_materials:
-        if not mat.use_nodes:
-            mat.use_nodes = True
+        try:
+            if not mat.use_nodes:
+                # will be removed in ble6.0
+                mat.use_nodes = True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to enable nodes for material '%s': %s", mat.name, e)
+
         nodes = mat.node_tree.nodes
 
         # Create a new Image Texture node
@@ -208,6 +261,8 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901
         # Set the image as active for baking
         img_node.select = True
         mat.node_tree.nodes.active = img_node
+        # log resulting image path
+        logger.info("Prepared bake image '%s' for material '%s'", bake_image.name, mat.name)
 
     # Perform the bake
     try:
@@ -215,6 +270,7 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901
             type="DIFFUSE",
             pass_filter={"COLOR"},
             use_selected_to_active=False,
+            # > uv_layer="LightingUV",
             margin=16,
         )
     except Exception as e:  # noqa: BLE001
