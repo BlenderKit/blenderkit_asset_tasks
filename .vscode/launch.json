@@ -368,6 +368,28 @@
         },
 
         {
+            "name": "[TEST] Test Add-on",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/test_addon.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                // Requires BLENDERKIT_API_KEY, BLENDER_PATH, ASSET_BASE_ID to be present in the launch env or .env file.
+                // Set overrides here if you do not want to persist them in .env.
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+
+                // some addon
+                "ASSET_BASE_ID": "624848c3-08c0-438b-8177-a4bb8680e563"
+            }
+        },
+
+        {
             "name": "[FIX] Reindex manually (basic)",
             "type": "debugpy",
             "request": "launch",
