@@ -50,7 +50,7 @@ jobs:
   aggregate_results:
     name: Collect & Post Combined Results
     needs: test_addon_in_blender
-    if: always()
+    if: ${{ needs.test_addon_in_blender.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

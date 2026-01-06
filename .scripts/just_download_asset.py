@@ -60,7 +60,7 @@ def iterate_assets(
 
 def main() -> None:
     """Download only asset zip file to temp and return the path."""
-    asset_base_id = config.ASSET_BASE_ID
+    asset_base_id = "1a086253-4479-47b0-9a30-a0745c9b4620"#config.ASSET_BASE_ID
 
     params = {
         "asset_base_id": asset_base_id,

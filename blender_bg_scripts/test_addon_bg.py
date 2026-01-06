@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import traceback
 from typing import Any
 
 import addon_utils  # type: ignore
@@ -46,6 +47,10 @@ def install_addon(zip_path: str) -> str:
     except RuntimeError:
         logger.exception("Failed to install extension from %s", zip_path)
         return "Addon installation failed: RuntimeError"
+    except Exception:  # Blender's API may raise various exceptions here
+        logger.exception("Failed to install extension from %s", zip_path)
+        trace = traceback.format_exc()
+        return "Addon installation failed: traceback:\n" + trace
     return ""
 
 
@@ -64,7 +69,8 @@ def enable_addon(extension_id: str) -> str:
         module = addon_utils.enable(module_name, default_set=True, persistent=True, handle_error=None)
     except Exception:  # Blender's API may raise various exceptions here
         logger.exception("Failed to enable module %s", module_name)
-        return "Addon enabling failed: exception"
+        trace = traceback.format_exc()
+        return "Addon enabling failed: traceback:\n" + trace
     if module is None:
         return "Addon enabling failed: None module returned"
     return ""
@@ -85,7 +91,8 @@ def disable_addon(extension_id: str) -> str:
         addon_utils.disable(module_name, default_set=True, handle_error=None)
     except Exception:  # Blender's API may raise various exceptions here
         logger.exception("Failed to disable module %s", module_name)
-        return "Addon disabling failed: exception"
+        trace = traceback.format_exc()
+        return "Addon disabling failed: traceback:\n" + trace
     return ""
 
 
