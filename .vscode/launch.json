@@ -171,10 +171,15 @@
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
                 "MAX_ASSET_COUNT": "3",
                 "SKIP_UPDATE": "True",
-                 // optional, for testing a specific asset "ASSET_BASE_ID"
-                 // sci fi pyramid
-                 "ASSET_BASE_ID": "1a086253-4479-47b0-9a30-a0745c9b4620"  // model
+                // optional, for testing a specific asset "ASSET_BASE_ID"
+                //  bricks building [HEAVY model]
+                // "ASSET_BASE_ID": "5d91d222-0e1c-44bf-a921-7c5e790e5118"  // model
 
+                //  zen monk figure [LIGHT model]
+                "ASSET_BASE_ID": "4d557c1b-d3b7-4727-8190-0cd11ffdf0ef"  // model
+
+                // bronze_elephant_decimated
+                // "ASSET_BASE_ID": "fd7b271b-bb38-4984-b51a-c85287cd3913"  // material
             }
         },
 
@@ -270,8 +275,8 @@
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
                 "MAX_ASSET_COUNT": "3",
                 "SKIP_UPDATE": "True",
-                 // optional, for testing a specific asset
-                  // bronze_elephant_decimated
+                // optional, for testing a specific asset
+                // bronze_elephant_decimated
                 "ASSET_BASE_ID": "f2389247-c173-4a33-ae88-e4a2682cb91e"  // material
             }
 
@@ -365,6 +370,28 @@
                  // optional, for testing a specific asset "ASSET_BASE_ID"
             }
 
+        },
+
+        {
+            "name": "[TEST] Test Add-on",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/test_addon.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                // Requires BLENDERKIT_API_KEY, BLENDER_PATH, ASSET_BASE_ID to be present in the launch env or .env file.
+                // Set overrides here if you do not want to persist them in .env.
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+
+                // some addon
+                "ASSET_BASE_ID": "624848c3-08c0-438b-8177-a4bb8680e563"
+            }
         },
 
         {
