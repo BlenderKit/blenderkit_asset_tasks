@@ -120,8 +120,8 @@
                 "SKIP_UPDATE": "True",
                 // optional, for testing a specific asset "ASSET_BASE_ID"
 
-                // bronze_elephant_decimated
-                "ASSET_BASE_ID": "fd7b271b-bb38-4984-b51a-c85287cd3913"  // model
+                // Tin Can for soft drink
+                "ASSET_BASE_ID": "015b5602-77b6-4b02-92fb-4396c11a4082"  // model
 
                 // random cloud (real user asset) (should not be valid)
                 // "ASSET_BASE_ID": "ae84d6c2-3e77-4853-bd39-f35a4e277a99" //model

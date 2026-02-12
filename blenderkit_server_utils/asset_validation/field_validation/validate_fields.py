@@ -787,6 +787,7 @@ def _prepare_row(asset_data: Mapping[str, Any | None]) -> dict[str, str]:
     manufacturer = _sanitize_text(params.get("manufacturer", ""))  # type: ignore
     designer = _sanitize_text(params.get("designer", ""))  # type: ignore
     design_collection = _sanitize_text(params.get("designCollection", ""))  # type: ignore
+    design_variant = _sanitize_text(params.get("designVariant", ""))  # type: ignore
     design_year = _sanitize_text(params.get("designYear", ""))  # type: ignore
     tags_joined = _sanitize_tags_list(asset_data.get("tags", []))
     description = _sanitize_text(asset_data.get("description", ""))
@@ -803,6 +804,7 @@ def _prepare_row(asset_data: Mapping[str, Any | None]) -> dict[str, str]:
         "manufacturer": manufacturer,
         "designer": designer,
         "collection": design_collection,
+        "variant": design_variant,
         "year": design_year,
         "tags": tags_joined,
         "description": description,

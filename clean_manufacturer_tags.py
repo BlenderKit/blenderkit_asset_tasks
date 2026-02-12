@@ -39,13 +39,15 @@ PARAM_ACTOR: str = "validatedManufacturerActor"
 # manufacturer parameters, inside "dictParameters"
 MAN_PARAM_MANUFACTURER: str = "manufacturer"
 MAN_PARAM_DESIGNER: str = "designer"
-MAN_PARAM_COLLECTION: str = "collection"
-MAN_PARAM_YEAR: str = "year"
+MAN_PARAM_COLLECTION: str = "designCollection"
+MAN_PARAM_VARIANT: str = "designVariant"
+MAN_PARAM_YEAR: str = "designYear"
 
 ALL_MAN_PARAMS: list[str] = [
     MAN_PARAM_MANUFACTURER,
     MAN_PARAM_DESIGNER,
     MAN_PARAM_COLLECTION,
+    MAN_PARAM_VARIANT,
     MAN_PARAM_YEAR,
 ]
 
@@ -85,9 +87,25 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
     for man_param in ALL_MAN_PARAMS:
         captured_data[man_param] = asset_data.get("dictParameters", {}).get(man_param, "")
 
+    today = datetime_utils.today_date_iso()
+
     # skip as we have nothing to validate
+    # but still patch the validation date and bool to avoid retrying every time until we have data to validate
     if not any(captured_data.values()):
         logger.info("No manufacturer data to validate for '%s'", asset_data.get("name"))
+        if not SKIP_UPDATE:
+            upload.patch_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=PARAM_BOOL,
+                param_value="True",
+                api_key=api_key,
+            )
+            upload.patch_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=PARAM_DATE,
+                param_value=today,
+                api_key=api_key,
+            )
         return
 
     result = field_validation.validate_fields.validate(asset_data, use_ai=True)
@@ -96,7 +114,7 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
         return
     status, actor, reason = result
 
-    today = datetime_utils.today_date_iso()
+
 
     if SKIP_UPDATE:
         logger.info("SKIP_UPDATE is set, not patching the asset.")
