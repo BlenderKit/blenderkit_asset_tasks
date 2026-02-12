@@ -6,6 +6,7 @@ including convenience wrappers for parameters and metadata updates.
 
 import json
 import os
+import random
 import sys
 import time
 from collections.abc import Iterable, Iterator
@@ -23,6 +24,92 @@ HTTP_STATUS_SUCCESS_MAX = 250
 REQUEST_TIMEOUT_SECONDS = 30
 SUCCESS_STATUS_CODES = {200, 201}
 SUCCESS_STATUS_CODES_WITH_NO_CONTENT = {200, 201, 204}
+RATE_LIMIT_STATUS_CODE = 429
+RATE_LIMIT_MAX_RETRIES = 8
+RATE_LIMIT_BASE_BACKOFF_SECONDS = 5
+RATE_LIMIT_MIN_BACKOFF_SECONDS = 2
+RATE_LIMIT_MAX_BACKOFF_SECONDS = 60
+RATE_LIMIT_JITTER_MAX_SECONDS = 1
+
+
+def _get_retry_after_seconds(response: requests.Response) -> int | None:
+    """Parse a Retry-After header into seconds.
+
+    Args:
+        response: HTTP response object to inspect for retry headers.
+
+    Returns:
+        Number of seconds to wait before retrying, or None if not available.
+    """
+    retry_after_value = response.headers.get("Retry-After")
+    if not retry_after_value:
+        return None
+    try:
+        retry_after_seconds = int(retry_after_value)
+    except ValueError:
+        return None
+    return retry_after_seconds
+
+
+def _request_with_rate_limit_retry(
+    method: str,
+    url: str,
+    *,
+    max_retries: int = RATE_LIMIT_MAX_RETRIES,
+    base_backoff_seconds: int = RATE_LIMIT_BASE_BACKOFF_SECONDS,
+    max_backoff_seconds: int = RATE_LIMIT_MAX_BACKOFF_SECONDS,
+    **kwargs: Any,
+) -> requests.Response | None:
+    """Send a request and retry if rate limited.
+
+    Args:
+        method: HTTP method name (GET, POST, PATCH, PUT, DELETE).
+        url: Target URL for the request.
+        max_retries: Maximum number of retry attempts when rate limited.
+        base_backoff_seconds: Base delay for exponential backoff.
+        max_backoff_seconds: Maximum delay between retries.
+        **kwargs: Additional request arguments passed to requests.request.
+
+    Returns:
+        Response object if the request was sent successfully, otherwise None.
+    """
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = requests.request(method, url, **kwargs)  # noqa: S113
+        except requests.exceptions.RequestException:
+            logger.exception("Request failed for %s %s", method, url)
+            return None
+
+        if response.status_code != RATE_LIMIT_STATUS_CODE:
+            return response
+
+        if attempt > max_retries:
+            logger.warning("Rate limit retry budget exhausted for %s %s", method, url)
+            return response
+
+        retry_after_seconds = _get_retry_after_seconds(response)
+        if retry_after_seconds is None:
+            retry_after_seconds = min(
+                base_backoff_seconds * (2 ** (attempt - 1)),
+                max_backoff_seconds,
+            )
+        else:
+            retry_after_seconds = min(retry_after_seconds, max_backoff_seconds)
+
+        retry_after_seconds = max(retry_after_seconds, RATE_LIMIT_MIN_BACKOFF_SECONDS)
+        retry_after_seconds += random.uniform(0, RATE_LIMIT_JITTER_MAX_SECONDS)  # noqa: S311
+
+        logger.warning(
+            "Rate limited (429) for %s %s, retrying in %s seconds (attempt %s/%s)",
+            method,
+            url,
+            retry_after_seconds,
+            attempt,
+            max_retries,
+        )
+        time.sleep(retry_after_seconds)
 
 
 class UploadInChunks:
@@ -197,8 +284,15 @@ def get_individual_parameter(asset_id: str = "", param_name: str = "", api_key: 
     """
     url = f"{paths.get_api_url()}/assets/{asset_id}/parameter/{param_name}/"
     headers = utils.get_headers(api_key)
-    r = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)  # files = files,
-    parameter = r.json()
+    response = _request_with_rate_limit_retry(
+        "GET",
+        url,
+        headers=headers,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if response is None:
+        return {}
+    parameter = response.json()
     logger.debug("GET parameter url: %s", url)
     return parameter
 
@@ -225,16 +319,19 @@ def patch_individual_parameter(
     headers = utils.get_headers(api_key)
     metadata_dict = {"value": param_value}
     logger.debug("PATCH parameter url: %s", url)
-    r = requests.put(
+    response = _request_with_rate_limit_retry(
+        "PUT",
         url,
         json=metadata_dict,
         headers=headers,
         verify=True,
         timeout=REQUEST_TIMEOUT_SECONDS,
-    )  # files = files,
-    logger.debug("PATCH response text: %s", r.text)
-    logger.info("PATCH status code: %s", r.status_code)
-    ok = r.status_code in SUCCESS_STATUS_CODES
+    )
+    if response is None:
+        return False
+    logger.debug("PATCH response text: %s", response.text)
+    logger.info("PATCH status code: %s", response.status_code)
+    ok = response.status_code in SUCCESS_STATUS_CODES
     return ok
 
 
@@ -260,16 +357,19 @@ def delete_individual_parameter(
     headers = utils.get_headers(api_key)
     metadata_dict = {"value": param_value}
     logger.debug("DELETE parameter url: %s", url)
-    r = requests.delete(
+    response = _request_with_rate_limit_retry(
+        "DELETE",
         url,
         json=metadata_dict,
         headers=headers,
         verify=True,
         timeout=REQUEST_TIMEOUT_SECONDS,
-    )  # files = files,
-    logger.debug("DELETE response text: %s", r.text)
-    logger.info("DELETE status code: %s", r.status_code)
-    ok = r.status_code in SUCCESS_STATUS_CODES_WITH_NO_CONTENT
+    )
+    if response is None:
+        return False
+    logger.debug("DELETE response text: %s", response.text)
+    logger.info("DELETE status code: %s", response.status_code)
+    ok = response.status_code in SUCCESS_STATUS_CODES_WITH_NO_CONTENT
     return ok
 
 
@@ -282,18 +382,18 @@ def patch_asset_empty(asset_id: str, api_key: str):
     url = f"{paths.get_api_url()}/assets/{asset_id}/"
     headers = utils.get_headers(api_key)
     logger.info("Patching asset %s with empty data (reindex trigger)", asset_id)
-    try:
-        r = requests.patch(
-            url,
-            json=upload_data,
-            headers=headers,
-            verify=True,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )  # files = files,
-    except requests.exceptions.RequestException:
+    response = _request_with_rate_limit_retry(
+        "PATCH",
+        url,
+        json=upload_data,
+        headers=headers,
+        verify=True,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if response is None:
         logger.exception("Patch asset (empty) request failed for %s", asset_id)
         return {"CANCELLED"}
-    logger.info("Patch asset empty status code: %s", r.status_code)
+    logger.info("Patch asset empty status code: %s", response.status_code)
     logger.info("Patched asset %s with empty data", asset_id)
     return {"FINISHED"}
 
@@ -311,22 +411,21 @@ def upload_asset_metadata(upload_data: dict[str, Any], api_key: str):
     url = f"{paths.get_api_url()}/assets/"
     headers = utils.get_headers(api_key)
     logger.info("Uploading new asset metadata: %s", upload_data.get("displayName") or upload_data.get("name"))
-    try:
-        r = requests.post(
-            url,
-            json=upload_data,
-            headers=headers,
-            verify=True,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )  # files = files,
-    except requests.exceptions.RequestException:
+    response = _request_with_rate_limit_retry(
+        "POST",
+        url,
+        json=upload_data,
+        headers=headers,
+        verify=True,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if response is None:
         logger.exception("Upload asset metadata request failed")
         return {"CANCELLED"}
-    else:
-        logger.debug("Asset metadata creation response: %s", r.text)
-        result = r.json()
-        logger.info("Created asset metadata id=%s", result.get("id"))
-        return result
+    logger.debug("Asset metadata creation response: %s", response.text)
+    result = response.json()
+    logger.info("Created asset metadata id=%s", result.get("id"))
+    return result
 
 
 def patch_asset_metadata(asset_id: str, api_key: str, data: dict[str, Any] | None = None):
@@ -336,6 +435,9 @@ def patch_asset_metadata(asset_id: str, api_key: str, data: dict[str, Any] | Non
         asset_id: Asset identifier.
         api_key: BlenderKit API key.
         data: Partial metadata to patch.
+
+    Returns:
+        None
     """
     if data is None:
         data = {}
@@ -345,14 +447,18 @@ def patch_asset_metadata(asset_id: str, api_key: str, data: dict[str, Any] | Non
 
     url = f"{paths.get_api_url()}/assets/{asset_id}/"
     logger.debug("PATCH asset url: %s", url)
-    r = requests.patch(
+    response = _request_with_rate_limit_retry(
+        "PATCH",
         url,
         json=data,
         headers=headers,
         verify=True,
         timeout=REQUEST_TIMEOUT_SECONDS,
-    )  # files = files,
-    logger.debug("PATCH asset metadata response: %s", r.text)
+    )
+    if response is None:
+        logger.exception("Patch asset metadata request failed for %s", asset_id)
+        return
+    logger.debug("PATCH asset metadata response: %s", response.text)
 
 
 def mark_for_thumbnail(  # noqa: C901, PLR0912, PLR0913

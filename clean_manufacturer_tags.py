@@ -40,7 +40,7 @@ PARAM_ACTOR: str = "validatedManufacturerActor"
 MAN_PARAM_MANUFACTURER: str = "manufacturer"
 MAN_PARAM_DESIGNER: str = "designer"
 MAN_PARAM_COLLECTION: str = "designCollection"
-MAN_PARAM_VARIANT: str = "designVariant"
+MAN_PARAM_VARIANT: str = "designVariant"  # should we permit this ?
 MAN_PARAM_YEAR: str = "designYear"
 
 ALL_MAN_PARAMS: list[str] = [
@@ -90,7 +90,6 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
     today = datetime_utils.today_date_iso()
 
     # skip as we have nothing to validate
-    # but still patch the validation date and bool to avoid retrying every time until we have data to validate
     if not any(captured_data.values()):
         logger.info("No manufacturer data to validate for '%s'", asset_data.get("name"))
         if not SKIP_UPDATE:
@@ -114,12 +113,23 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
         return
     status, actor, reason = result
 
-
-
     if SKIP_UPDATE:
         logger.info("SKIP_UPDATE is set, not patching the asset.")
         logger.debug("Validation result: %s | %s | %s", asset_data.get("id"), status, reason)
         return
+
+    # start with cleaning if we have invalid data,
+    # to avoid confusion with the validation result parameters
+    # and to avoid rate limit issues with multiple patch calls if we do it after storing the validation result
+    if not status:
+        # remove invalid manufacturer data
+        # we clear all of them to be safe
+        for man_param in ALL_MAN_PARAMS:
+            upload.delete_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=man_param,
+                api_key=api_key,
+            )
 
     # store our validation result
     upload.patch_individual_parameter(
@@ -154,16 +164,6 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
         param_value=actor,
         api_key=api_key,
     )
-
-    if not status:
-        # remove invalid manufacturer data
-        # we clear all of them to be safe
-        for man_param in ALL_MAN_PARAMS:
-            upload.delete_individual_parameter(
-                asset_id=asset_data["id"],
-                param_name=man_param,
-                api_key=api_key,
-            )
 
 
 def iterate_assets(
