@@ -6,6 +6,7 @@ including convenience wrappers for parameters and metadata updates.
 
 import json
 import os
+import random
 import sys
 import time
 from collections.abc import Iterable, Iterator
@@ -24,9 +25,11 @@ REQUEST_TIMEOUT_SECONDS = 30
 SUCCESS_STATUS_CODES = {200, 201}
 SUCCESS_STATUS_CODES_WITH_NO_CONTENT = {200, 201, 204}
 RATE_LIMIT_STATUS_CODE = 429
-RATE_LIMIT_MAX_RETRIES = 5
+RATE_LIMIT_MAX_RETRIES = 8
 RATE_LIMIT_BASE_BACKOFF_SECONDS = 5
+RATE_LIMIT_MIN_BACKOFF_SECONDS = 2
 RATE_LIMIT_MAX_BACKOFF_SECONDS = 60
+RATE_LIMIT_JITTER_MAX_SECONDS = 1
 
 
 def _get_retry_after_seconds(response: requests.Response) -> int | None:
@@ -92,6 +95,11 @@ def _request_with_rate_limit_retry(
                 base_backoff_seconds * (2 ** (attempt - 1)),
                 max_backoff_seconds,
             )
+        else:
+            retry_after_seconds = min(retry_after_seconds, max_backoff_seconds)
+
+        retry_after_seconds = max(retry_after_seconds, RATE_LIMIT_MIN_BACKOFF_SECONDS)
+        retry_after_seconds += random.uniform(0, RATE_LIMIT_JITTER_MAX_SECONDS)  # noqa: S311
 
         logger.warning(
             "Rate limited (429) for %s %s, retrying in %s seconds (attempt %s/%s)",
