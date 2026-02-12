@@ -74,7 +74,7 @@ def _request_with_rate_limit_retry(
     while True:
         attempt += 1
         try:
-            response = requests.request(method, url, **kwargs)
+            response = requests.request(method, url, **kwargs)  # noqa: S113
         except requests.exceptions.RequestException:
             logger.exception("Request failed for %s %s", method, url)
             return None
