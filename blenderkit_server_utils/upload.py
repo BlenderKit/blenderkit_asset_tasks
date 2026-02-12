@@ -435,6 +435,9 @@ def patch_asset_metadata(asset_id: str, api_key: str, data: dict[str, Any] | Non
         asset_id: Asset identifier.
         api_key: BlenderKit API key.
         data: Partial metadata to patch.
+
+    Returns:
+        None
     """
     if data is None:
         data = {}
