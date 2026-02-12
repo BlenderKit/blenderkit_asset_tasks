@@ -40,7 +40,7 @@ PARAM_ACTOR: str = "validatedManufacturerActor"
 MAN_PARAM_MANUFACTURER: str = "manufacturer"
 MAN_PARAM_DESIGNER: str = "designer"
 MAN_PARAM_COLLECTION: str = "designCollection"
-MAN_PARAM_VARIANT: str = "designVariant" # should we permit this ?
+MAN_PARAM_VARIANT: str = "designVariant"  # should we permit this ?
 MAN_PARAM_YEAR: str = "designYear"
 
 ALL_MAN_PARAMS: list[str] = [
@@ -90,7 +90,6 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
     today = datetime_utils.today_date_iso()
 
     # skip as we have nothing to validate
-    # but still patch the validation date and bool to avoid retrying every time until we have data to validate
     if not any(captured_data.values()):
         logger.info("No manufacturer data to validate for '%s'", asset_data.get("name"))
         if not SKIP_UPDATE:
@@ -113,8 +112,6 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
         logger.info("Field validator failed successfully for '%s'", asset_data.get("name"))
         return
     status, actor, reason = result
-
-
 
     if SKIP_UPDATE:
         logger.info("SKIP_UPDATE is set, not patching the asset.")
