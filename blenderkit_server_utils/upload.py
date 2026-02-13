@@ -330,7 +330,7 @@ def patch_individual_parameter(
     if response is None:
         return False
     logger.debug("PATCH response text: %s", response.text)
-    logger.info("PATCH status code: %s", response.status_code)
+    logger.debug("PATCH status code: %s", response.status_code)
     ok = response.status_code in SUCCESS_STATUS_CODES
     return ok
 
@@ -368,7 +368,7 @@ def delete_individual_parameter(
     if response is None:
         return False
     logger.debug("DELETE response text: %s", response.text)
-    logger.info("DELETE status code: %s", response.status_code)
+    logger.debug("DELETE status code: %s", response.status_code)
     ok = response.status_code in SUCCESS_STATUS_CODES_WITH_NO_CONTENT
     return ok
 
@@ -393,8 +393,8 @@ def patch_asset_empty(asset_id: str, api_key: str):
     if response is None:
         logger.exception("Patch asset (empty) request failed for %s", asset_id)
         return {"CANCELLED"}
-    logger.info("Patch asset empty status code: %s", response.status_code)
-    logger.info("Patched asset %s with empty data", asset_id)
+    logger.debug("Patch asset empty status code: %s", response.status_code)
+    logger.debug("Patched asset %s with empty data", asset_id)
     return {"FINISHED"}
 
 
@@ -424,7 +424,7 @@ def upload_asset_metadata(upload_data: dict[str, Any], api_key: str):
         return {"CANCELLED"}
     logger.debug("Asset metadata creation response: %s", response.text)
     result = response.json()
-    logger.info("Created asset metadata id=%s", result.get("id"))
+    logger.debug("Created asset metadata id=%s", result.get("id"))
     return result
 
 
