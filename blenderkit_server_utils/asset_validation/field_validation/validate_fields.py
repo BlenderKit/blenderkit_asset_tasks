@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
+import time
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -41,12 +43,19 @@ HEURISTIC_FAIL_SCORE = 65
 HEURISTIC_FIELD_FAIL = 55
 HEURISTIC_PASS_SCORE = 15
 REASON_LOG_LIMIT = 4
+AI_LIMIT_PER_ITEM = 100
 AI_LOG_PREVIEW = 800
 AI_REQUEST_PREVIEW = 600
 AI_ERROR_DETAIL_PREVIEW = 400
 CODE_FENCE_SPLIT_MAX = 2
-SIM_AUTHOR_STRONG = 0.9
+AI_MAX_RETRIES = 2
+AI_RETRY_BASE_SECONDS = 4
+AI_RETRY_MAX_SECONDS = 10
+AI_RETRY_JITTER_SECONDS = 1
+SIM_AUTHOR_STRONG = 0.98
+SIM_AUTHOR_MODERATE = 0.8
 SIM_MENTION_THRESHOLD = 0.8
+SIM_SAME_BRAND_THRESHOLD = 0.7
 MENTION_REDUCTION = 10
 KNOWN_BRAND_REDUCTION = 30
 
@@ -104,6 +113,7 @@ GENERIC_BAD_VALUES = {
     "@",
     "/",
 }
+
 
 # will be later updated with file load
 DEFAULT_KNOWN_BRANDS: set[str] = set()
@@ -297,6 +307,9 @@ def _score_self_claims(
         if value and _similar(value, author_name) >= SIM_AUTHOR_STRONG:
             scores[field] += penalty
             reasons.append(message)
+        elif value and _similar(value, author_name) >= SIM_AUTHOR_MODERATE:
+            scores[field] += penalty // 2
+            reasons.append(f"{message} (moderate)")
 
 
 def _score_generic_fields(fields: Mapping[str, str], scores: dict[str, int], reasons: list[str]) -> None:
@@ -436,6 +449,47 @@ def score_asset(row: Mapping[str, str], known_brands: Iterable[str] | None = Non
     return result
 
 
+def _should_escalate_same_brand(
+    manufacturer: str,
+    designer: str,
+    brand_set: set[str],
+) -> bool:
+    """Return True when same-brand entries should be sent to AI.
+
+    Args:
+        manufacturer: Manufacturer text from the asset.
+        designer: Designer text from the asset.
+        brand_set: Approved brand names (normalized).
+
+    Returns:
+        True when the designer and manufacturer are similar and not approved.
+    """
+    if not manufacturer or not designer:
+        return False
+    similarity = _similar(manufacturer, designer)
+    if similarity < SIM_SAME_BRAND_THRESHOLD:
+        return False
+    normalized_manufacturer = _normalize(manufacturer)
+    needs_escalation = normalized_manufacturer not in brand_set
+    return needs_escalation
+
+
+def _should_escalate_unknown_manufacturer(manufacturer: str, brand_set: set[str]) -> bool:
+    """Return True when manufacturer is not approved and should go to AI.
+
+    Args:
+        manufacturer: Manufacturer text from the asset.
+        brand_set: Approved brand names (normalized).
+
+    Returns:
+        True when the manufacturer is present but not in the approved list.
+    """
+    if not manufacturer:
+        return False
+    normalized_manufacturer = _normalize(manufacturer)
+    return normalized_manufacturer not in brand_set
+
+
 # endregion Heuristic scoring entry point
 
 
@@ -449,6 +503,9 @@ def _sanitize_prompt_value(value: str | None) -> str:
     cleaned = value.replace("|", " ").replace("\n", " ").replace("\r", " ")
     cleaned = re.sub(r"\s+", " ", cleaned)
     sanitized = cleaned.strip()
+    # limit length to avoid hitting AI token limits and to keep logs readable
+    if len(sanitized) > AI_LIMIT_PER_ITEM:
+        sanitized = sanitized[:AI_LIMIT_PER_ITEM] + "..."
     return sanitized
 
 
@@ -509,6 +566,25 @@ def _strip_code_fence(value: str) -> str:
     return cleaned
 
 
+def _is_retryable_ai_exception(error: Exception) -> bool:
+    """Return True when the AI exception should be retried.
+
+    Args:
+        error: Exception raised by the AI client.
+
+    Returns:
+        True when the failure is likely transient.
+    """
+    status = getattr(error, "status_code", None) or getattr(error, "status", None)
+    if status in {408, 429, 500, 502, 503, 504}:
+        return True
+    error_name = error.__class__.__name__.lower()
+    if "timeout" in error_name or "ratelimit" in error_name:
+        return True
+    message = str(error).lower()
+    return "timeout" in message or "rate limit" in message
+
+
 class _AIClient:
     """Minimal OpenAI wrapper used for fallback validation."""
 
@@ -534,7 +610,7 @@ class _AIClient:
             return
         self.client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
 
-    def judge(self, row: Mapping[str, str], heuristics: ValidationResult) -> tuple[bool, str] | None:
+    def judge(self, row: Mapping[str, str], heuristics: ValidationResult) -> tuple[bool, str] | None:  # noqa: C901
         """Return AI verdict when available."""
         if not self.enabled or not self.client:
             return None
@@ -544,7 +620,8 @@ class _AIClient:
         asset_id = row.get("asset_id", "n/a") or "n/a"
         system_prompt = (
             "You verify manufacturer/designer claims for BlenderKit assets. "
-            "Reject self-promotional, placeholder, or unverifiable entries."
+            "Reject self-promotional, placeholder, or unverifiable entries. "
+            "If manufacturer in metadata matches a known brand, it's likely valid. "
         )
         instructions = (
             "If search_query is non-empty, call the web_search tool once with that query. "
@@ -562,39 +639,58 @@ class _AIClient:
             payload_preview,
             payload_suffix,
         )
-        try:
-            tools: Any = [{"type": "web_search"}] if search_query else None
-            message_input: Any = [
-                {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": instructions},
-                        {"type": "input_text", "text": f"search_query: {search_query or 'n/a'}"},
-                        {"type": "input_text", "text": user_payload},
-                    ],
-                },
-            ]
-            response = self.client.responses.create(  # type: ignore[call-arg]
-                model=self.model_name,
-                input=message_input,
-                tools=tools,
-                timeout=self.timeout_s,
-                reasoning={"effort": "low"},
-                include=["web_search_call.action.sources"],
-            )
-        except Exception as exc:
-            detail = _describe_ai_exception(exc)
-            logger.exception(
-                "AI validation request failed (model=%s, asset=%s, query=%r) detail=%s",
-                self.model_name,
-                asset_id,
-                search_query or "n/a",
-                detail,
-            )
+        tools: Any = [{"type": "web_search"}] if search_query else None
+        message_input: Any = [
+            {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": instructions},
+                    {"type": "input_text", "text": f"search_query: {search_query or 'n/a'}"},
+                    {"type": "input_text", "text": user_payload},
+                ],
+            },
+        ]
+        response = None
+        for attempt in range(1, AI_MAX_RETRIES + 1):
+            try:
+                response = self.client.responses.create(  # type: ignore[call-arg]
+                    model=self.model_name,
+                    input=message_input,
+                    tools=tools,
+                    timeout=self.timeout_s,
+                    reasoning={"effort": "low"},
+                    include=["web_search_call.action.sources"],
+                )
+                break
+            except Exception as exc:
+                detail = _describe_ai_exception(exc)
+                should_retry = _is_retryable_ai_exception(exc)
+                logger.exception(
+                    "AI validation request failed (model=%s, asset=%s, query=%r) detail=%s",
+                    self.model_name,
+                    asset_id,
+                    search_query or "n/a",
+                    detail,
+                )
+                if not should_retry or attempt >= AI_MAX_RETRIES:
+                    return None
+                delay_seconds = min(
+                    AI_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
+                    AI_RETRY_MAX_SECONDS,
+                )
+                delay_seconds += random.uniform(0, AI_RETRY_JITTER_SECONDS)  # noqa: S311
+                logger.warning(
+                    "Retrying AI validation in %.2f seconds (attempt %s/%s)",
+                    delay_seconds,
+                    attempt,
+                    AI_MAX_RETRIES,
+                )
+                time.sleep(delay_seconds)
+        if response is None:
             return None
         if self.log_raw:
-            logger.debug(pformat(response))
+            logger.info(pformat(response))
         response_status = getattr(response, "status", "completed")
         if response_status != "completed":
             detail = _describe_incomplete_response(response)
@@ -713,12 +809,47 @@ def _summarize_reasons(reasons: list[str]) -> str:
     return snippet
 
 
+def _should_reject_missing_manufacturer(row: Mapping[str, str]) -> bool:
+    """Return True when metadata requires a manufacturer but it is missing.
+
+    Args:
+        row: Normalized asset metadata row.
+
+    Returns:
+        True when year, collection, or variant is provided without manufacturer.
+    """
+    manufacturer = (row.get("manufacturer") or "").strip()
+    if manufacturer:
+        return False
+    requires_manufacturer = any([
+        (row.get("year") or "").strip(),
+        (row.get("collection") or "").strip(),
+        (row.get("variant") or "").strip(),
+    ])
+    return requires_manufacturer
+
+
 def _heuristic_decision(
     row: Mapping[str, str],
     known_brands: Iterable[str] | None = None,
 ) -> tuple[bool | None, str | None, ValidationResult]:
     """Return heuristic verdict when confidence is high."""
     heuristics = score_asset(row, known_brands)
+    if _should_reject_missing_manufacturer(row):
+        message = "Heuristics rejected metadata: manufacturer missing with year/collection/variant"
+        result = (False, message, heuristics)
+        return result
+    brand_set = {_normalize(value) for value in (known_brands or DEFAULT_KNOWN_BRANDS)}
+    manufacturer = row.get("manufacturer", "")
+    designer = row.get("designer", "")
+    if _should_escalate_same_brand(manufacturer, designer, brand_set):
+        message = "Heuristics inconclusive: manufacturer and designer are the same"
+        result = (None, message, heuristics)
+        return result
+    if _should_escalate_unknown_manufacturer(manufacturer, brand_set):
+        message = "Heuristics inconclusive: manufacturer not in approved brands"
+        result = (None, message, heuristics)
+        return result
     highest_field = max(
         heuristics.suspicion_manufacturer,
         heuristics.suspicion_designer,
@@ -838,6 +969,13 @@ def validate(
     if extra_known_brands:
         brand_set.update(_normalize(b) for b in extra_known_brands if b)
     verdict, reason, heuristics = _heuristic_decision(row, brand_set)
+    logger.info(
+        "Heuristic decision for asset %s: verdict=%s reasons=%s score=%s",
+        row.get("asset_id", "n/a"),
+        verdict,
+        _summarize_reasons(heuristics.reasons),
+        heuristics.suspicion_score,
+    )
     if verdict is not None and reason:
         result = (verdict, "heuristic", reason)
         return result
