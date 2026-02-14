@@ -29,7 +29,7 @@ utils.raise_on_missing_env_vars(
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
-PAGE_SIZE_LIMIT: int = 100
+PAGE_SIZE_LIMIT: int = 50
 
 PARAM_BOOL: str = "validatedManufacturer"
 PARAM_DATE: str = "validatedManufacturerDate"
@@ -105,17 +105,24 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
                 param_value=today,
                 api_key=api_key,
             )
+            upload.patch_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=PARAM_ACTOR,
+                param_value="no_data",
+                api_key=api_key,
+            )
         return
 
     result = field_validation.validate_fields.validate(asset_data, use_ai=True)
     if not result:
-        logger.info("Field validator failed successfully for '%s'", asset_data.get("name"))
+        logger.warning("Field validator failed successfully for '%s'", asset_data.get("name"))
         return
     status, actor, reason = result
 
+    logger.info("Validation result: %s | %s | %s | %s", asset_data.get("id"), status, actor, reason)
+
     if SKIP_UPDATE:
         logger.info("SKIP_UPDATE is set, not patching the asset.")
-        logger.debug("Validation result: %s | %s | %s", asset_data.get("id"), status, reason)
         return
 
     # start with cleaning if we have invalid data,
@@ -201,6 +208,7 @@ def _build_search_params() -> dict[str, Any]:
         "order": "-created",
         "asset_type": "model,scene,material,printable",
         "verification_status": "validated,uploaded",
+        "manufacturer_isnull": "false",
         "validatedManufacturer_isnull": "true",
     }
     return out

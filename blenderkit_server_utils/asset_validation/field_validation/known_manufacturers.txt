@@ -253,6 +253,7 @@
     Aman Resorts
     Amarula
     Amazon
+    Amazon Basics
     Amazon Drive
     Amazon DynamoDB
     Amazon Echo
