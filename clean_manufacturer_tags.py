@@ -46,7 +46,7 @@ elif config.OPENAI_API_KEY:
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
-PAGE_SIZE_LIMIT: int = 100
+PAGE_SIZE_LIMIT: int = 50
 
 PARAM_BOOL: str = "validatedManufacturer"
 PARAM_DATE: str = "validatedManufacturerDate"
