@@ -26,10 +26,26 @@ logger = log.create_logger(__name__)
 utils.raise_on_missing_env_vars(
     ["BLENDERKIT_API_KEY", "OPENAI_API_KEY"],
 )
+# based on api model check if we have keys or fall back
+model_order = ["grok", "openai"]
+if not any(getattr(config, f"{provider.upper()}_API_KEY") for provider in model_order):
+    raise OSError(
+        f"Missing API key for all providers: {', '.join(model_order)}. "
+        f"Set one of the following environment variables: {', '.join(f'{provider.upper()}_API_KEY' for provider in model_order)}",  # noqa: E501
+    )
+
+# modify the chosen model in the config for use in the field validation module,
+# which is where the model choice is made for AI validation
+if config.GROK_API_KEY:
+    config.AI_PROVIDER = "grok"
+    logger.info("Using Grok for AI validation.")
+elif config.OPENAI_API_KEY:
+    config.AI_PROVIDER = "openai"
+    logger.info("Using OpenAI for AI validation.")
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
-PAGE_SIZE_LIMIT: int = 50
+PAGE_SIZE_LIMIT: int = 500
 
 PARAM_BOOL: str = "validatedManufacturer"
 PARAM_DATE: str = "validatedManufacturerDate"
@@ -209,7 +225,9 @@ def _build_search_params() -> dict[str, Any]:
         "asset_type": "model,scene,material,printable",
         "verification_status": "validated,uploaded",
         "manufacturer_isnull": "false",
-        "validatedManufacturer_isnull": "true",
+        # > "validatedManufacturer_isnull": "true",
+        # > "validatedManufacturerDate_isnull": "true",
+        # > "validatedManufacturerDate_lte": "2026-02-13",  # to exclude assets validated with a future date by mistake
     }
     return out
 

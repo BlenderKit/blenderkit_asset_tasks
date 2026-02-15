@@ -14,6 +14,7 @@ dependencies = [
     "google-api-python-client>=2.183.0",
     "google-auth-httplib2>=0.2.0",
     "google-auth-oauthlib>=1.2.2",
+    "xai_sdk>=1.6.1",
     "boto3",
     "botocore",
     "pillow",
