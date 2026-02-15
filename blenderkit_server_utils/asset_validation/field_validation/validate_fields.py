@@ -1,4 +1,5 @@
-﻿"""Single-asset validator for manufacturer and designer metadata.
+﻿
+"""Single-asset validator for manufacturer and designer metadata.
 
 This module exposes a lightweight 'validate' helper that can be invoked
 from 'clean_manufacturer_tags.py' for one asset at a time. It keeps the
