@@ -11,6 +11,7 @@ available, functions that require it will raise a RuntimeError.
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Any
 
@@ -602,6 +603,38 @@ def _finalize_image_paths(teximage: Any, filepath: str) -> None:
     teximage.reload()
 
 
+def _apply_udim_marker_if_needed(teximage: Any, filepath: str) -> str:
+    """Ensure UDIM marker is present when saving tiled images.
+
+    Args:
+        teximage: Blender image object.
+        filepath: Target file path.
+
+    Returns:
+        Path with a UDIM marker when required.
+    """
+    if getattr(teximage, "source", "") != "TILED":
+        return filepath
+    if "<UDIM>" in filepath:
+        return filepath
+    # replace patterns like .1001.jpg, _1001.png, or " 1001.tif" with separator + <UDIM>
+    udim_pattern = r"([._ ])1\d{3}(?=\.[^.]+$)"
+    if re.search(udim_pattern, filepath):
+        return re.sub(udim_pattern, r"\1<UDIM>", filepath)
+    base, ext = os.path.splitext(filepath)
+    base_name = os.path.basename(base)
+    dot_index = base_name.rfind(".")
+    underscore_index = base_name.rfind("_")
+    space_index = base_name.rfind(" ")
+    if space_index > max(dot_index, underscore_index):
+        separator = " "
+    elif underscore_index > dot_index:
+        separator = "_"
+    else:
+        separator = "."
+    return f"{base}{separator}<UDIM>{ext}"
+
+
 def make_possible_reductions_on_image(
     teximage: Any,
     input_filepath: str,
@@ -649,7 +682,7 @@ def make_possible_reductions_on_image(
     ims.color_mode = find_color_mode(teximage)
     logger.debug("Found color mode: %s", ims.color_mode)
 
-    fp = input_filepath
+    fp = _apply_udim_marker_if_needed(teximage, input_filepath)
     if do_reductions:
         na = image_to_numpy_flat(teximage)
 
