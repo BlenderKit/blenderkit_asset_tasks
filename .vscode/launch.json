@@ -91,11 +91,11 @@
             "console": "integratedTerminal",
             "envFile": "${workspaceFolder}/.env",
             "env": {
-                "DEBUG_LOGGING": "1",
+                // "DEBUG_LOGGING": "1",
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
-                "MAX_VALIDATION_THREADS": "20",
-                "MAX_ASSET_COUNT": "3",
-                "SKIP_UPDATE": "True",
+                "MAX_VALIDATION_THREADS": "2", // tier 1 rate limit API
+                // "MAX_ASSET_COUNT": "3",
+                // "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset "ASSET_BASE_ID"
             }
         },
@@ -113,15 +113,15 @@
             "console": "integratedTerminal",
             "envFile": "${workspaceFolder}/.env",
             "env": {
-                "DEBUG_LOGGING": "1",
+                // "DEBUG_LOGGING": "1",
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
-                "MAX_VALIDATION_THREADS": "20",
-                "MAX_ASSET_COUNT": "3",
-                "SKIP_UPDATE": "True",
+                "MAX_VALIDATION_THREADS": "1",
+                "MAX_ASSET_COUNT": "1",
+                // "SKIP_UPDATE": "True",
                 // optional, for testing a specific asset "ASSET_BASE_ID"
 
-                // Tin Can for soft drink
-                "ASSET_BASE_ID": "015b5602-77b6-4b02-92fb-4396c11a4082"  // model
+                // SMG
+                // "ASSET_BASE_ID": "913d1bdd-f8e4-4a08-93bd-99ba7d2e91f0"  // model
 
                 // random cloud (real user asset) (should not be valid)
                 // "ASSET_BASE_ID": "ae84d6c2-3e77-4853-bd39-f35a4e277a99" //model

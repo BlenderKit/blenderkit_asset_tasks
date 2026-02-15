@@ -246,7 +246,7 @@ def _build_search_params() -> dict[str, Any]:
         "verification_status": "validated,uploaded",
         "manufacturer_isnull": "false",
         "validatedManufacturer_isnull": "true",
-        # >"validatedManufacturerDate_isnull": "true",
+        # > "validatedManufacturerDate_isnull": "true",
         # >"validatedManufacturerDate_lte": "2026-02-13",  # to exclude assets validated with a future date by mistake
     }
     return out
