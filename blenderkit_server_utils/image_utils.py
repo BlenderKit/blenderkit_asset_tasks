@@ -617,12 +617,22 @@ def _apply_udim_marker_if_needed(teximage: Any, filepath: str) -> str:
         return filepath
     if "<UDIM>" in filepath:
         return filepath
-    # replace patterns like .1001.jpg or _1001.png with .<UDIM>.jpg or _<UDIM>.png
-    udim_pattern = r"([._])1\d{3}(?=\.[^.]+$)"
+    # replace patterns like .1001.jpg, _1001.png, or " 1001.tif" with separator + <UDIM>
+    udim_pattern = r"([._ ])1\d{3}(?=\.[^.]+$)"
     if re.search(udim_pattern, filepath):
-        return re.sub(udim_pattern, ".<UDIM>", filepath)
+        return re.sub(udim_pattern, r"\1<UDIM>", filepath)
     base, ext = os.path.splitext(filepath)
-    return f"{base}.<UDIM>{ext}"
+    base_name = os.path.basename(base)
+    dot_index = base_name.rfind(".")
+    underscore_index = base_name.rfind("_")
+    space_index = base_name.rfind(" ")
+    if space_index > max(dot_index, underscore_index):
+        separator = " "
+    elif underscore_index > dot_index:
+        separator = "_"
+    else:
+        separator = "."
+    return f"{base}{separator}<UDIM>{ext}"
 
 
 def make_possible_reductions_on_image(
