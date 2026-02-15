@@ -1,5 +1,4 @@
-﻿
-"""Single-asset validator for manufacturer and designer metadata.
+﻿"""Single-asset validator for manufacturer and designer metadata.
 
 This module exposes a lightweight 'validate' helper that can be invoked
 from 'clean_manufacturer_tags.py' for one asset at a time. It keeps the
@@ -11,9 +10,7 @@ final verdict.
 from __future__ import annotations
 
 import os
-import random
 import re
-import time
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
