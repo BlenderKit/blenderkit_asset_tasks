@@ -1,3 +1,4 @@
+﻿
 """Single-asset validator for manufacturer and designer metadata.
 
 This module exposes a lightweight 'validate' helper that can be invoked
@@ -9,27 +10,25 @@ final verdict.
 
 from __future__ import annotations
 
-import json
 import os
-import random
 import re
-import time
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from pprint import pformat
 from typing import Any
 
 from blenderkit_server_utils import log  # type: ignore
+from blenderkit_server_utils.asset_validation.field_validation.ai_validation import AIClient
 
 logger = log.create_logger(__name__)
 
 __all__ = ["ValidationResult", "score_asset", "validate"]
 
 VALIDATE_ACTORS = ["heuristic", "ai", "fallback"]
+
 
 # region Heuristic configuration
 NAME_MIN_LEN = 4
@@ -43,36 +42,12 @@ HEURISTIC_FAIL_SCORE = 65
 HEURISTIC_FIELD_FAIL = 55
 HEURISTIC_PASS_SCORE = 15
 REASON_LOG_LIMIT = 4
-AI_LIMIT_PER_ITEM = 100
-AI_LOG_PREVIEW = 800
-AI_REQUEST_PREVIEW = 600
-AI_ERROR_DETAIL_PREVIEW = 400
-CODE_FENCE_SPLIT_MAX = 2
-AI_MAX_RETRIES = 2
-AI_RETRY_BASE_SECONDS = 4
-AI_RETRY_MAX_SECONDS = 10
-AI_RETRY_JITTER_SECONDS = 1
 SIM_AUTHOR_STRONG = 0.98
 SIM_AUTHOR_MODERATE = 0.8
 SIM_MENTION_THRESHOLD = 0.8
 SIM_SAME_BRAND_THRESHOLD = 0.7
 MENTION_REDUCTION = 10
 KNOWN_BRAND_REDUCTION = 30
-
-AI_RESPONSE_SCHEMA = {
-    "name": "validation_decision",
-    "schema": {
-        "type": "object",
-        "properties": {
-            "valid": {"type": "boolean"},
-            "reason": {"type": "string", "minLength": 1},
-        },
-        "required": ["valid", "reason"],
-        "additionalProperties": False,
-    },
-}
-
-AI_RESPONSE_SCHEMA_TEXT = json.dumps(AI_RESPONSE_SCHEMA["schema"], separators=(",", ":"))
 # endregion Heuristic configuration
 
 GENERIC_BAD_VALUES = {
@@ -112,6 +87,7 @@ GENERIC_BAD_VALUES = {
     "+",
     "@",
     "/",
+    "home decor",
 }
 
 
@@ -493,309 +469,6 @@ def _should_escalate_unknown_manufacturer(manufacturer: str, brand_set: set[str]
 # endregion Heuristic scoring entry point
 
 
-# region AI helpers
-
-
-def _sanitize_prompt_value(value: str | None) -> str:
-    """Clean values placed into AI prompts."""
-    if not value:
-        return ""
-    cleaned = value.replace("|", " ").replace("\n", " ").replace("\r", " ")
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    sanitized = cleaned.strip()
-    # limit length to avoid hitting AI token limits and to keep logs readable
-    if len(sanitized) > AI_LIMIT_PER_ITEM:
-        sanitized = sanitized[:AI_LIMIT_PER_ITEM] + "..."
-    return sanitized
-
-
-def _build_search_query(row: Mapping[str, str]) -> str:
-    """Create a deterministic search query for the AI tool call."""
-    parts: list[str] = []
-    manufacturer = _sanitize_prompt_value(row.get("manufacturer"))
-    designer = _sanitize_prompt_value(row.get("designer"))
-    collection = _sanitize_prompt_value(row.get("collection"))
-    year = _sanitize_prompt_value(row.get("year"))
-    name = _sanitize_prompt_value(row.get("name"))
-    if manufacturer:
-        parts.append(f"{manufacturer} manufacturer")
-    if designer:
-        parts.append(f"{designer} designer")
-    if collection:
-        parts.append(f"{collection} collection")
-    if year:
-        parts.append(f"{year} design year")
-    if not parts and name:
-        parts.append(name)
-    query = " ".join(parts)
-    return query
-
-
-def _build_ai_context(row: Mapping[str, str], heuristics: ValidationResult) -> dict[str, object]:
-    """Bundle asset data and heuristics for the AI request."""
-    context = {
-        "search_query": _build_search_query(row),
-        "asset": {
-            "asset_id": row.get("asset_id", ""),
-            "name": _sanitize_prompt_value(row.get("name")),
-            "manufacturer": _sanitize_prompt_value(row.get("manufacturer")),
-            "designer": _sanitize_prompt_value(row.get("designer")),
-            "collection": _sanitize_prompt_value(row.get("collection")),
-            "year": _sanitize_prompt_value(row.get("year")),
-            "author_name": _sanitize_prompt_value(row.get("author_name")),
-            "description": _sanitize_prompt_value(row.get("description")),
-        },
-        "heuristics": {
-            "score": heuristics.suspicion_score,
-            "reasons": heuristics.reasons,
-        },
-    }
-    return context
-
-
-def _strip_code_fence(value: str) -> str:
-    """Remove optional ```json fences from AI responses."""
-    cleaned = value.strip()
-    if cleaned.startswith("```"):
-        parts = cleaned.split("```", CODE_FENCE_SPLIT_MAX)
-        if len(parts) >= CODE_FENCE_SPLIT_MAX:
-            candidate = parts[1]
-            if candidate.startswith("json"):
-                candidate = candidate[len("json") :]
-            return candidate.strip()
-    return cleaned
-
-
-def _is_retryable_ai_exception(error: Exception) -> bool:
-    """Return True when the AI exception should be retried.
-
-    Args:
-        error: Exception raised by the AI client.
-
-    Returns:
-        True when the failure is likely transient.
-    """
-    status = getattr(error, "status_code", None) or getattr(error, "status", None)
-    if status in {408, 429, 500, 502, 503, 504}:
-        return True
-    error_name = error.__class__.__name__.lower()
-    if "timeout" in error_name or "ratelimit" in error_name:
-        return True
-    message = str(error).lower()
-    return "timeout" in message or "rate limit" in message
-
-
-class _AIClient:
-    """Minimal OpenAI wrapper used for fallback validation."""
-
-    def __init__(self, *, enabled: bool) -> None:
-        self.enabled = enabled
-        self.client = None
-        self.timeout_s = float(os.getenv("VALIDATOR_AI_TIMEOUT", "15"))
-        self.model_name = os.getenv("VALIDATOR_MODEL", "gpt-5")
-        self.log_raw = os.getenv("VALIDATOR_LOG_AI") == "1"
-
-        if not self.enabled:
-            return
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            logger.warning("AI validation requested but OPENAI_API_KEY is missing")
-            self.enabled = False
-            return
-        try:
-            from openai import OpenAI  # type: ignore
-        except ImportError:
-            logger.warning("OpenAI SDK is not installed; run `pip install openai` to enable AI validation")
-            self.enabled = False
-            return
-        self.client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
-
-    def judge(self, row: Mapping[str, str], heuristics: ValidationResult) -> tuple[bool, str] | None:  # noqa: C901
-        """Return AI verdict when available."""
-        if not self.enabled or not self.client:
-            return None
-        payload = _build_ai_context(row, heuristics)
-        search_query = payload.get("search_query") or ""
-        user_payload = json.dumps(payload, ensure_ascii=False)
-        asset_id = row.get("asset_id", "n/a") or "n/a"
-        system_prompt = (
-            "You verify manufacturer/designer claims for BlenderKit assets. "
-            "Reject self-promotional, placeholder, or unverifiable entries. "
-            "If manufacturer in metadata matches a known brand, it's likely valid. "
-        )
-        instructions = (
-            "If search_query is non-empty, call the web_search tool once with that query. "
-            f"Respond with strict minified JSON matching schema: {AI_RESPONSE_SCHEMA_TEXT}. "
-            "Do not emit explanations or reasoning outside the JSON body."
-        )
-        payload_preview = user_payload[:AI_REQUEST_PREVIEW]
-        payload_suffix = "..." if len(user_payload) > AI_REQUEST_PREVIEW else ""
-        logger.debug(
-            "AI request (%s) asset=%s query=%r heuristics=%s payload=%s%s",
-            self.model_name,
-            asset_id,
-            search_query or "n/a",
-            heuristics.suspicion_score,
-            payload_preview,
-            payload_suffix,
-        )
-        tools: Any = [{"type": "web_search"}] if search_query else None
-        message_input: Any = [
-            {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": instructions},
-                    {"type": "input_text", "text": f"search_query: {search_query or 'n/a'}"},
-                    {"type": "input_text", "text": user_payload},
-                ],
-            },
-        ]
-        response = None
-        for attempt in range(1, AI_MAX_RETRIES + 1):
-            try:
-                response = self.client.responses.create(  # type: ignore[call-arg]
-                    model=self.model_name,
-                    input=message_input,
-                    tools=tools,
-                    timeout=self.timeout_s,
-                    reasoning={"effort": "low"},
-                    include=["web_search_call.action.sources"],
-                )
-                break
-            except Exception as exc:
-                detail = _describe_ai_exception(exc)
-                should_retry = _is_retryable_ai_exception(exc)
-                logger.exception(
-                    "AI validation request failed (model=%s, asset=%s, query=%r) detail=%s",
-                    self.model_name,
-                    asset_id,
-                    search_query or "n/a",
-                    detail,
-                )
-                if not should_retry or attempt >= AI_MAX_RETRIES:
-                    return None
-                delay_seconds = min(
-                    AI_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
-                    AI_RETRY_MAX_SECONDS,
-                )
-                delay_seconds += random.uniform(0, AI_RETRY_JITTER_SECONDS)  # noqa: S311
-                logger.warning(
-                    "Retrying AI validation in %.2f seconds (attempt %s/%s)",
-                    delay_seconds,
-                    attempt,
-                    AI_MAX_RETRIES,
-                )
-                time.sleep(delay_seconds)
-        if response is None:
-            return None
-        if self.log_raw:
-            logger.info(pformat(response))
-        response_status = getattr(response, "status", "completed")
-        if response_status != "completed":
-            detail = _describe_incomplete_response(response)
-            logger.warning(
-                "AI response incomplete (model=%s, asset=%s, query=%r) %s",
-                self.model_name,
-                asset_id,
-                search_query or "n/a",
-                detail,
-            )
-            return None
-        usage = getattr(response, "usage", None)
-        output_tokens = None
-        if usage is not None:
-            output_tokens = getattr(usage, "output_tokens", None)
-            if output_tokens is None and isinstance(usage, Mapping):
-                output_tokens = usage.get("output_tokens")
-        logger.debug(
-            "AI response meta (model=%s, asset=%s, query=%r, output_tokens=%s)",
-            self.model_name,
-            asset_id,
-            search_query or "n/a",
-            output_tokens or "n/a",
-        )
-        content = _extract_response_text(response)
-        if not content:
-            logger.warning("AI response was empty; skipping decision")
-            return None
-        decision = _parse_ai_decision(content)
-        return decision
-
-    # endregion AI helpers
-
-
-def _describe_ai_exception(error: Exception) -> str:
-    """Return short diagnostic string extracted from OpenAI errors."""
-    parts: list[str] = [error.__class__.__name__]
-    status = getattr(error, "status_code", None) or getattr(error, "status", None)
-    if status is not None:
-        parts.append(f"status={status}")
-    request_id = getattr(error, "request_id", None)
-    if not request_id:
-        response = getattr(error, "response", None)
-        request_id = getattr(response, "request_id", None)
-    if request_id:
-        parts.append(f"request_id={request_id}")
-    message = str(getattr(error, "message", "")) or str(error)
-    if message:
-        snippet = message[:AI_ERROR_DETAIL_PREVIEW]
-        suffix = "..." if len(message) > AI_ERROR_DETAIL_PREVIEW else ""
-        parts.append(f"message={snippet}{suffix}")
-    detail = " ".join(parts)
-    return detail
-
-
-def _describe_incomplete_response(response: Any) -> str:
-    """Summarize why the AI response did not complete."""
-
-    def _pick(source: Any, attribute: str) -> Any:
-        if source is None:
-            return None
-        if isinstance(source, Mapping):
-            return source.get(attribute)
-        return getattr(source, attribute, None)
-
-    parts: list[str] = []
-    status = getattr(response, "status", None)
-    if status:
-        parts.append(f"status={status}")
-    incomplete = getattr(response, "incomplete_details", None)
-    reason = _pick(incomplete, "reason")
-    if reason:
-        parts.append(f"reason={reason}")
-    limit = getattr(response, "max_output_tokens", None)
-    if limit:
-        parts.append(f"max_tokens={limit}")
-    usage = getattr(response, "usage", None)
-    output_tokens = _pick(usage, "output_tokens")
-    if output_tokens:
-        parts.append(f"output_tokens={output_tokens}")
-    if not parts:
-        return "response incomplete"
-    summary = " ".join(parts)
-    return summary
-
-
-def _extract_response_text(response: Any) -> str:
-    """Return unified string content from a Responses API call."""
-    text_value = getattr(response, "output_text", "")
-    return text_value
-
-
-def _parse_ai_decision(raw: str) -> tuple[bool, str] | None:
-    """Parse boolean verdict and reason from AI JSON response."""
-    try:
-        data = json.loads(_strip_code_fence(raw))
-    except json.JSONDecodeError:
-        logger.exception("AI response was not valid JSON")
-        return None
-    valid_value = bool(data.get("valid", False))
-    reason_text = str(data.get("reason", "AI decision")).strip() or "AI decision"
-    decision = (valid_value, reason_text)
-    return decision
-
-
 # region Public helpers
 
 
@@ -985,7 +658,7 @@ def validate(
         fallback_reason = "Heuristics inconclusive; AI disabled"
         result = (True, "fallback", fallback_reason)
         return result
-    ai_client = _AIClient(enabled=ai_requested)
+    ai_client = AIClient(enabled=ai_requested)
     decision = ai_client.judge(row, heuristics)
     if decision:
         # modify reason to include AI actor

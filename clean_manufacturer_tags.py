@@ -15,6 +15,7 @@ Environment variables:
 
 from __future__ import annotations
 
+import datetime
 import tempfile
 from typing import Any
 
@@ -26,10 +27,26 @@ logger = log.create_logger(__name__)
 utils.raise_on_missing_env_vars(
     ["BLENDERKIT_API_KEY", "OPENAI_API_KEY"],
 )
+# based on api model check if we have keys or fall back
+model_order = ["grok", "openai"]
+if not any(getattr(config, f"{provider.upper()}_API_KEY") for provider in model_order):
+    raise OSError(
+        f"Missing API key for all providers: {', '.join(model_order)}. "
+        f"Set one of the following environment variables: {', '.join(f'{provider.upper()}_API_KEY' for provider in model_order)}",  # noqa: E501
+    )
+
+# modify the chosen model in the config for use in the field validation module,
+# which is where the model choice is made for AI validation
+if config.GROK_API_KEY:
+    config.AI_PROVIDER = "grok"
+    logger.info("Using Grok for AI validation.")
+elif config.OPENAI_API_KEY:
+    config.AI_PROVIDER = "openai"
+    logger.info("Using OpenAI for AI validation.")
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
-PAGE_SIZE_LIMIT: int = 50
+PAGE_SIZE_LIMIT: int = 100
 
 PARAM_BOOL: str = "validatedManufacturer"
 PARAM_DATE: str = "validatedManufacturerDate"
@@ -75,7 +92,7 @@ def _fetch_assets() -> list[dict[str, Any]]:
     return assets
 
 
-def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
+def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:  # noqa: C901
     """Worker for a single asset; mode selects model/material pipeline."""
     # basic guards
     if not asset_data:
@@ -88,6 +105,25 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
         captured_data[man_param] = asset_data.get("dictParameters", {}).get(man_param, "")
 
     today = datetime_utils.today_date_iso()
+
+    # double check date we sometime get already processed assets with a future validation date
+    # by mistake, to avoid confusion and unnecessary API calls with the AI if we do it after the date check
+    validated_date_str = asset_data.get("dictParameters", {}).get(PARAM_DATE)
+    logger.info("Asset %s | Validated Date: %s", asset_data.get("name"), validated_date_str)
+
+    if validated_date_str:
+        validated_date = datetime.datetime.fromisoformat(validated_date_str)
+
+        if validated_date and validated_date > datetime.datetime.fromisoformat("2026-02-13"):
+            logger.info(
+                "Skipping asset '%s' with future validation date: %s",
+                asset_data.get("name"),
+                validated_date_str,
+            )
+            return
+    # skip AI validated assets with a recent validation date, to avoid unnecessary API calls and potential rate limits
+    if asset_data.get("dictParameters", {}).get(PARAM_ACTOR) in {"ai", "no_data"}:
+        return
 
     # skip as we have nothing to validate
     if not any(captured_data.values()):
@@ -210,6 +246,8 @@ def _build_search_params() -> dict[str, Any]:
         "verification_status": "validated,uploaded",
         "manufacturer_isnull": "false",
         "validatedManufacturer_isnull": "true",
+        # >"validatedManufacturerDate_isnull": "true",
+        # >"validatedManufacturerDate_lte": "2026-02-13",  # to exclude assets validated with a future date by mistake
     }
     return out
 
