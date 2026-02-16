@@ -237,14 +237,20 @@ def _build_command(
     return command
 
 
-def _run_blender(command: list[str], verbosity_level: int) -> int:
+def _run_blender(command: list[str], verbosity_level: int, env: dict[str, str] | None = None) -> int:
     """Run Blender with the given command and stream output per verbosity."""
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
     logger.info("Running Blender command: %s", command)
     logger.debug("Raw command: %s", " ".join(command))
     stdout_lines: deque[str] = deque(maxlen=STREAM_TAIL_LINE_LIMIT)
     stderr_lines: deque[str] = deque(maxlen=STREAM_TAIL_LINE_LIMIT)
-    with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
+    with subprocess.Popen(
+        command,
+        stdout=stdout_val,
+        stderr=stderr_val,
+        creationflags=get_process_flags(),
+        env=env,
+    ) as proc:
         if verbosity_level == VERBOSITY_ALL:
             stdout_callback = lambda line: logger.info("STDOUT: %s", line)  # noqa: E731
             stderr_callback = lambda line: logger.error("STDERR: %s", line)  # noqa: E731
@@ -342,6 +348,7 @@ def send_to_bg(  # noqa: PLR0913
     verbosity_level: int = 2,
     binary_path: str = "",
     target_format: str = "",
+    env_overrides: dict[str, str] | None = None,
 ) -> int:
     """Run a Blender background script and wait for it to finish.
 
@@ -359,6 +366,7 @@ def send_to_bg(  # noqa: PLR0913
         verbosity_level: 0=quiet, 1=stderr only, 2=stdout+stderr streaming.
         binary_path: Explicit Blender binary path to use; if empty, autodetect.
         target_format: Optional target format forwarded to script.
+        env_overrides: Optional environment variables for Blender process.
 
     Returns:
         Process return code from Blender.
@@ -378,7 +386,10 @@ def send_to_bg(  # noqa: PLR0913
     logger.info("Opening Blender instance to process script: %s", script)
     template_file_path = _resolve_template(template_file_path, asset_file_path)
     command = _build_command(binary_path, template_file_path, script, datafile, addons)
-    returncode = _run_blender(command, verbosity_level)
+    env = os.environ.copy()
+    if env_overrides:
+        env.update(env_overrides)
+    returncode = _run_blender(command, verbosity_level, env=env)
 
     if returncode != 0:
         logger.error("Error while running command: %s", command)

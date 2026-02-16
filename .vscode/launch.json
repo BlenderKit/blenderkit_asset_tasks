@@ -79,6 +79,33 @@
         },
 
         {
+            "name": "[TASK] Validate Addons",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/validate_addons.py",
+            "args": [
+                "--use-ai"
+                ],
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "DEBUG_LOGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "1",
+                "SKIP_UPDATE": "True",
+                 // optional, for testing a specific asset "ASSET_BASE_ID"
+
+                 // scatter forge
+                //  "ASSET_BASE_ID": "561addae-d8e9-497f-9c73-961d3d0ab281", // addon
+
+                 // final topology for artists
+                 "ASSET_BASE_ID": "388b195c-5a7d-4d9f-a632-0dac12c9198c" // addon
+            }
+        },
+
+        {
             "name": "[TASK] Ai Validate Fields",
             "type": "debugpy",
             "request": "launch",
@@ -93,7 +120,7 @@
             "env": {
                 // "DEBUG_LOGGING": "1",
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
-                "MAX_VALIDATION_THREADS": "2", // tier 1 rate limit API
+                "MAX_VALIDATION_THREADS": "4", // 1 for tier 1 rate limit API
                 // "MAX_ASSET_COUNT": "3",
                 // "SKIP_UPDATE": "True",
                  // optional, for testing a specific asset "ASSET_BASE_ID"

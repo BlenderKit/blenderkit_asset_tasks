@@ -7,8 +7,10 @@ input under key "result_filepath".
 
 from __future__ import annotations
 
+import errno
 import json
 import os
+import socket
 import sys
 import traceback
 from typing import Any
@@ -25,6 +27,32 @@ if parent_path not in sys.path:
 from blenderkit_server_utils import log  # noqa: E402
 
 logger = log.create_logger(__name__)
+
+NETWORK_ATTEMPTS: list[str] = []
+
+
+class _BlockedSocket(socket.socket):
+    """Socket subclass that blocks outbound connections."""
+
+    def connect(self, address: Any) -> Any:  # type: ignore[override]
+        NETWORK_ATTEMPTS.append(str(address))
+        raise RuntimeError("Network access blocked during addon validation")
+
+    def connect_ex(self, address: Any) -> int:  # type: ignore[override]
+        NETWORK_ATTEMPTS.append(str(address))
+        return errno.EACCES
+
+
+def _blocked_create_connection(address: Any, *_args: Any, **kwargs: Any) -> Any:  # noqa: ARG001
+    """Block high-level connection helpers."""
+    NETWORK_ATTEMPTS.append(str(address))
+    raise RuntimeError("Network access blocked during addon validation")
+
+
+def _block_network() -> None:
+    """Block Python-level network access by monkeypatching socket helpers."""
+    socket.socket = _BlockedSocket  # type: ignore[assignment]
+    socket.create_connection = _blocked_create_connection  # type: ignore[assignment]
 
 
 def install_addon(zip_path: str) -> str:
@@ -112,6 +140,10 @@ def _write_output_json(path: str, payload: dict[str, Any]) -> None:
 if __name__ == "__main__":
     logger.info(">>> Background addon test has started <<<")
 
+    block_network = os.environ.get("BLENDERKIT_BLOCK_NETWORK", "1") != "0"
+    if block_network:
+        _block_network()
+
     datafile = sys.argv[-1]
     try:
         data = _load_input_json(datafile)
@@ -128,10 +160,13 @@ if __name__ == "__main__":
         sys.exit(2)
 
     logger.info("Testing addon %s (extid=%s), zip at: %s", addon_name, extension_id, zip_path)
-    results: dict[str, str] = {}
+    results: dict[str, Any] = {}
+    results["blender_version"] = bpy.app.version_string
+    results["blender_version_tuple"] = list(bpy.app.version)
     results["install"] = install_addon(zip_path)
     results["enabling"] = enable_addon(extension_id)
     results["disabling"] = disable_addon(extension_id)
+    results["network_attempts"] = NETWORK_ATTEMPTS
 
     json_result_path = data.get("result_filepath")
     if not json_result_path:

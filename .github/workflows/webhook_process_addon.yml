@@ -7,6 +7,9 @@ on:
       asset_base_id:
         description: 'Asset Base ID'
         required: true
+      block_network:
+        description: 'Block network access during addon test (1/0)'
+        default: '1'
       verification_status:
         description: 'Verification Status of the Asset'
       is_private:
@@ -21,6 +24,7 @@ env:
   TEXTYBOT_API_KEY: '${{ secrets.TEXTYBOT_API_KEY }}' # for commenting
   BLENDER_PATH: /home/headless/blender/blender
   ASSET_BASE_ID: ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
+  BLENDERKIT_BLOCK_NETWORK: ${{ github.event.inputs.block_network || github.event.client_payload.block_network || '1' }}
 
 jobs:
   test_addon_in_blender:

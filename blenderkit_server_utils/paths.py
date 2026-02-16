@@ -366,8 +366,8 @@ def delete_asset_debug(asset_data: dict[str, Any]) -> None:
 
 def get_clean_filepath() -> str:
     """Return the path to the clean template .blend file."""
-    script_path = os.path.dirname(os.path.realpath(__file__))
-    subpath = f"blendfiles{os.sep}cleaned.blend"
+    script_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    subpath = f"blend_files{os.sep}empty.blend"
     cp = os.path.join(script_path, subpath)
     return cp
 
