@@ -17,8 +17,8 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections.abc import Sequence
-from typing import Any, Generator
+from collections.abc import Generator, Sequence
+from typing import Any
 
 import requests
 
