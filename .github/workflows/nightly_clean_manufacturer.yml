@@ -1,0 +1,33 @@
+name: Nightly Manufacturer Cleanup
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+env:
+  BLENDERKIT_SERVER: "https://www.blenderkit.com"
+  BLENDERKIT_API_KEY: ${{ secrets.BLENDERKIT_API_KEY }}
+  XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  MAX_ASSET_COUNT: 2000
+  SKIP_UPDATE: false
+
+jobs:
+  clean-bulk:
+    name: Clean manufacturer tags (nightly bulk)
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ai.txt
+      - name: Clean manufacturer tags (nightly)
+        run: python clean_manufacturer_tags.py
