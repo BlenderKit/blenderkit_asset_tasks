@@ -18,7 +18,7 @@ import json
 import os
 import time
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Generator
 
 import requests
 
@@ -283,6 +283,130 @@ def get_search_paginated(  # noqa: C901, PLR0912, PLR0913, PLR0915
         results = results[:max_results]
     logger.info("Accumulated %d/%d results (max=%d)", len(results), total_count, max_results)
     return results
+
+
+def iter_search_pages(  # noqa: C901, PLR0912, PLR0913, PLR0915
+    parameters: dict[str, Any],
+    custom_tokens: list[str] | None = None,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    max_results: int = DEFAULT_MAX_RESULTS,
+    api_key: str = "",
+    *,
+    early_exit: bool = False,
+) -> Generator[list[dict[str, Any]], None, None]:
+    """Yield search result pages lazily until limits are reached.
+
+    This mirrors ``get_search_paginated`` but yields each page (list of dicts)
+    as it arrives, so callers can process large result sets without storing
+    everything in memory. Pagination stops when no "next" link is present or
+    ``max_results`` is reached.
+
+    Args:
+        parameters: Mapping of elastic query parameters.
+        custom_tokens: Optional list of custom query tokens.
+        page_size: Number of results per page.
+        max_results: Maximum total results to yield.
+        api_key: Optional API key.
+        early_exit: Raise if the ES hard limit is hit.
+
+    Yields:
+        list[dict[str, Any]]: Asset dictionaries for each returned page.
+
+    Raises:
+        exceptions.SearchRequestRepeatError: If all attempts to fetch a page fail.
+        exceptions.SearchResultLimitError: If ``early_exit`` is True and the ES hard limit is hit.
+    """
+    headers = utils.get_headers(api_key)
+    base_url = paths.get_api_url() + "/search/"
+    request_url = base_url + "?query=" + "".join(f"+{k}:{v}" for k, v in parameters.items())
+    if custom_tokens:
+        request_url += "".join(f"+{t}" for t in custom_tokens)
+    request_url += f"&page_size={page_size}&dict_parameters=1"
+    logger.debug("Search request URL: %s", request_url)
+
+    search_results: dict[str, Any] = {}
+    response: requests.Response = None  # type: ignore[assignment]
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            response = requests.get(request_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            search_results = response.json()
+            # log the result count and page number if available
+            total_count = search_results.get("count", "?")
+            logger.info(
+                "Search initial page retrieved (count=%s, page_size=%s)",
+                total_count,
+                page_size,
+            )
+            if early_exit and search_results.get("count") == MAX_ELASTICSEARCH_RESULTS:
+                raise exceptions.SearchResultLimitError(
+                    f"Search hit maximum result limit of {MAX_ELASTICSEARCH_RESULTS}.",
+                )
+            break
+        except requests.exceptions.RequestException:
+            logger.warning("Initial page fetch failed (attempt %s/%s)", attempt, RETRY_ATTEMPTS, exc_info=True)
+            if attempt == RETRY_ATTEMPTS:
+                raise exceptions.SearchRequestRepeatError(  # noqa: B904
+                    f"Could not get search results after {RETRY_ATTEMPTS} attempts; connection or server issue.",
+                )
+            delay = attempt**2 * RETRY_BASE_DELAY_S
+            time.sleep(delay)
+
+    if not search_results:
+        return
+
+    yielded = 0
+    results_page = list(search_results.get("results", []))
+    if results_page:
+        slice_limit = max_results - yielded
+        if slice_limit <= 0:
+            return
+        to_yield = results_page[:slice_limit]
+        yielded += len(to_yield)
+        yield to_yield
+
+    page_index = 2
+    while search_results.get("next") and yielded < max_results:
+        next_url = search_results["next"]
+        response = None  # type: ignore[assignment]
+        pagination_ok = False
+        for attempt in range(1, RETRY_ATTEMPTS + 1):
+            try:
+                response = requests.get(next_url, headers=headers, timeout=30)
+                response.raise_for_status()
+                search_results = response.json()
+                pagination_ok = True
+                break
+            except requests.exceptions.RequestException:
+                logger.warning(
+                    "Pagination fetch failed on page %s (attempt %s/%s)",
+                    page_index,
+                    attempt,
+                    RETRY_ATTEMPTS,
+                    exc_info=True,
+                )
+                if attempt == RETRY_ATTEMPTS:
+                    logger.exception(
+                        "Pagination request failed at page %d after %d attempts",
+                        page_index,
+                        RETRY_ATTEMPTS,
+                    )
+                    break
+                delay = attempt**2 * RETRY_BASE_DELAY_S
+                time.sleep(delay)
+
+        if not pagination_ok:
+            break
+
+        results_page = list(search_results.get("results", []))
+        if results_page:
+            slice_limit = max_results - yielded
+            if slice_limit <= 0:
+                break
+            to_yield = results_page[:slice_limit]
+            yielded += len(to_yield)
+            yield to_yield
+        page_index += 1
 
 
 def load_assets_list(filepath: str) -> list[dict[str, Any]]:

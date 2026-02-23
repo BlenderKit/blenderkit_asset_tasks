@@ -19,3 +19,8 @@ def today_date_iso() -> str:
     today = _dt.datetime.now(tz=_UTC_TZ).date()
     iso_date = today.isoformat()
     return iso_date
+
+
+def now_timestamp_iso() -> str:
+    """Return current UTC timestamp in ISO 8601 with timezone offset."""
+    return _dt.datetime.now(tz=_UTC_TZ).isoformat()

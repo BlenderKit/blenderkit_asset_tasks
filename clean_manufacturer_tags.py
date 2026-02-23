@@ -16,6 +16,7 @@ Environment variables:
 from __future__ import annotations
 
 import tempfile
+import threading
 from typing import Any
 
 from blenderkit_server_utils import concurrency, config, datetime_utils, log, search, upload, utils
@@ -45,7 +46,7 @@ elif config.OPENAI_API_KEY:
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
-PAGE_SIZE_LIMIT: int = 500
+PAGE_SIZE_LIMIT: int = 200
 
 PARAM_BOOL: str = "validatedManufacturer"
 PARAM_DATE: str = "validatedManufacturerDate"
@@ -69,29 +70,61 @@ ALL_MAN_PARAMS: list[str] = [
 
 ASSET_LOG_PREVIEW: int = 20
 
+ValidationStat = dict[str, Any]
+
+
+def _append_stat(
+    stats_sink: list[ValidationStat] | None,
+    stats_lock: threading.Lock | None,
+    entry: ValidationStat,
+) -> None:
+    """Store a per-asset summary in-memory only."""
+    if stats_sink is None:
+        return
+    if stats_lock is None:
+        stats_sink.append(entry)
+        return
+    with stats_lock:
+        stats_sink.append(entry)
+
 
 def _fetch_assets() -> list[dict[str, Any]]:
-    """Fetch assets targeted for manufacturer tag cleanup."""
-    temp_dir = tempfile.mkdtemp(prefix="bk_tag_cleanup_")
-    params = _build_search_params()
-    assets: list[dict[str, Any]] = []
-    try:
-        assets = search.get_search_paginated(
-            params,
-            page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
-            max_results=config.MAX_ASSET_COUNT,
-            api_key=config.BLENDERKIT_API_KEY,
-        )
+    """Fetch assets for retry (fallback) and new validation in two batches."""
+    fallback_quota = max(config.MAX_ASSET_COUNT // 4, 1)
+    new_quota = max(config.MAX_ASSET_COUNT - fallback_quota, 0)
 
-        logger.info("Assets to be processed: %d", len(assets))
-        for asset in assets[:ASSET_LOG_PREVIEW]:
-            logger.debug("%s ||| %s", asset.get("name"), asset.get("assetType"))
-    finally:
-        utils.cleanup_temp(temp_dir)
+    logger.info(
+        "Fetching assets with fallback validation actors (limit=%d) and new validation (limit=%d)",
+        fallback_quota,
+        new_quota,
+    )
+    fallback_assets = _fetch_fallback_assets(limit=fallback_quota)
+
+    fallback_ids = {a.get("id") for a in fallback_assets}
+
+    logger.info("Fetched %d fallback assets for retry validation", len(fallback_assets))
+    new_assets = _fetch_new_assets(limit=new_quota, exclude_ids=fallback_ids)
+    logger.info("Fetched %d new assets for validation", len(new_assets))
+
+    assets = fallback_assets + new_assets
+    logger.info(
+        "Assets to be processed: total=%d retry=%d new=%d",
+        len(assets),
+        len(fallback_assets),
+        len(new_assets),
+    )
+    for asset in assets[:ASSET_LOG_PREVIEW]:
+        logger.debug("%s ||| %s", asset.get("name"), asset.get("assetType"))
     return assets
 
 
-def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
+def tag_validation_thread(
+    asset_data: dict[str, Any],
+    api_key: str,
+    *,
+    stats_sink: list[ValidationStat] | None = None,
+    stats_lock: threading.Lock | None = None,
+) -> None:
     """Worker for a single asset; mode selects model/material pipeline."""
     # basic guards
     if not asset_data:
@@ -103,7 +136,7 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
     for man_param in ALL_MAN_PARAMS:
         captured_data[man_param] = asset_data.get("dictParameters", {}).get(man_param, "")
 
-    today = datetime_utils.today_date_iso()
+    validation_timestamp = datetime_utils.now_timestamp_iso()
 
     # skip as we have nothing to validate
     if not any(captured_data.values()):
@@ -118,7 +151,7 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
             upload.patch_individual_parameter(
                 asset_id=asset_data["id"],
                 param_name=PARAM_DATE,
-                param_value=today,
+                param_value=validation_timestamp,
                 api_key=api_key,
             )
             upload.patch_individual_parameter(
@@ -127,11 +160,37 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
                 param_value="no_data",
                 api_key=api_key,
             )
+        _append_stat(
+            stats_sink,
+            stats_lock,
+            {
+                "asset_id": asset_data.get("id", ""),
+                "name": asset_data.get("name", ""),
+                "verdict": "no_data",
+                "status": True,
+                "actor": "no_data",
+                "reason": "no manufacturer fields present",
+                "updated": not SKIP_UPDATE,
+            },
+        )
         return
 
     result = field_validation.validate_fields.validate(asset_data, use_ai=True)
     if not result:
         logger.warning("Field validator failed successfully for '%s'", asset_data.get("name"))
+        _append_stat(
+            stats_sink,
+            stats_lock,
+            {
+                "asset_id": asset_data.get("id", ""),
+                "name": asset_data.get("name", ""),
+                "verdict": "validation_error",
+                "status": None,
+                "actor": "unknown",
+                "reason": "field validator returned no result",
+                "updated": False,
+            },
+        )
         return
     status, actor, reason = result
 
@@ -139,6 +198,19 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
 
     if SKIP_UPDATE:
         logger.info("SKIP_UPDATE is set, not patching the asset.")
+        _append_stat(
+            stats_sink,
+            stats_lock,
+            {
+                "asset_id": asset_data.get("id", ""),
+                "name": asset_data.get("name", ""),
+                "verdict": "pass" if status else "fail",
+                "status": status,
+                "actor": actor,
+                "reason": reason,
+                "updated": False,
+            },
+        )
         return
 
     # start with cleaning if we have invalid data,
@@ -164,7 +236,7 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
     upload.patch_individual_parameter(
         asset_id=asset_data["id"],
         param_name=PARAM_DATE,
-        param_value=today,
+        param_value=validation_timestamp,
         api_key=api_key,
     )
 
@@ -188,11 +260,25 @@ def tag_validation_thread(asset_data: dict[str, Any], api_key: str) -> None:
         api_key=api_key,
     )
 
+    _append_stat(
+        stats_sink,
+        stats_lock,
+        {
+            "asset_id": asset_data.get("id", ""),
+            "name": asset_data.get("name", ""),
+            "verdict": "pass" if status else "fail",
+            "status": status,
+            "actor": actor,
+            "reason": reason,
+            "updated": True,
+        },
+    )
+
 
 def iterate_assets(
     assets: list[dict[str, Any]],
     api_key: str = "",
-) -> None:
+) -> list[ValidationStat]:
     """Iterate assets and dispatch tag validation threads.
 
     Args:
@@ -200,36 +286,139 @@ def iterate_assets(
         api_key: BlenderKit API key forwarded to the thread function.
 
     Returns:
-        None
+        Collected per-asset validation statistics.
     """
+    stats: list[ValidationStat] = []
+    stats_lock = threading.Lock()
     concurrency.run_asset_threads(
         assets,
         worker=tag_validation_thread,
         worker_kwargs={
             "api_key": api_key,
+            "stats_sink": stats,
+            "stats_lock": stats_lock,
         },
         asset_arg_position=0,
         max_concurrency=config.MAX_VALIDATION_THREADS,
         logger=logger,
     )
+    return stats
 
 
-def _build_search_params() -> dict[str, Any]:
+def _fetch_with_params(params: dict[str, Any], *, limit: int) -> list[dict[str, Any]]:
+    """Run a paginated search with temporary dir cleanup."""
+    temp_dir = tempfile.mkdtemp(prefix="bk_tag_cleanup_")
+    try:
+        assets = search.get_search_paginated(
+            params,
+            page_size=min(limit, PAGE_SIZE_LIMIT),
+            max_results=limit,
+            api_key=config.BLENDERKIT_API_KEY,
+        )
+    finally:
+        utils.cleanup_temp(temp_dir)
+    return assets
+
+
+def _base_params() -> dict[str, Any]:
     asset_base_id = config.ASSET_BASE_ID
     if asset_base_id is not None:
         return {"asset_base_id": asset_base_id}
-
-    # only not validated manufacturers
-    out = {
+    return {
         "order": "-created",
         "asset_type": "model,scene,material,printable",
         "verification_status": "validated,uploaded",
         "manufacturer_isnull": "false",
-        # > "validatedManufacturer_isnull": "true",
-        # > "validatedManufacturerDate_isnull": "true",
-        # > "validatedManufacturerDate_lte": "2026-02-13",  # to exclude assets validated with a future date by mistake
     }
-    return out
+
+
+def _fallback_params() -> dict[str, Any]:
+    params = _base_params()
+    params.update(
+        {
+            # retry any assets validated via fallback/unknown actors
+            PARAM_ACTOR: "fallback,unknown",
+        },
+    )
+    return params
+
+
+def _new_params() -> dict[str, Any]:
+    params = _base_params()
+    params.update(
+        {
+            "validatedManufacturer_isnull": "true",
+        },
+    )
+    return params
+
+
+def _fetch_fallback_assets(limit: int, *, exclude_ids: set[str | None] | None = None) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    if exclude_ids is None:
+        exclude_ids = set()
+    params = _fallback_params()
+    raw_assets = _fetch_with_params(params, limit=limit * 2)  # light overfetch to offset exclusions
+    results: list[dict[str, Any]] = []
+    for asset in raw_assets:
+        if asset.get("id") in exclude_ids:
+            continue
+        results.append(asset)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _fetch_new_assets(limit: int, *, exclude_ids: set[str | None] | None = None) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    if exclude_ids is None:
+        exclude_ids = set()
+    params = _new_params()
+    raw_assets = _fetch_with_params(params, limit=limit * 2)  # light overfetch to offset exclusions
+    results: list[dict[str, Any]] = []
+    for asset in raw_assets:
+        if asset.get("id") in exclude_ids:
+            continue
+        results.append(asset)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _print_stats(stats: list[ValidationStat]) -> None:
+    """Print a compact, in-memory-only validation summary."""
+    total = len(stats)
+    passed = sum(1 for item in stats if item.get("status") is True)
+    failed = sum(1 for item in stats if item.get("status") is False)
+    skipped = sum(1 for item in stats if item.get("verdict") in {"no_data", "validation_error"})
+    logger.info("Validation summary: total=%s, passed=%s, failed=%s, skipped=%s", total, passed, failed, skipped)
+
+    if not stats:
+        logger.info("No assets processed.")
+        return
+
+    logger.info("Processed assets (temporary, not stored):")
+    for item in stats:
+        asset_id = item.get("asset_id", "")
+        name = item.get("name", "")
+        verdict = item.get("verdict", "")
+        actor = item.get("actor", "")
+        status = item.get("status")
+        updated = item.get("updated")
+        reason = item.get("reason", "") or "n/a"
+        reason_short = reason[:180]
+        logger.info(
+            "%s | %s | verdict=%s | status=%s | actor=%s | updated=%s | reason=%s",
+            asset_id,
+            name,
+            verdict,
+            status,
+            actor,
+            updated,
+            reason_short,
+        )
 
 
 def main(_argv: list[str] | None = None) -> None:
@@ -238,7 +427,8 @@ def main(_argv: list[str] | None = None) -> None:
     assets = _fetch_assets()
 
     if assets:
-        iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY)
+        stats = iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY)
+        _print_stats(stats)
 
 
 if __name__ == "__main__":

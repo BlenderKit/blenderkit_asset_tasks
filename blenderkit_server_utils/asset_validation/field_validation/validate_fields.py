@@ -655,9 +655,8 @@ def validate(
     env_flag = os.getenv("VALIDATOR_USE_AI") == "1"
     ai_requested = use_ai if use_ai is not None else env_flag
     if not ai_requested:
-        fallback_reason = "Heuristics inconclusive; AI disabled"
-        result = (True, "fallback", fallback_reason)
-        return result
+        logger.warning("AI disabled; heuristics inconclusive for asset %s", row.get("asset_id", "n/a"))
+        return None
     ai_client = AIClient(enabled=ai_requested)
     decision = ai_client.judge(row, heuristics)
     if decision:
@@ -666,9 +665,8 @@ def validate(
         decision = (valid, "ai", reason_text)
         result = decision
         return result
-    fallback_reason = "AI unavailable; heuristics inconclusive"
-    result = (True, "fallback", fallback_reason)
-    return result
+    logger.warning("AI unavailable and heuristics inconclusive for asset %s", row.get("asset_id", "n/a"))
+    return None
 
 
 # endregion Public helpers

@@ -1,4 +1,4 @@
-name: Clean Manufacturer Tags
+name: Manual Manufacturer Cleanup
 run-name: Clean manufacturer | ids: ${{ github.event.inputs.asset_base_ids || github.event.client_payload.asset_base_ids || 'bulk' }} | count: ${{ github.event.inputs.max_assets || github.event.client_payload.max_assets || 'auto' }}
 
 on:
@@ -10,7 +10,7 @@ on:
       max_assets:
         description: 'Number of assets to process when IDs are not provided (no upper cap)'
         required: false
-        default: '150'
+        default: '2000'
       skip_update:
         description: 'Set to true to dry-run without patching assets'
         required: false
@@ -22,6 +22,8 @@ on:
 env:
   BLENDERKIT_SERVER: "https://www.blenderkit.com"
   BLENDERKIT_API_KEY: ${{ secrets.BLENDERKIT_API_KEY }}
+  XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
 jobs:
   prepare:
@@ -62,7 +64,7 @@ jobs:
           except ValueError:
               count = 0
           if count <= 0:
-              count = 100
+              count = 2000
           print(f"asset_count={count}")
           PY
 
@@ -91,8 +93,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install openai
+          pip install -r requirements-ai.txt
       - name: Clean manufacturer tags for ${{ matrix.asset_id }}
         env:
           ASSET_BASE_ID: ${{ matrix.asset_id }}
@@ -116,7 +117,6 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install openai
+          pip install -r requirements-ai.txt
       - name: Clean manufacturer tags
         run: python clean_manufacturer_tags.py
