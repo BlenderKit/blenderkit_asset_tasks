@@ -88,6 +88,74 @@ def _append_stat(
         stats_sink.append(entry)
 
 
+def _base_params() -> dict[str, Any]:
+    asset_base_id = config.ASSET_BASE_ID
+    if asset_base_id is not None:
+        return {"asset_base_id": asset_base_id}
+    return {
+        "order": "-created",
+        "asset_type": "model,scene,material,printable",
+        "verification_status": "validated,uploaded",
+        "manufacturer_isnull": "false",
+    }
+
+
+def _fallback_params() -> dict[str, Any]:
+    params = _base_params()
+    params.update(
+        {
+            # retry any assets validated via fallback/unknown actors
+            PARAM_ACTOR: "fallback,unknown",
+        },
+    )
+    return params
+
+
+def _new_params() -> dict[str, Any]:
+    params = _base_params()
+    params.update(
+        {
+            "manufacturer_isnull": "false",
+            "validatedManufacturer_isnull": "true",
+        },
+    )
+    return params
+
+
+def _fetch_fallback_assets(limit: int, *, exclude_ids: set[str | None] | None = None) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    if exclude_ids is None:
+        exclude_ids = set()
+    params = _fallback_params()
+    raw_assets = _fetch_with_params(params, limit=limit * 2)  # light overfetch to offset exclusions
+    results: list[dict[str, Any]] = []
+    for asset in raw_assets:
+        if asset.get("id") in exclude_ids:
+            continue
+        results.append(asset)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _fetch_new_assets(limit: int, *, exclude_ids: set[str | None] | None = None) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
+    if exclude_ids is None:
+        exclude_ids = set()
+    params = _new_params()
+    raw_assets = _fetch_with_params(params, limit=limit * 2)  # light overfetch to offset exclusions
+    results: list[dict[str, Any]] = []
+    for asset in raw_assets:
+        if asset.get("id") in exclude_ids:
+            continue
+        results.append(asset)
+        if len(results) >= limit:
+            break
+    return results
+
+
 def _fetch_assets() -> list[dict[str, Any]]:
     """Fetch assets for retry (fallback) and new validation in two batches."""
     fallback_quota = max(config.MAX_ASSET_COUNT // 4, 1)
@@ -318,73 +386,6 @@ def _fetch_with_params(params: dict[str, Any], *, limit: int) -> list[dict[str, 
     finally:
         utils.cleanup_temp(temp_dir)
     return assets
-
-
-def _base_params() -> dict[str, Any]:
-    asset_base_id = config.ASSET_BASE_ID
-    if asset_base_id is not None:
-        return {"asset_base_id": asset_base_id}
-    return {
-        "order": "-created",
-        "asset_type": "model,scene,material,printable",
-        "verification_status": "validated,uploaded",
-        "manufacturer_isnull": "false",
-    }
-
-
-def _fallback_params() -> dict[str, Any]:
-    params = _base_params()
-    params.update(
-        {
-            # retry any assets validated via fallback/unknown actors
-            PARAM_ACTOR: "fallback,unknown",
-        },
-    )
-    return params
-
-
-def _new_params() -> dict[str, Any]:
-    params = _base_params()
-    params.update(
-        {
-            "validatedManufacturer_isnull": "true",
-        },
-    )
-    return params
-
-
-def _fetch_fallback_assets(limit: int, *, exclude_ids: set[str | None] | None = None) -> list[dict[str, Any]]:
-    if limit <= 0:
-        return []
-    if exclude_ids is None:
-        exclude_ids = set()
-    params = _fallback_params()
-    raw_assets = _fetch_with_params(params, limit=limit * 2)  # light overfetch to offset exclusions
-    results: list[dict[str, Any]] = []
-    for asset in raw_assets:
-        if asset.get("id") in exclude_ids:
-            continue
-        results.append(asset)
-        if len(results) >= limit:
-            break
-    return results
-
-
-def _fetch_new_assets(limit: int, *, exclude_ids: set[str | None] | None = None) -> list[dict[str, Any]]:
-    if limit <= 0:
-        return []
-    if exclude_ids is None:
-        exclude_ids = set()
-    params = _new_params()
-    raw_assets = _fetch_with_params(params, limit=limit * 2)  # light overfetch to offset exclusions
-    results: list[dict[str, Any]] = []
-    for asset in raw_assets:
-        if asset.get("id") in exclude_ids:
-            continue
-        results.append(asset)
-        if len(results) >= limit:
-            break
-    return results
 
 
 def _print_stats(stats: list[ValidationStat]) -> None:
