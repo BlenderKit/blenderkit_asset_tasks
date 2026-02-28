@@ -1,5 +1,5 @@
 name: Manual Manufacturer Cleanup
-run-name: Clean manufacturer | ids: ${{ github.event.inputs.asset_base_ids || github.event.client_payload.asset_base_ids || 'bulk' }} | count: ${{ github.event.inputs.max_assets || github.event.client_payload.max_assets || 'auto' }}
+run-name: "Clean manufacturer | ids: ${{ github.event.inputs.asset_base_ids || github.event.client_payload.asset_base_ids || 'bulk' }} | count: ${{ github.event.inputs.max_assets || github.event.client_payload.max_assets || 'auto' }}"
 
 on:
   workflow_dispatch:
