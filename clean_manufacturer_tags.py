@@ -102,6 +102,8 @@ def _base_params() -> dict[str, Any]:
 
 def _fallback_params() -> dict[str, Any]:
     params = _base_params()
+    if config.ASSET_BASE_ID is not None:
+        return params
     params.update(
         {
             # retry any assets validated via fallback/unknown actors
@@ -113,6 +115,8 @@ def _fallback_params() -> dict[str, Any]:
 
 def _new_params() -> dict[str, Any]:
     params = _base_params()
+    if config.ASSET_BASE_ID is not None:
+        return params
     params.update(
         {
             "manufacturer_isnull": "false",
