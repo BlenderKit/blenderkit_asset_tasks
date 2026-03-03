@@ -1,5 +1,5 @@
-name: Manual Manufacturer Cleanup
-run-name: "Clean manufacturer | ids: ${{ github.event.inputs.asset_base_ids || github.event.client_payload.asset_base_ids || 'bulk' }} | count: ${{ github.event.inputs.max_assets || github.event.client_payload.max_assets || 'auto' }}"
+name: Manual Asset Validation
+run-name: "${{ (github.event.action == 'validate-asset' && 'Validate asset') || 'Clean manufacturer' }} | ids: ${{ github.event.inputs.asset_base_ids || github.event.client_payload.asset_base_ids || 'bulk' }} | count: ${{ github.event.inputs.max_assets || github.event.client_payload.max_assets || 'auto' }}"
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ on:
         type: boolean
         default: false
   repository_dispatch:
-    types: [clean-manufacturer-tags]
+    types: [validate-asset]
 
 env:
   BLENDERKIT_SERVER: "https://www.blenderkit.com"
