@@ -38,11 +38,24 @@ AI_RESPONSE_SCHEMA = {
         "properties": {
             "valid": {"type": "boolean"},
             "reason": {"type": "string", "minLength": 1},
+            "corrections": {
+                "type": ["object", "null"],
+                "properties": {
+                    "manufacturer": {"type": ["string", "null"]},
+                    "designer": {"type": ["string", "null"]},
+                    "collection": {"type": ["string", "null"]},
+                    "variant": {"type": ["string", "null"]},
+                    "year": {"type": ["string", "null"]},
+                },
+                "additionalProperties": False,
+            },
         },
         "required": ["valid", "reason"],
         "additionalProperties": False,
     },
 }
+
+CORRECTION_FIELDS = {"manufacturer", "designer", "collection", "variant", "year"}
 
 AI_RESPONSE_SCHEMA_TEXT = json.dumps(AI_RESPONSE_SCHEMA["schema"], separators=(",", ":"))
 
@@ -101,16 +114,21 @@ def _build_search_query(row: Mapping[str, str]) -> str:
     manufacturer = _sanitize_prompt_value(row.get("manufacturer"))
     designer = _sanitize_prompt_value(row.get("designer"))
     collection = _sanitize_prompt_value(row.get("collection"))
+    variant = _sanitize_prompt_value(row.get("variant"))
     year = _sanitize_prompt_value(row.get("year"))
     name = _sanitize_prompt_value(row.get("name"))
     if manufacturer:
-        parts.append(f"{manufacturer} manufacturer")
+        parts.append(manufacturer)
+    if variant:
+        parts.append(variant)
+    elif collection:
+        parts.append(collection)
+    if name and name.lower() not in (variant or "").lower():
+        parts.append(name)
     if designer:
-        parts.append(f"{designer} designer")
-    if collection:
-        parts.append(f"{collection} collection")
+        parts.append(designer)
     if year:
-        parts.append(f"{year} design year")
+        parts.append(year)
     if not parts and name:
         parts.append(name)
     query = " ".join(parts)
@@ -135,6 +153,7 @@ def _build_ai_context(row: Mapping[str, str], heuristics: HeuristicSummary) -> d
             "manufacturer": _sanitize_prompt_value(row.get("manufacturer")),
             "designer": _sanitize_prompt_value(row.get("designer")),
             "collection": _sanitize_prompt_value(row.get("collection")),
+            "variant": _sanitize_prompt_value(row.get("variant")),
             "year": _sanitize_prompt_value(row.get("year")),
             "author_name": _sanitize_prompt_value(row.get("author_name")),
             "description": _sanitize_prompt_value(row.get("description")),
@@ -266,9 +285,37 @@ def _build_ai_prompts(
         "Also accept historic or defunct manufacturers when the product name "
         "matches known historic items, including evidence from collector or "
         "marketplace listings (e.g., museum catalogs, auction archives, eBay). "
+        "\n\nSEARCH STRATEGY:\n"
+        "You MUST call web_search at least once with the provided search_query. "
+        "If the first search yields no useful results, you SHOULD call web_search "
+        "again with alternative queries. Try these strategies:\n"
+        "1. Search for the manufacturer name + product variant/name together\n"
+        "2. Search for just the manufacturer name to verify it exists\n"
+        "3. Search for the product variant or collection name alone\n"
+        "4. Try alternative spellings or common misspellings of the manufacturer\n"
+        "5. Search for the manufacturer's official website or product catalog\n"
+        "Do NOT give up after a single failed search. A manufacturer may exist "
+        "even if one specific query fails.\n"
+        "\n\nIMPORTANT - Correction Mode:\n"
+        "When the submitted data is almost correct but contains small errors "
+        "(misspelled manufacturer, wrong collection name, incorrect variant, etc.), "
+        "you MUST set valid=true and provide a 'corrections' object with the "
+        "corrected values. Only include fields that need correction; set unchanged "
+        "fields to null.\n"
+        "Examples of correctable issues:\n"
+        "- Misspelled manufacturer: 'Hermna Miller' -> 'Herman Miller'\n"
+        "- Wrong collection name: 'Alperto' when the actual collection is 'Alperton'\n"
+        "- Typo in designer name: 'Charles Eamse' -> 'Charles Eames'\n"
+        "- Minor year error when the correct year can be confirmed\n"
+        "- Incorrect capitalization or spacing: 'urban+' -> 'Urban +'\n"
+        "If you cannot verify ANY of the data or the data is clearly fabricated, "
+        "set valid=false with no corrections. If data is partially verifiable and "
+        "you can confidently correct the remaining fields, set valid=true with corrections.\n"
+        "Set corrections to null when all submitted values are already correct."
     )
     instructions = (
-        "If search_query is non-empty, call the web_search tool once with that query. "
+        "Call web_search with the provided search_query. If results are insufficient, "
+        "call web_search again with alternative queries to verify the manufacturer and product. "
         f"Respond with strict minified JSON matching schema: {AI_RESPONSE_SCHEMA_TEXT}. "
         "Do not emit explanations or reasoning outside the JSON body."
     )
@@ -437,14 +484,14 @@ def _extract_response_text(response: Any) -> str:
     return text_value
 
 
-def _parse_ai_decision(raw: str) -> tuple[bool, str] | None:
-    """Parse boolean verdict and reason from AI JSON response.
+def _parse_ai_decision(raw: str) -> tuple[bool, str, dict[str, str] | None] | None:
+    """Parse boolean verdict, reason, and optional corrections from AI JSON response.
 
     Args:
         raw: Raw response string.
 
     Returns:
-        Decision tuple or None when parsing fails.
+        Decision tuple with corrections dict or None when parsing fails.
     """
     try:
         json_text = _extract_json_object(_strip_code_fence(raw))
@@ -454,8 +501,32 @@ def _parse_ai_decision(raw: str) -> tuple[bool, str] | None:
         return None
     valid_value = bool(data.get("valid", False))
     reason_text = str(data.get("reason", "AI decision")).strip() or "AI decision"
-    decision = (valid_value, reason_text)
+    corrections = _extract_corrections(data.get("corrections"))
+    decision = (valid_value, reason_text, corrections)
     return decision
+
+
+def _extract_corrections(raw_corrections: Any) -> dict[str, str] | None:
+    """Extract and validate corrections from AI response data.
+
+    Only keeps non-null string values for known correction fields.
+
+    Args:
+        raw_corrections: Raw corrections object from AI response.
+
+    Returns:
+        Dict of field corrections or None when no corrections present.
+    """
+    if not raw_corrections or not isinstance(raw_corrections, dict):
+        return None
+    cleaned: dict[str, str] = {}
+    for field in CORRECTION_FIELDS:
+        value = raw_corrections.get(field)
+        if value is not None and isinstance(value, str) and value.strip():
+            cleaned[field] = value.strip()
+    if not cleaned:
+        return None
+    return cleaned
 
 
 class AIClient:
@@ -466,7 +537,7 @@ class AIClient:
         self.provider = _get_ai_provider()
         self.client = None
         self.grok_api_key = ""
-        self.timeout_s = float(os.getenv("VALIDATOR_AI_TIMEOUT", "15"))
+        self.timeout_s = float(os.getenv("VALIDATOR_AI_TIMEOUT", "45"))
         self.model_name = _get_ai_model(self.provider)
         self.log_raw = os.getenv("VALIDATOR_LOG_AI") == "1"
 
@@ -495,15 +566,19 @@ class AIClient:
             return
         self.client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
 
-    def judge(self, row: Mapping[str, str], heuristics: HeuristicSummary) -> tuple[bool, str] | None:  # noqa: PLR0911
-        """Return AI verdict when available.
+    def judge(  # noqa: PLR0911
+        self,
+        row: Mapping[str, str],
+        heuristics: HeuristicSummary,
+    ) -> tuple[bool, str, dict[str, str] | None] | None:
+        """Return AI verdict with optional corrections when available.
 
         Args:
             row: Asset metadata mapping.
             heuristics: Heuristic summary for the asset.
 
         Returns:
-            Decision tuple or None.
+            Tuple of (valid, reason, corrections) or None.
         """
         if not self.enabled:
             return None

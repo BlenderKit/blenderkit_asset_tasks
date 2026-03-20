@@ -1,4 +1,3 @@
-﻿
 """Single-asset validator for manufacturer and designer metadata.
 
 This module exposes a lightweight 'validate' helper that can be invoked
@@ -625,7 +624,7 @@ def validate(
     *,
     use_ai: bool | None = None,
     extra_known_brands: Iterable[str] | None = None,
-) -> tuple[bool, str, str]:
+) -> tuple[bool, str, str, dict[str, str] | None]:
     """Validate metadata for a single asset.
 
     Args:
@@ -634,7 +633,10 @@ def validate(
         extra_known_brands: Optional iterable of additional whitelisted brands.
 
     Returns:
-        Tuple of ``(is_valid, actor, reason)`` describing the decision source and justification.
+        Tuple of ``(is_valid, actor, reason, corrections)`` describing
+        the decision source, justification, and optional field corrections.
+        Corrections is a dict mapping field names to corrected values, or
+        None when no corrections are needed.
     """
     row = _prepare_row(asset_data)
     logger.debug(row)
@@ -650,7 +652,7 @@ def validate(
         heuristics.suspicion_score,
     )
     if verdict is not None and reason:
-        result = (verdict, "heuristic", reason)
+        result = (verdict, "heuristic", reason, None)
         return result
     env_flag = os.getenv("VALIDATOR_USE_AI") == "1"
     ai_requested = use_ai if use_ai is not None else env_flag
@@ -660,10 +662,14 @@ def validate(
     ai_client = AIClient(enabled=ai_requested)
     decision = ai_client.judge(row, heuristics)
     if decision:
-        # modify reason to include AI actor
-        valid, reason_text = decision
-        decision = (valid, "ai", reason_text)
-        result = decision
+        valid, reason_text, corrections = decision
+        if corrections:
+            logger.info(
+                "AI suggested corrections for asset %s: %s",
+                row.get("asset_id", "n/a"),
+                corrections,
+            )
+        result = (valid, "ai", reason_text, corrections)
         return result
     logger.warning("AI unavailable and heuristics inconclusive for asset %s", row.get("asset_id", "n/a"))
     return None
