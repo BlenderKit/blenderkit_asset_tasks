@@ -68,6 +68,15 @@ ALL_MAN_PARAMS: list[str] = [
     MAN_PARAM_YEAR,
 ]
 
+# Maps AI correction field names to API parameter names
+CORRECTION_TO_API_PARAM: dict[str, str] = {
+    "manufacturer": MAN_PARAM_MANUFACTURER,
+    "designer": MAN_PARAM_DESIGNER,
+    "collection": MAN_PARAM_COLLECTION,
+    "variant": MAN_PARAM_VARIANT,
+    "year": MAN_PARAM_YEAR,
+}
+
 ASSET_LOG_PREVIEW: int = 20
 
 ValidationStat = dict[str, Any]
@@ -190,6 +199,99 @@ def _fetch_assets() -> list[dict[str, Any]]:
     return assets
 
 
+def _apply_corrections(
+    asset_id: str,
+    corrections: dict[str, str],
+    api_key: str,
+) -> None:
+    """Patch corrected manufacturer field values on the asset.
+
+    Args:
+        asset_id: Asset identifier.
+        corrections: Dict mapping correction field names to corrected values.
+        api_key: BlenderKit API key.
+    """
+    for field_name, corrected_value in corrections.items():
+        api_param = CORRECTION_TO_API_PARAM.get(field_name)
+        if not api_param:
+            logger.warning("Unknown correction field '%s', skipping", field_name)
+            continue
+        logger.info("Patching correction %s=%s on asset %s", api_param, corrected_value, asset_id)
+        upload.patch_individual_parameter(
+            asset_id=asset_id,
+            param_name=api_param,
+            param_value=corrected_value,
+            api_key=api_key,
+        )
+
+
+def _patch_validation_result(
+    asset_data: dict[str, Any],
+    validation_result: tuple[bool, str, str, dict[str, str] | None],
+    captured_data: dict[str, str],
+    validation_timestamp: str,
+    api_key: str,
+) -> str:
+    """Patch validation results and corrections on the asset, return final reason.
+
+    Args:
+        asset_data: Raw asset dictionary.
+        validation_result: Tuple of (status, actor, reason, corrections).
+        captured_data: Original manufacturer data before validation.
+        validation_timestamp: ISO-8601 timestamp for the validation.
+        api_key: BlenderKit API key.
+
+    Returns:
+        Final reason string (may be augmented with correction/removal info).
+    """
+    status, actor, reason, corrections = validation_result
+    asset_id = asset_data["id"]
+
+    if not status:
+        for man_param in ALL_MAN_PARAMS:
+            upload.delete_individual_parameter(
+                asset_id=asset_id,
+                param_name=man_param,
+                api_key=api_key,
+            )
+
+    if status and corrections:
+        _apply_corrections(asset_id, corrections, api_key)
+        reason += "\ncorrections applied: " + ", ".join(f"{k}={v}" for k, v in corrections.items())
+
+    upload.patch_individual_parameter(
+        asset_id=asset_id,
+        param_name=PARAM_BOOL,
+        param_value=str(status),
+        api_key=api_key,
+    )
+    upload.patch_individual_parameter(
+        asset_id=asset_id,
+        param_name=PARAM_DATE,
+        param_value=validation_timestamp,
+        api_key=api_key,
+    )
+
+    if not status:
+        reason += "\n"
+        removed_parts = "|".join(f"{k}: {v}" for k, v in captured_data.items() if v)
+        reason += removed_parts
+
+    upload.patch_individual_parameter(
+        asset_id=asset_id,
+        param_name=PARAM_RESULT,
+        param_value=reason,
+        api_key=api_key,
+    )
+    upload.patch_individual_parameter(
+        asset_id=asset_id,
+        param_name=PARAM_ACTOR,
+        param_value=actor,
+        api_key=api_key,
+    )
+    return reason
+
+
 def tag_validation_thread(
     asset_data: dict[str, Any],
     api_key: str,
@@ -264,9 +366,11 @@ def tag_validation_thread(
             },
         )
         return
-    status, actor, reason = result
+    status, actor, reason, corrections = result
 
     logger.info("Validation result: %s | %s | %s | %s", asset_data.get("id"), status, actor, reason)
+    if corrections:
+        logger.info("Corrections for %s: %s", asset_data.get("id"), corrections)
 
     if SKIP_UPDATE:
         logger.info("SKIP_UPDATE is set, not patching the asset.")
@@ -280,6 +384,7 @@ def tag_validation_thread(
                 "status": status,
                 "actor": actor,
                 "reason": reason,
+                "corrections": corrections,
                 "updated": False,
             },
         )
@@ -288,48 +393,12 @@ def tag_validation_thread(
     # start with cleaning if we have invalid data,
     # to avoid confusion with the validation result parameters
     # and to avoid rate limit issues with multiple patch calls if we do it after storing the validation result
-    if not status:
-        # remove invalid manufacturer data
-        # we clear all of them to be safe
-        for man_param in ALL_MAN_PARAMS:
-            upload.delete_individual_parameter(
-                asset_id=asset_data["id"],
-                param_name=man_param,
-                api_key=api_key,
-            )
-
-    # store our validation result
-    upload.patch_individual_parameter(
-        asset_id=asset_data["id"],
-        param_name=PARAM_BOOL,
-        param_value=str(status),
-        api_key=api_key,
-    )
-    upload.patch_individual_parameter(
-        asset_id=asset_data["id"],
-        param_name=PARAM_DATE,
-        param_value=validation_timestamp,
-        api_key=api_key,
-    )
-
-    # enhance reason with previous data
-    if not status:
-        reason += "\n"
-        removed_parts = "|".join(f"{k}: {v}" for k, v in captured_data.items() if v)
-        reason += removed_parts
-
-    upload.patch_individual_parameter(
-        asset_id=asset_data["id"],
-        param_name=PARAM_RESULT,
-        param_value=reason,
-        api_key=api_key,
-    )
-
-    upload.patch_individual_parameter(
-        asset_id=asset_data["id"],
-        param_name=PARAM_ACTOR,
-        param_value=actor,
-        api_key=api_key,
+    reason = _patch_validation_result(
+        asset_data,
+        (status, actor, reason, corrections),
+        captured_data,
+        validation_timestamp,
+        api_key,
     )
 
     _append_stat(
@@ -342,6 +411,7 @@ def tag_validation_thread(
             "status": status,
             "actor": actor,
             "reason": reason,
+            "corrections": corrections,
             "updated": True,
         },
     )
@@ -397,14 +467,24 @@ def _print_stats(stats: list[ValidationStat]) -> None:
     total = len(stats)
     passed = sum(1 for item in stats if item.get("status") is True)
     failed = sum(1 for item in stats if item.get("status") is False)
+    corrected = sum(1 for item in stats if item.get("corrections"))
     skipped = sum(1 for item in stats if item.get("verdict") in {"no_data", "validation_error"})
-    logger.info("Validation summary: total=%s, passed=%s, failed=%s, skipped=%s", total, passed, failed, skipped)
+    logger.info(
+        "Validation summary: total=%s, passed=%s, failed=%s, corrected=%s, skipped=%s",
+        total,
+        passed,
+        failed,
+        corrected,
+        skipped,
+    )
 
     if not stats:
         logger.info("No assets processed.")
         return
-
-    logger.info("Processed assets (temporary, not stored):")
+    if SKIP_UPDATE:
+        logger.info("Processed assets (temporary, not stored):")
+    else:
+        logger.info("Processed assets:")
     for item in stats:
         asset_id = item.get("asset_id", "")
         name = item.get("name", "")
@@ -412,17 +492,20 @@ def _print_stats(stats: list[ValidationStat]) -> None:
         actor = item.get("actor", "")
         status = item.get("status")
         updated = item.get("updated")
+        corrections = item.get("corrections")
         reason = item.get("reason", "") or "n/a"
-        reason_short = reason[:180]
+        reason_full = reason
+        corrections_short = str(corrections)[:120] if corrections else "none"
         logger.info(
-            "%s | %s | verdict=%s | status=%s | actor=%s | updated=%s | reason=%s",
+            "%s | %s | verdict=%s | status=%s | actor=%s | updated=%s | corrections=%s | reason=%s",
             asset_id,
             name,
             verdict,
             status,
             actor,
             updated,
-            reason_short,
+            corrections_short,
+            reason_full,
         )
 
 
