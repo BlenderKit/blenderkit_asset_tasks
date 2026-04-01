@@ -59,6 +59,9 @@ MAX_ISLAND_OVERLAPS = 0
 BLEED = 4  # pixels
 UV_ISLAND_EPSILON = 1e-5
 UV_SPACE_EPSILON = 1e-5
+
+# In Blender 6.0+ Material.use_nodes is removed (materials always use nodes).
+BLENDER_6_PLUS: bool = bpy.app.version >= (6, 0, 0)
 TEX_SIZE = int(float(os.environ.get("GLTF_TEXTURE_SIZE", "1024")))  # size for baked textures
 BAKE_PASSES: list[dict[str, Any]] = [
     {
@@ -809,7 +812,7 @@ def ensure_world_shader() -> None:
         world = bpy.data.worlds.new("World")
         bpy.context.scene.world = world
 
-    if not world.use_nodes:
+    if not BLENDER_6_PLUS and not world.use_nodes:
         world.use_nodes = True
 
     nodes = world.node_tree.nodes
@@ -1183,7 +1186,7 @@ def is_procedural_material(mat: bpy.types.Material | bpy.types.NodeTree) -> bool
     if mat:
         if not hasattr(mat, "node_tree"):
             return False
-        if not mat.use_nodes:
+        if not BLENDER_6_PLUS and not mat.use_nodes:
             return False
         node_tree = mat.node_tree
     else:
@@ -1236,7 +1239,8 @@ def _create_single_baked_material(  # noqa: PLR0915
         The created baked material.
     """
     baked_material = bpy.data.materials.new(name=f"{obj.name}_Baked")
-    baked_material.use_nodes = True
+    if not BLENDER_6_PLUS:
+        baked_material.use_nodes = True
     nodes = baked_material.node_tree.nodes
     links = baked_material.node_tree.links
     nodes.clear()
@@ -1769,7 +1773,7 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901, 
 
     for mat in procedural_materials:
         try:
-            if not mat.use_nodes:
+            if not BLENDER_6_PLUS and not mat.use_nodes:
                 mat.use_nodes = True
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to enable nodes for material '%s': %s", mat.name, exc)
@@ -1882,7 +1886,8 @@ def fix_texture_paths() -> None:
             "/textures",
         )):
             fixed_path = (
-                img.filepath.replace("/textures", "//textures")
+                img.filepath
+                .replace("/textures", "//textures")
                 .replace("\\\\textures", "//textures")
                 .replace("\\textures", "//textures")
             )

@@ -29,6 +29,10 @@ VERBOSITY_STDERR: int = 1
 VERBOSITY_ALL: int = 2
 STREAM_TAIL_LINE_LIMIT: int = 200
 
+# Stderr patterns that are harmless warnings rather than real errors.
+# Lines matching any of these are downgraded from ERROR to WARNING.
+_STDERR_WARN_PATTERNS: tuple[str, ...] = ("DeprecationWarning:",)
+
 
 def get_blender_version_from_blend(blend_file_path: str) -> str:
     """Extract Blender version from a .blend file header (2.8+ heuristic).
@@ -43,7 +47,7 @@ def get_blender_version_from_blend(blend_file_path: str) -> str:
         logger.exception("Failed to detect Blender version from blend header.")
 
     if version_data and version_data["version"]:
-        return version_data
+        return version_data["version"]
 
     with open(blend_file_path, "rb") as blend_file:
         header = blend_file.read(24)
@@ -237,6 +241,31 @@ def _build_command(
     return command
 
 
+class _StderrCallback:
+    """Stateful stderr callback that downgrades known multi-line warnings.
+
+    Python warnings (e.g. DeprecationWarning) emit two lines: the warning
+    message followed by the offending source line. This callback tracks
+    whether the previous line matched a known harmless pattern so the
+    continuation line is also downgraded from ERROR to WARNING.
+    """
+
+    def __init__(self) -> None:
+        self._continuation = False
+
+    def __call__(self, line: str) -> None:
+        for pattern in _STDERR_WARN_PATTERNS:
+            if pattern in line:
+                logger.warning("STDERR: %s", line)
+                self._continuation = True
+                return
+        if self._continuation:
+            logger.warning("STDERR: %s", line)
+            self._continuation = False
+            return
+        logger.error("STDERR: %s", line)
+
+
 def _run_blender(command: list[str], verbosity_level: int) -> int:
     """Run Blender with the given command and stream output per verbosity."""
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
@@ -245,12 +274,13 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
     stdout_lines: deque[str] = deque(maxlen=STREAM_TAIL_LINE_LIMIT)
     stderr_lines: deque[str] = deque(maxlen=STREAM_TAIL_LINE_LIMIT)
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
+        stderr_callback_instance = _StderrCallback()
         if verbosity_level == VERBOSITY_ALL:
             stdout_callback = lambda line: logger.info("STDOUT: %s", line)  # noqa: E731
-            stderr_callback = lambda line: logger.error("STDERR: %s", line)  # noqa: E731
+            stderr_callback = stderr_callback_instance
         elif verbosity_level == VERBOSITY_STDERR:
             stdout_callback = lambda line: logger.debug("STDOUT: %s", line)  # noqa: E731
-            stderr_callback = lambda line: logger.error("STDERR: %s", line)  # noqa: E731
+            stderr_callback = stderr_callback_instance
         else:
             stdout_callback = lambda line: logger.debug("STDOUT: %s", line)  # noqa: E731
             stderr_callback = lambda line: logger.debug("STDERR: %s", line)  # noqa: E731
