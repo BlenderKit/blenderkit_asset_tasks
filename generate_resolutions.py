@@ -84,9 +84,11 @@ def _send_to_bg_for_resolutions(
             binary_path=blender_binary_path,
         )
     else:
+        current_dir = pathlib.Path(__file__).parent.resolve()
         send_to_bg.send_to_bg(
             asset_data,
             asset_file_path=asset_file_path,
+            template_file_path=os.path.join(current_dir, "blend_files", "empty.blend"),
             result_path=result_path,
             script="resolutions_bg_blender.py",
             binary_path=blender_binary_path,

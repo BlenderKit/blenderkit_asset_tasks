@@ -17,7 +17,7 @@
         "${workspaceFolder}/.tests",
         "${workspaceFolder}/.tests/unittests",
 
-        "D:/blenders/4.5.3/4.5/scripts/modules",
+        "D:/blenders/5.1.0/5.1/scripts/modules",
     ],
 
     "python.analysis.extraPaths": [
@@ -26,7 +26,7 @@
         "${workspaceFolder}/.tests",
         "${workspaceFolder}/.tests/unittests",
 
-        "D:/blenders/4.5.3/4.5/scripts/modules",
+        "D:/blenders/5.1.0/5.1/scripts/modules",
     ],
 
     "python.testing.unittestArgs": [

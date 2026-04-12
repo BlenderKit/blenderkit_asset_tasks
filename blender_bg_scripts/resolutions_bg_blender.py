@@ -64,8 +64,18 @@ def _prepare_texture_dir(asset_data: dict[str, Any], resolution: str) -> str:
     return tex_dir_path
 
 
+def _free_all_image_buffers() -> None:
+    """Free pixel buffers for all images in the scene to minimize RAM usage."""
+    for img in bpy.data.images:
+        img.buffers_free()
+
+
 def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: str) -> int:
-    """Process and write all images for the given resolution; return total size."""
+    """Process and write all images for the given resolution; return total size.
+
+    Frees all image buffers before each image to ensure only one image's
+    pixel data is loaded in RAM at a time.
+    """
     reduced_total = 0
     for img in bpy.data.images:
         if img.name in ["Render Result", "Viewer Node"]:
@@ -75,6 +85,8 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
         if img.size[0] == 0 or img.size[1] == 0:
             logger.warning("Image %s is empty", img.name)
             continue
+
+        _free_all_image_buffers()
 
         fp = paths.get_texture_filepath(tex_dir_path, img, resolution=p2res)
         if p2res == orig_res:
@@ -101,6 +113,7 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
                 logger.exception("Failed to stat generated image: %s", abspath)
 
         img.pack()
+        img.buffers_free()
 
     return reduced_total
 
@@ -118,21 +131,39 @@ def _save_resolution_blend(fpath: str) -> bool:
         return True
 
 
+def _open_asset_blend(file_path: str) -> None:
+    """Open the asset .blend file and immediately free all image pixel buffers.
+
+    Blender eagerly decompresses all image data into RAM on file open.
+    By freeing buffers right away, peak memory stays low. Pixels will be
+    reloaded one-by-one from external files during processing.
+
+    Args:
+        file_path: Absolute path to the asset .blend file.
+    """
+    bpy.ops.wm.open_mainfile(filepath=file_path)
+    _free_all_image_buffers()
+    logger.info("Opened %s and freed image buffers", file_path)
+
+
 def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Generate lower-resolution .blend copies with downscaled textures.
 
     Steps:
-        1. Compute the current asset resolution.
-        2. Round to the nearest standard resolution (4k, 2k, 1k, 512).
-        3. For each step down, write textures into a resolution-specific directory and save a copy of the .blend.
-        4. Collect created files in a list for the caller to upload.
+        1. Open the asset .blend and immediately free image buffers to avoid OOM.
+        2. Compute the current asset resolution.
+        3. Round to the nearest standard resolution (4k, 2k, 1k, 512).
+        4. For each step down, write textures into a resolution-specific directory and save a copy of the .blend.
+        5. Collect created files in a list for the caller to upload.
 
     Args:
-        data: Input dict with 'asset_data'.
+        data: Input dict with 'asset_data' and 'file_path'.
 
     Returns:
         List of dicts: [{"type", "index", "file_path"}].
     """
+    _open_asset_blend(data["file_path"])
+
     files: list[dict[str, Any]] = []
     asset_data = data["asset_data"]
     base_fpath = bpy.data.filepath
