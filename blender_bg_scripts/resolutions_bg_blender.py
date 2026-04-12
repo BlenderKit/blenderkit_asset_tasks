@@ -29,6 +29,99 @@ MIN_NO_PREVIEW_VERSION = (3, 0, 0)
 logger = log.create_logger(__name__)
 
 
+def _log_ram_usage() -> None:
+    """Log current system RAM usage."""
+    try:
+        import psutil
+
+        mem = psutil.virtual_memory()
+        used_gb = mem.used / (1024**3)
+        available_gb = mem.available / (1024**3)
+        total_gb = mem.total / (1024**3)
+        process_mb = psutil.Process(os.getpid()).memory_info().rss / (1024**2)
+        logger.info(
+            "[RAM] process=%d MB | used=%.1f/%.1f GB | available=%.1f GB",
+            process_mb,
+            used_gb,
+            total_gb,
+            available_gb,
+        )
+    except ImportError:
+        _log_ram_usage_fallback()
+
+
+def _log_ram_usage_fallback() -> None:
+    """Log RAM usage without psutil using OS-native APIs.
+
+    On Windows uses ctypes GlobalMemoryStatusEx, on Linux reads /proc.
+    """
+    try:
+        if sys.platform == "win32":
+            _log_ram_win32()
+        elif sys.platform == "linux":
+            _log_ram_linux()
+        else:
+            logger.warning("[RAM] unsupported platform, install psutil")
+    except (OSError, ValueError, KeyError):
+        logger.warning("[RAM] failed to read RAM info")
+
+
+def _log_ram_win32() -> None:
+    """Log RAM on Windows via ctypes GlobalMemoryStatusEx."""
+    import ctypes
+    import ctypes.wintypes
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.wintypes.DWORD),
+            ("dwMemoryLoad", ctypes.wintypes.DWORD),
+            ("ullTotalPhys", ctypes.c_uint64),
+            ("ullAvailPhys", ctypes.c_uint64),
+            ("ullTotalPageFile", ctypes.c_uint64),
+            ("ullAvailPageFile", ctypes.c_uint64),
+            ("ullTotalVirtual", ctypes.c_uint64),
+            ("ullAvailVirtual", ctypes.c_uint64),
+            ("ullAvailExtendedVirtual", ctypes.c_uint64),
+        ]
+
+    stat = MEMORYSTATUSEX()
+    stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+
+    total_gb = stat.ullTotalPhys / (1024**3)
+    available_gb = stat.ullAvailPhys / (1024**3)
+    used_gb = total_gb - available_gb
+    logger.info(
+        "[RAM] used=%.1f/%.1f GB | available=%.1f GB",
+        used_gb,
+        total_gb,
+        available_gb,
+    )
+
+
+def _log_ram_linux() -> None:
+    """Log RAM on Linux by reading /proc/meminfo."""
+    min_parts = 2
+    mem = {}
+    with open("/proc/meminfo", encoding="utf-8") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= min_parts:
+                mem[parts[0].rstrip(":")] = int(parts[1])
+
+    total_kb = mem.get("MemTotal", 0)
+    available_kb = mem.get("MemAvailable", 0)
+    total_gb = total_kb / (1024**2)
+    available_gb = available_kb / (1024**2)
+    used_gb = total_gb - available_gb
+    logger.info(
+        "[RAM] used=%.1f/%.1f GB | available=%.1f GB",
+        used_gb,
+        total_gb,
+        available_gb,
+    )
+
+
 def get_current_resolution() -> int:
     """Find the maximum image resolution in the .blend file.
 
@@ -114,6 +207,7 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
 
         img.pack()
         img.buffers_free()
+        _log_ram_usage()
 
     return reduced_total
 
@@ -144,6 +238,7 @@ def _open_asset_blend(file_path: str) -> None:
     bpy.ops.wm.open_mainfile(filepath=file_path)
     _free_all_image_buffers()
     logger.info("Opened %s and freed image buffers", file_path)
+    _log_ram_usage()
 
 
 def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
