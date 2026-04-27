@@ -1928,6 +1928,9 @@ def _collect_missing_images() -> dict[str, str]:
 def _disconnect_missing_image_nodes(missing: dict[str, str]) -> int:
     """Disconnect outputs of TEX_IMAGE nodes referencing missing images.
 
+    Args:
+        missing: Mapping of missing image name -> resolved path.
+
     Returns:
         Number of links removed.
     """
