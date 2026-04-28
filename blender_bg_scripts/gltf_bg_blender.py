@@ -1900,6 +1900,88 @@ def fix_texture_paths() -> None:
                 logger.exception("Failed to reload image at fixed path: %s", fixed_path)
 
 
+def _is_image_missing(img: bpy.types.Image) -> bool:
+    """Return True if the image references an on-disk file that is absent.
+
+    Packed images and generated/render images are considered present.
+    """
+    if img is None:
+        return False
+    if getattr(img, "packed_file", None):
+        return False
+    if not img.filepath:
+        # Generated / render result / viewer images have no filepath.
+        return img.source == "FILE"
+    abspath = bpy.path.abspath(img.filepath)
+    return not os.path.isfile(abspath)
+
+
+def _collect_missing_images() -> dict[str, str]:
+    """Return mapping of missing image name -> resolved path (or placeholder)."""
+    missing: dict[str, str] = {}
+    for img in bpy.data.images:
+        if _is_image_missing(img):
+            missing[img.name] = bpy.path.abspath(img.filepath) if img.filepath else "<no filepath>"
+    return missing
+
+
+def _disconnect_missing_image_nodes(missing: dict[str, str]) -> int:
+    """Disconnect outputs of TEX_IMAGE nodes referencing missing images.
+
+    Args:
+        missing: Mapping of missing image name -> resolved path.
+
+    Returns:
+        Number of links removed.
+    """
+    disconnected = 0
+    for mat in bpy.data.materials:
+        if not mat.use_nodes or mat.node_tree is None:
+            continue
+        node_tree = mat.node_tree
+        for node in node_tree.nodes:
+            if node.type != "TEX_IMAGE":
+                continue
+            img = getattr(node, "image", None)
+            if img is None or img.name not in missing:
+                continue
+            for output in node.outputs:
+                # Copy because removing links mutates the collection.
+                for link in list(output.links):
+                    node_tree.links.remove(link)
+                    disconnected += 1
+    return disconnected
+
+
+def report_and_neutralize_missing_textures() -> list[str]:
+    """Detect images whose source files are missing and disconnect their nodes.
+
+    Logs one warning per missing image (instead of letting Cycles spam the
+    same error for every bake pass on every object). For each missing image,
+    finds all `ShaderNodeTexImage` nodes referencing it across all materials
+    and disconnects their outputs, so downstream bakes use the shader's
+    default (typically 0/black) for that input rather than re-emitting the
+    'Image file ... does not exist' error per pass.
+
+    Returns:
+        Sorted list of missing image names (for upstream diagnostics).
+    """
+    missing = _collect_missing_images()
+    if not missing:
+        return []
+
+    for name, resolved in sorted(missing.items()):
+        logger.warning("Missing input texture: %r resolved=%s", name, resolved)
+
+    disconnected = _disconnect_missing_image_nodes(missing)
+    logger.warning(
+        "Neutralized %d missing texture(s) by disconnecting %d link(s) across materials.",
+        len(missing),
+        disconnected,
+    )
+    return sorted(missing)
+
+
 # endregion MAPS
 
 # region EXPORT
@@ -1947,6 +2029,9 @@ def generate_gltf(json_result_path: str, target_format: str) -> None:  # noqa: C
     logger.info("ASSET PRE-PROCESSING start")
     # first try to fix all textures they may not loading  and start with \\textures
     fix_texture_paths()
+    # Detect missing texture files once, up front, and disconnect their nodes
+    # so Cycles doesn't spam 'Image file ... does not exist' per bake pass.
+    report_and_neutralize_missing_textures()
 
     # Configure bake settings
     scene = bpy.context.scene

@@ -8,6 +8,14 @@
     "configurations": [
 
 
+        {
+            "name": "Run Project Setup",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "${workspaceFolder}/.scripts/setup_project.bat",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
 
 
         {
@@ -69,14 +77,6 @@
             "cwd": "${workspaceFolder}"
         },
 
-        {
-            "name": "Run Project Setup",
-            "type": "node",
-            "request": "launch",
-            "runtimeExecutable": "${workspaceFolder}/.scripts/setup_project.bat",
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
 
         {
             "name": "[TASK] Ai Validate Fields",
@@ -175,8 +175,8 @@
                 //  bricks building [HEAVY model]
                 // "ASSET_BASE_ID": "5d91d222-0e1c-44bf-a921-7c5e790e5118"  // model
 
-                //  zen monk figure [LIGHT model]
-                "ASSET_BASE_ID": "4d557c1b-d3b7-4727-8190-0cd11ffdf0ef"  // model
+                //  something with incorrect name
+                "ASSET_BASE_ID": "bcb9fd74-c9d3-404d-8949-9400134a42d2"  // model
 
                 // bronze_elephant_decimated
                 // "ASSET_BASE_ID": "fd7b271b-bb38-4984-b51a-c85287cd3913"  // material

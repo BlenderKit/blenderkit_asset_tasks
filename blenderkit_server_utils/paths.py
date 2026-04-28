@@ -31,6 +31,7 @@ from typing import Any, TypeVar, cast
 
 # Local imports used by some helpers.
 from . import config, log, utils
+from .sanitize_names import sanitize_name
 
 logger = log.create_logger(__name__)
 
@@ -146,29 +147,98 @@ def get_download_dir(asset_type: str) -> str:
 def slugify(slug: str) -> str:
     """Normalize a string for safe filenames.
 
-    Lowercases, replaces disallowed characters, and trims length.
+    Thin wrapper over :func:`safe_folder_name` that preserves the legacy
+    behaviour for ASCII inputs (``"Hello World" -> "hello_world"``) while
+    correctly handling characters the previous implementation missed (``+``,
+    accents, ligatures, non-Latin scripts, etc.).
 
     Args:
         slug: Source string.
 
     Returns:
-        A sanitized, lowercased, and shortened slug.
+        A sanitized, lowercased, and shortened slug using ``[a-z0-9_-]``,
+        truncated to :data:`SLUG_MAX_LENGTH`.
     """
-    import re
+    return safe_folder_name(slug, max_length=SLUG_MAX_LENGTH)
 
-    slug = slug.lower()
 
-    characters = '<>:"/\\|?\\*., ()#'
-    for ch in characters:
-        slug = slug.replace(ch, "_")
-    # Keep original regular expressions for compatibility
-    slug = re.sub(r"[^a-z0-9]+.- ", "-", slug).strip("-")
-    slug = re.sub(r"[-]+", "-", slug)
-    slug = re.sub(r"/", "_", slug)
-    slug = re.sub(r"\\\'\"", "_", slug)
-    if len(slug) > SLUG_MAX_LENGTH:
-        slug = slug[:SLUG_MAX_LENGTH]
+# Maximum length of the sanitized asset-name component used in folder names.
+# The full folder name is "{name_slug}_{asset_id}", so we keep this short to
+# leave room for the (UUID) id and stay well under filesystem path limits.
+ASSET_FOLDER_NAME_MAX: int = 16
+
+
+def safe_folder_name(name: str, max_length: int = ASSET_FOLDER_NAME_MAX) -> str:
+    """Return a filesystem-safe folder name component for an asset.
+
+    Uses :func:`sanitize_name` (which transliterates non-ASCII via unidecode,
+    strips accents, and replaces invalid characters) so the result is safe to
+    create on Windows, macOS and Linux filesystems.
+
+    Hyphens are preserved (so UUIDs remain readable). The result is lowercase
+    and intentionally does NOT apply ``snake_case=True`` so that simple ASCII
+    inputs produce the same output as the legacy :func:`slugify` (e.g.
+    ``"Hello World" -> "hello_world"``), which keeps existing local asset
+    caches valid. Non-ASCII inputs that previously survived ``slugify``
+    untouched (e.g. ``"Müller"``) now get a safe ASCII form (``"muller"``).
+
+    Args:
+        name: Raw asset name (may contain spaces, accents, non-Latin scripts).
+        max_length: Maximum length of the returned slug.
+
+    Returns:
+        A lowercase ASCII string using only ``[a-z0-9_-]``, truncated to
+        ``max_length``.
+    """
+    # NOTE: in sanitize_name() the flag name is counter-intuitive:
+    # ``allow_hyphen=False`` actually KEEPS hyphens (does not treat them as
+    # invalid). We want to keep hyphens so embedded UUIDs stay readable.
+    slug = sanitize_name(name, snake_case=False, allow_hyphen=False, allow_prefix_number=True)
+    if len(slug) > max_length:
+        slug = slug[:max_length]
     return slug
+
+
+def safe_asset_folder_name(asset_data: dict[str, Any], max_name_length: int = ASSET_FOLDER_NAME_MAX) -> str:
+    """Return the canonical local folder name for an asset.
+
+    Format: ``"{safe_name}_{asset_id}"``. The asset id (a UUID) guarantees
+    uniqueness even if two assets sanitize to the same slug.
+
+    Args:
+        asset_data: Asset metadata dict containing ``"name"`` and ``"id"``.
+        max_name_length: Maximum length of the name portion (id is appended after).
+
+    Returns:
+        A folder name component safe to pass to :func:`os.makedirs`.
+    """
+    name_slug = safe_folder_name(str(asset_data["name"]), max_length=max_name_length)
+    return f"{name_slug}_{asset_data['id']}"
+
+
+def verify_path_creatable(path: str) -> bool:
+    """Check whether the given directory path can be created on this system.
+
+    Attempts to actually create the directory (and removes it again only if it
+    did not exist before). This catches OS-level errors that pure string
+    sanitization cannot (e.g. reserved Windows names like ``CON``, ``NUL``,
+    path-length limits, permission errors, mounted-volume restrictions).
+
+    Args:
+        path: Absolute directory path to test.
+
+    Returns:
+        True if the directory exists or was successfully created; False on any
+        OSError encountered while creating it.
+    """
+    if os.path.isdir(path):
+        return True
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        logger.exception("Cannot create directory %s", path)
+        return False
+    return True
 
 
 def extract_filename_from_url(url: str | None) -> str:
@@ -256,10 +326,19 @@ def get_res_file(
 
 
 def server_2_local_filename(asset_data: dict[str, Any], filename: str) -> str:
-    """Convert a server-side file name to a local, slugified file name.
+    """Convert a server-side file name to a local, filesystem-safe file name.
+
+    Strips the ``blend_`` / ``resolution_`` server prefixes, sanitizes both the
+    asset-name slug and the server-supplied stem (no ``+``, spaces, accents,
+    etc.), and re-attaches the original lowercase extension.
+
+    The asset-name slug is prepended only when the server stem does not
+    already contain it, which avoids doubled filenames like
+    ``mychair_mychair_<uuid>.blend`` for the common server pattern
+    ``blend_<asset-name>_<uuid>.blend``.
 
     Args:
-        asset_data: Asset data dict; uses 'name' for slug prefix.
+        asset_data: Asset data dict; uses ``'name'`` for the slug prefix.
         filename: Original filename from server.
 
     Returns:
@@ -267,7 +346,14 @@ def server_2_local_filename(asset_data: dict[str, Any], filename: str) -> str:
     """
     fn = filename.replace("blend_", "")
     fn = fn.replace("resolution_", "")
-    local_name = f"{slugify(asset_data['name'])}_{fn}"
+    stem, ext = os.path.splitext(fn)
+    safe_stem = safe_folder_name(stem, max_length=128) if stem else stem
+
+    name_slug = slugify(str(asset_data.get("name", ""))) if asset_data.get("name") else ""
+    if name_slug and name_slug not in safe_stem:
+        local_name = f"{name_slug}_{safe_stem}{ext.lower()}"
+    else:
+        local_name = f"{safe_stem}{ext.lower()}"
     return local_name
 
 

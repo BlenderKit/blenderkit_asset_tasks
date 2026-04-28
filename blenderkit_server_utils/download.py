@@ -29,8 +29,9 @@ TWO_PATHS = 2
 def server_2_local_filename(asset_data: dict[str, Any], filename: str) -> str:
     """Convert a server-side filename into a local filename.
 
-    Removes known prefixes from server filenames and prefixes with a slugified
-    asset name.
+    Delegates to :func:`paths.server_2_local_filename` so both the asset-name
+    prefix and the server-supplied stem are sanitized identically (no '+',
+    spaces, accents, etc.). The file extension is preserved.
 
     Args:
         asset_data: Asset metadata containing at least a "name".
@@ -39,10 +40,7 @@ def server_2_local_filename(asset_data: dict[str, Any], filename: str) -> str:
     Returns:
         A sanitized local filename suitable for saving to disk.
     """
-    fn = filename.replace("blend_", "")
-    fn = fn.replace("resolution_", "")
-    n = paths.slugify(asset_data["name"]) + "_" + fn
-    return n
+    return paths.server_2_local_filename(asset_data, filename)
 
 
 def files_size_to_text(size: int) -> str:
@@ -171,10 +169,7 @@ def get_download_filepath(
         directory = paths.get_download_dir(asset_data["assetType"])  # type: ignore[index]
 
     res_file, resolution = get_file_type(asset_data, resolution)
-    name_slug = paths.slugify(asset_data["name"])  # type: ignore[index]
-    if len(name_slug) > NAME_SLUG_MAX:
-        name_slug = name_slug[:NAME_SLUG_MAX]
-    asset_folder_name = f"{name_slug}_{asset_data['id']}"  # type: ignore[index]
+    asset_folder_name = paths.safe_asset_folder_name(asset_data, max_name_length=NAME_SLUG_MAX)
 
     file_names: list[str] = []
 
@@ -187,8 +182,13 @@ def get_download_filepath(
 
         asset_folder_path = os.path.join(directory, asset_folder_name)
 
-        if not os.path.exists(asset_folder_path):
-            os.makedirs(asset_folder_path, exist_ok=True)
+        if not paths.verify_path_creatable(asset_folder_path):
+            logger.error(
+                "Asset folder name %r is not creatable on this filesystem; skipping asset %s",
+                asset_folder_name,
+                asset_data.get("id"),
+            )
+            return file_names
 
         file_name = os.path.join(asset_folder_path, n)
         file_names.append(file_name)
