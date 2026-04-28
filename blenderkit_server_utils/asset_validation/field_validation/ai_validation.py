@@ -621,6 +621,11 @@ class AIClient:
 
         Returns:
             Tuple of (valid, reason, corrections) or None.
+
+        Raises:
+            AICreditsExhaustedError: If the AI provider rejects the request
+                because account credits or the spending limit are exhausted.
+                Re-raised so the caller can abort the validation run.
         """
         if not self.enabled:
             return None
@@ -725,6 +730,8 @@ class AIClient:
             Provider response payload.
 
         Raises:
+            AICreditsExhaustedError: If the Grok API rejects the request
+                because credits or the spending limit are exhausted.
             _GrokHttpError: If the Grok API request fails.
         """
         if self.provider == "grok":

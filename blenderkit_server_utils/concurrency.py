@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 from . import exceptions
+from .exceptions import FatalWorkerError
 
 DEFAULT_POLL_INTERVAL = 0.1
 
@@ -45,6 +46,11 @@ def run_asset_threads(  # noqa: PLR0913, C901
             a worker raises one of these, no further assets are dispatched, the
             already-running threads are awaited, and the original exception is
             re-raised from the main thread so calling scripts (and CI) fail.
+
+    Raises:
+        FatalWorkerError: Wraps the first exception from any worker that
+            matched ``fatal_exceptions``. The original exception is attached as
+            ``__cause__`` so the traceback is preserved.
 
     Notes:
         Backward compatibility: previous signature expected (asset, api_key). To
@@ -135,4 +141,4 @@ def run_asset_threads(  # noqa: PLR0913, C901
 
     fatal_error = fatal_holder.get("error")
     if fatal_error is not None:
-        raise fatal_error
+        raise FatalWorkerError(str(fatal_error)) from fatal_error
