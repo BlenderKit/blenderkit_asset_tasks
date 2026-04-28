@@ -82,6 +82,47 @@ class _GrokHttpError(RuntimeError):
         self.status_code = status_code
 
 
+class AICreditsExhaustedError(RuntimeError):
+    """Fatal AI provider error indicating credits/quota are exhausted.
+
+    Raised when the provider rejects requests because the account is out of
+    credits or has reached its spending limit. This must not be retried and
+    must abort the validation run so CI surfaces the failure.
+    """
+
+    def __init__(self, provider: str, detail: str) -> None:
+        super().__init__(f"{provider} AI credits/quota exhausted: {detail}")
+        self.provider = provider
+        self.detail = detail
+
+
+# Fragments that indicate a non-recoverable credits/quota condition.
+_AI_CREDITS_EXHAUSTED_MARKERS = (
+    "credits",
+    "monthly spending limit",
+    "spending limit",
+    "insufficient_quota",
+    "insufficient quota",
+    "resource has been exhausted",
+    "billing",
+)
+
+
+def _is_credits_exhausted_message(message: str) -> bool:
+    """Return True when an error message indicates exhausted AI credits.
+
+    Args:
+        message: Raw error message or response body.
+
+    Returns:
+        True when the message matches a known credits/quota exhaustion pattern.
+    """
+    if not message:
+        return False
+    lowered = message.lower()
+    return any(marker in lowered for marker in _AI_CREDITS_EXHAUSTED_MARKERS)
+
+
 def _sanitize_prompt_value(value: str | None) -> str:
     """Clean values placed into AI prompts.
 
@@ -619,9 +660,23 @@ class AIClient:
                     tools=tools,
                 )
                 break
+            except AICreditsExhaustedError:
+                # Fatal: credits/quota exhausted. Do not retry; abort the run
+                # so the CI workflow fails loudly and notifies maintainers.
+                logger.critical(
+                    "AI provider %s credits exhausted; aborting validation run",
+                    self.provider,
+                )
+                raise
             except Exception as exc:
                 detail = _describe_ai_exception(exc)
                 should_retry = _is_retryable_ai_exception(exc)
+                if _is_credits_exhausted_message(detail) or _is_credits_exhausted_message(str(exc)):
+                    logger.critical(
+                        "AI provider %s credits exhausted; aborting validation run",
+                        self.provider,
+                    )
+                    raise AICreditsExhaustedError(self.provider, detail) from exc
                 logger.exception(
                     "AI validation request failed (model=%s, query=%r) detail=%s",
                     self.model_name,
@@ -690,6 +745,8 @@ class AIClient:
                 timeout=self.timeout_s,
             )
             if not response.ok:
+                if response.status_code == 429 and _is_credits_exhausted_message(response.text):
+                    raise AICreditsExhaustedError("grok", response.text)
                 raise _GrokHttpError(response.status_code, response.text)
             response_json = response.json()
             return response_json

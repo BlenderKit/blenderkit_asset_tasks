@@ -21,6 +21,9 @@ from typing import Any
 
 from blenderkit_server_utils import concurrency, config, datetime_utils, log, search, upload, utils
 from blenderkit_server_utils.asset_validation import field_validation
+from blenderkit_server_utils.asset_validation.field_validation.ai_validation import (
+    AICreditsExhaustedError,
+)
 
 logger = log.create_logger(__name__)
 
@@ -443,6 +446,7 @@ def iterate_assets(
         asset_arg_position=0,
         max_concurrency=config.MAX_VALIDATION_THREADS,
         logger=logger,
+        fatal_exceptions=(AICreditsExhaustedError,),
     )
     return stats
 

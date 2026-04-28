@@ -24,6 +24,7 @@ def run_asset_threads(  # noqa: PLR0913
     worker_args: Sequence[Any] | None = None,
     worker_kwargs: dict[str, Any] | None = None,
     asset_arg_position: int = 0,
+    fatal_exceptions: tuple[type[BaseException], ...] = (),
 ) -> None:
     """Run a worker callable over assets with controlled concurrency.
 
@@ -40,6 +41,10 @@ def run_asset_threads(  # noqa: PLR0913
         worker_args: Additional positional arguments (excluding the per-asset dict).
         worker_kwargs: Keyword arguments passed to worker each invocation.
         asset_arg_position: Index in positional args where the asset dict will be inserted.
+        fatal_exceptions: Exception types that should abort the whole run. When
+            a worker raises one of these, no further assets are dispatched, the
+            already-running threads are awaited, and the original exception is
+            re-raised from the main thread so calling scripts (and CI) fail.
 
     Notes:
         Backward compatibility: previous signature expected (asset, api_key). To
@@ -50,7 +55,14 @@ def run_asset_threads(  # noqa: PLR0913
     static_args: Sequence[Any] = worker_args or ()
     static_kwargs: dict[str, Any] = worker_kwargs or {}
 
+    abort_event = threading.Event()
+    fatal_lock = threading.Lock()
+    fatal_holder: dict[str, BaseException] = {}
+
     for asset in assets:
+        if abort_event.is_set():
+            logger.error("Fatal worker error detected; aborting remaining assets")
+            break
         if not asset:
             logger.warning("Skipping empty asset entry")
             continue
@@ -70,6 +82,16 @@ def run_asset_threads(  # noqa: PLR0913
             try:
                 worker(*a_args, **a_kwargs)
                 # raise exception to test error handling
+            except fatal_exceptions as fatal_exc:  # type: ignore[misc]
+                logger.critical(
+                    "Fatal worker error (asset keys=%s): %s",
+                    asset_keys_snapshot,
+                    fatal_exc,
+                )
+                with fatal_lock:
+                    if "error" not in fatal_holder:
+                        fatal_holder["error"] = fatal_exc
+                abort_event.set()
             except Exception as e:
                 logger.exception("Worker raised exception (asset keys=%s)", asset_keys_snapshot)
                 # complete traceback
@@ -81,10 +103,10 @@ def run_asset_threads(  # noqa: PLR0913
                 ) from e
 
         asset_keys_snapshot = (
-                asset.get("asset_base_id", ""),
-                asset.get("assetType", ""),
-                asset.get("name", "N/A"),
-            )
+            asset.get("asset_base_id", ""),
+            asset.get("assetType", ""),
+            asset.get("name", "N/A"),
+        )
 
         try:
             logger.debug("Starting thread for asset %s", asset_keys_snapshot)
@@ -110,3 +132,7 @@ def run_asset_threads(  # noqa: PLR0913
 
     for t in threads:
         t.join()
+
+    fatal_error = fatal_holder.get("error")
+    if fatal_error is not None:
+        raise fatal_error
