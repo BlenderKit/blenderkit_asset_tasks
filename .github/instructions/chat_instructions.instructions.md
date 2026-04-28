@@ -10,6 +10,26 @@ applyTo: '**/*'
 applyTo: '**/*.py'
 ---
 # Project coding standards for Python
+
+## MANDATORY linting after every Python edit
+After ANY edit to a `*.py` file, run BOTH linters and resolve every issue
+before reporting back to the user. Do NOT skip this step.
+
+```powershell
+.venv\Scripts\python.exe -m ruff check <changed files>
+.venv\Scripts\pydoclint.exe <changed files>
+```
+
+Notes:
+- Use `pydoclint.exe` directly; the `pydoclint` package has no `__main__`
+  module so `python -m pydoclint` will fail.
+- pydoclint does NOT honor inline `# noqa: DOC...` comments. To satisfy
+  DOC501/DOC503 prefer refactoring (e.g. raise a typed wrapper exception
+  whose class name appears verbatim in the body) over silencing.
+- Ruff rejects unknown noqa codes; if a non-Ruff code must be used add it
+  to `[tool.ruff.lint] external = [...]`.
+
+## Style rules
 - Follow the RUFF style guide for Python.
 - Be careful with unused imports, they should be removed.
 - Follow PEP 8 guidelines.
