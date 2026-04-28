@@ -14,7 +14,7 @@ from . import exceptions
 DEFAULT_POLL_INTERVAL = 0.1
 
 
-def run_asset_threads(  # noqa: PLR0913
+def run_asset_threads(  # noqa: PLR0913, C901
     assets: Iterable[dict[str, Any]],
     worker: Callable[..., Any],
     *,

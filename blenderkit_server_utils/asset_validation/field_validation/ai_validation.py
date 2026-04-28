@@ -23,6 +23,7 @@ logger = log.create_logger(__name__)
 
 AI_LIMIT_PER_ITEM = 100
 AI_LOG_PREVIEW = 800
+HTTP_TOO_MANY_REQUESTS = 429
 AI_REQUEST_PREVIEW = 600
 AI_ERROR_DETAIL_PREVIEW = 400
 CODE_FENCE_SPLIT_MAX = 2
@@ -607,7 +608,7 @@ class AIClient:
             return
         self.client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
 
-    def judge(  # noqa: PLR0911
+    def judge(  # noqa: PLR0911, C901
         self,
         row: Mapping[str, str],
         heuristics: HeuristicSummary,
@@ -745,7 +746,7 @@ class AIClient:
                 timeout=self.timeout_s,
             )
             if not response.ok:
-                if response.status_code == 429 and _is_credits_exhausted_message(response.text):
+                if response.status_code == HTTP_TOO_MANY_REQUESTS and _is_credits_exhausted_message(response.text):
                     raise AICreditsExhaustedError("grok", response.text)
                 raise _GrokHttpError(response.status_code, response.text)
             response_json = response.json()
