@@ -31,7 +31,8 @@ STREAM_TAIL_LINE_LIMIT: int = 200
 
 # Stderr patterns that are harmless warnings rather than real errors.
 # Lines matching any of these are downgraded from ERROR to WARNING.
-_STDERR_WARN_PATTERNS: tuple[str, ...] = ("DeprecationWarning:",)
+_STDERR_WARN_PATTERNS: tuple[str, ...] = ()
+_STDERR_DEBUG_PATTERNS: tuple[str, ...] = ("DeprecationWarning:",)
 
 
 def get_blender_version_from_blend(blend_file_path: str) -> str:
@@ -247,21 +248,31 @@ class _StderrCallback:
     Python warnings (e.g. DeprecationWarning) emit two lines: the warning
     message followed by the offending source line. This callback tracks
     whether the previous line matched a known harmless pattern so the
-    continuation line is also downgraded from ERROR to WARNING.
+    continuation line is also downgraded from ERROR to WARNING or DEBUG.
     """
 
     def __init__(self) -> None:
-        self._continuation = False
+        self._w_continuation = False
+        self._d_continuation = False
 
     def __call__(self, line: str) -> None:
         for pattern in _STDERR_WARN_PATTERNS:
             if pattern in line:
                 logger.warning("STDERR: %s", line)
-                self._continuation = True
+                self._w_continuation = True
                 return
-        if self._continuation:
+        if self._w_continuation:
             logger.warning("STDERR: %s", line)
-            self._continuation = False
+            self._w_continuation = False
+            return
+        for pattern in _STDERR_DEBUG_PATTERNS:
+            if pattern in line:
+                logger.debug("STDERR: %s", line)
+                self._d_continuation = True
+                return
+        if self._d_continuation:
+            logger.debug("STDERR: %s", line)
+            self._d_continuation = False
             return
         logger.error("STDERR: %s", line)
 
