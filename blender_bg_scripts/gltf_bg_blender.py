@@ -59,6 +59,10 @@ MAX_ISLAND_OVERLAPS = 0
 BLEED = 4  # pixels
 UV_ISLAND_EPSILON = 1e-5
 UV_SPACE_EPSILON = 1e-5
+# Cap to avoid O(N^2) memory in `_bounds_overlap_numpy` for meshes with extreme
+# island counts (e.g., foliage assets with hundreds of thousands of leaves).
+# When exceeded we assume overlap exists and trigger the procedural relayout.
+MAX_ISLANDS_FOR_OVERLAP_CHECK = 4096
 
 # In Blender 6.0+ Material.use_nodes is removed (materials always use nodes).
 BLENDER_6_PLUS: bool = bpy.app.version >= (6, 0, 0)
@@ -696,6 +700,15 @@ def check_uv_face_overlap(bm: bmesh.types.BMesh, uv_layer: bpy.types.MeshUVLoopL
     if len(island_infos) < 2:  # noqa: PLR2004
         return False
 
+    if len(island_infos) > MAX_ISLANDS_FOR_OVERLAP_CHECK:
+        logger.warning(
+            "UV island count %d exceeds MAX_ISLANDS_FOR_OVERLAP_CHECK=%d; "
+            "skipping pairwise overlap check and forcing procedural relayout to avoid OOM.",
+            len(island_infos),
+            MAX_ISLANDS_FOR_OVERLAP_CHECK,
+        )
+        return True
+
     island_bounds_np = np.stack([info["bounds_np"] for info in island_infos], axis=0)
     island_overlap_matrix = _bounds_overlap_numpy(island_bounds_np, island_bounds_np)
     island_overlap_matrix = np.triu(island_overlap_matrix, k=1)
@@ -1165,6 +1178,339 @@ def estimate_shader_cost(
             return float("inf")
 
     return cost
+
+
+# --- glTF-native (image-only) material detection -----------------------------
+
+# Node types that we treat as "trivial pass-through" when tracing a Principled
+# input back to its source `TEX_IMAGE`. They may distort/transform the value,
+# but they are still anchored to a single image, so re-wiring the texture
+# directly (and dropping the math) is "good enough" for a glTF export and
+# avoids the multi-GiB bake path entirely.
+#
+# For each node type we list the input socket names to follow. ``None`` means
+# "follow every linked input and accept the first that resolves".
+_GLTF_PASSTHROUGH_INPUTS: dict[str, tuple[str, ...] | None] = {
+    "REROUTE": None,
+    "MAPPING": ("Vector",),
+    "UVMAP": (),
+    "GAMMA": ("Color",),
+    "INVERT": ("Color",),
+    "RGBTOBW": ("Color",),
+    "BRIGHTCONTRAST": ("Color",),
+    "HUE_SAT": ("Color",),
+    "SEPARATE_COLOR": ("Color",),
+    "SEPRGB": ("Image",),
+    "SEPARATE_RGB": ("Image",),
+    "COMBINE_COLOR": None,
+    "MIX_RGB": ("Color1", "Color2"),
+    "MIX": ("A", "B", "Color1", "Color2"),
+    "MATH": ("Value", "Value_001"),
+    "VECT_MATH": ("Vector",),
+    "NORMAL_MAP": ("Color",),
+    "BUMP": ("Height",),
+}
+
+
+def _trace_to_tex_image(
+    node: bpy.types.Node,
+    visited: set[int] | None = None,
+    depth: int = 0,
+) -> bpy.types.Node | None:
+    """Walk back through trivial pass-through nodes to find a TEX_IMAGE source.
+
+    Args:
+        node: Starting node (already on the input side of a link).
+        visited: Set of node ids visited on the current branch (cycle guard).
+        depth: Current recursion depth.
+
+    Returns:
+        The originating ``TEX_IMAGE`` node, or ``None`` when the chain hits
+        anything we cannot represent as a direct texture (procedural noise,
+        unsupported math, multi-image mixes, etc.).
+    """
+    if depth > MAX_DEPTH:
+        return None
+    if visited is None:
+        visited = set()
+    nid = id(node)
+    if nid in visited:
+        return None
+    visited.add(nid)
+
+    if node.type == "TEX_IMAGE":
+        return node
+
+    follow = _GLTF_PASSTHROUGH_INPUTS.get(node.type)
+    if follow is None and node.type not in _GLTF_PASSTHROUGH_INPUTS:
+        return None
+
+    socket_names: Iterable[str]
+    socket_names = follow if follow else [s.name for s in node.inputs]
+    for socket_name in socket_names:
+        socket = node.inputs.get(socket_name)
+        if not socket or not socket.is_linked:
+            continue
+        for link in socket.links:
+            found = _trace_to_tex_image(link.from_node, visited, depth + 1)
+            if found is not None:
+                return found
+    return None
+
+
+def _trace_socket_to_image(socket: bpy.types.NodeSocket | None) -> bpy.types.Node | None:
+    """Trace a Principled BSDF input socket back to its source TEX_IMAGE.
+
+    Args:
+        socket: Input socket on a Principled BSDF (or ``None``).
+
+    Returns:
+        The source ``TEX_IMAGE`` node, or ``None`` when not reachable through
+        trivial pass-throughs.
+    """
+    if socket is None or not socket.is_linked:
+        return None
+    for link in socket.links:
+        tex = _trace_to_tex_image(link.from_node)
+        if tex is not None:
+            return tex
+    return None
+
+
+def _find_principled_via_mix(
+    node: bpy.types.Node,
+    depth: int = 0,
+) -> bpy.types.Node | None:
+    """Pick the Principled BSDF branch of a Mix/Add shader graph.
+
+    Args:
+        node: Shader node feeding the surface output (Principled, MixShader,
+            AddShader, or other).
+        depth: Current recursion depth.
+
+    Returns:
+        The first reachable ``BSDF_PRINCIPLED`` node, or ``None`` when the
+        graph contains no recognisable Principled branch.
+    """
+    if depth > MAX_DEPTH or node is None:
+        return None
+    if node.type == "BSDF_PRINCIPLED":
+        return node
+    if node.type not in {"MIX_SHADER", "ADD_SHADER"}:
+        return None
+
+    candidates = [s for s in node.inputs if s.type == "SHADER" and s.is_linked]
+    for socket in candidates:
+        for link in socket.links:
+            found = _find_principled_via_mix(link.from_node, depth + 1)
+            if found is not None:
+                return found
+    return None
+
+
+def extract_glb_native_material(
+    mat: bpy.types.Material,
+) -> dict[str, Any] | None:
+    """Detect whether a material is "glTF-native" (image-only Principled).
+
+    A material qualifies when, after walking through Mix/Add shader stacks,
+    we find a single Principled BSDF whose monitored inputs (``Base Color``,
+    ``Alpha``, ``Metallic``, ``Roughness``, ``Normal``, ``Emission``) are
+    either unlinked, set to constants, or trace back through trivial
+    pass-through nodes to a single ``TEX_IMAGE``. Such materials can be
+    exported to glTF without baking, avoiding the procedural fallback.
+
+    Args:
+        mat: Material to inspect.
+
+    Returns:
+        A dict mapping each glTF-relevant slot to its source ``TEX_IMAGE``
+        node (or ``None``) plus an ``has_alpha`` flag, or ``None`` if the
+        material is not reducible to a direct-texture Principled.
+    """
+    if mat is None or not getattr(mat, "node_tree", None):
+        return None
+
+    surface = _find_surface_shader(mat.node_tree)
+    if surface is None:
+        return None
+
+    bsdf = _find_principled_via_mix(surface)
+    if bsdf is None:
+        return None
+
+    info: dict[str, Any] = {
+        "base_color": _trace_socket_to_image(bsdf.inputs.get("Base Color")),
+        "alpha": _trace_socket_to_image(bsdf.inputs.get("Alpha")),
+        "metallic": _trace_socket_to_image(bsdf.inputs.get("Metallic")),
+        "roughness": _trace_socket_to_image(bsdf.inputs.get("Roughness")),
+        "normal": _trace_socket_to_image(bsdf.inputs.get("Normal")),
+        "emission": _trace_socket_to_image(bsdf.inputs.get("Emission Color"))
+        or _trace_socket_to_image(bsdf.inputs.get("Emission")),
+        "principled": bsdf,
+    }
+
+    # Reject materials where a *linked* socket couldn't be resolved to an
+    # image — that means there's a real procedural component we'd skip.
+    socket_to_key = (
+        ("Base Color", "base_color"),
+        ("Alpha", "alpha"),
+        ("Metallic", "metallic"),
+        ("Roughness", "roughness"),
+        ("Normal", "normal"),
+    )
+    for socket_name, key in socket_to_key:
+        socket = bsdf.inputs.get(socket_name)
+        if socket and socket.is_linked and info[key] is None:
+            logger.debug(
+                "Material '%s' not glTF-native: socket '%s' has unsupported procedural input",
+                mat.name,
+                socket_name,
+            )
+            return None
+
+    info["has_alpha"] = info["alpha"] is not None
+    return info
+
+
+def _set_alpha_blend_mode(mat: bpy.types.Material) -> None:
+    """Configure a material's alpha mode for glTF export (BLEND).
+
+    Args:
+        mat: Material to configure.
+
+    Returns:
+        None.
+    """
+    # Blender 4.2+ moved the EEVEE alpha mode to ``surface_render_method``.
+    # Set both where available so the glTF exporter picks BLEND.
+    for attr, value in (("blend_method", "BLEND"), ("surface_render_method", "BLENDED")):
+        if hasattr(mat, attr):
+            try:
+                setattr(mat, attr, value)
+            except (TypeError, AttributeError):
+                logger.debug("Failed to set %s on '%s'", attr, mat.name)
+
+
+def _collect_native_image_sources(info: dict[str, Any]) -> dict[str, tuple[bpy.types.Image, str]]:
+    """Snapshot ``Image`` datablocks (and colorspaces) from a native-info dict.
+
+    Args:
+        info: Mapping returned by `extract_glb_native_material`.
+
+    Returns:
+        Mapping of slot key -> (image, colorspace_name) for slots that have
+        a real image source. Slots without an image are omitted.
+    """
+    sources: dict[str, tuple[bpy.types.Image, str]] = {}
+    for key in ("base_color", "alpha", "metallic", "roughness", "normal", "emission"):
+        node = info.get(key)
+        if node is None or node.type != "TEX_IMAGE":
+            continue
+        image = getattr(node, "image", None)
+        if image is None:
+            continue
+        cs = image.colorspace_settings.name if image.colorspace_settings else ""
+        sources[key] = (image, cs)
+    return sources
+
+
+def simplify_material_to_principled(mat: bpy.types.Material, info: dict[str, Any]) -> None:  # noqa: C901, PLR0915
+    """Rewrite a material's tree to a flat Principled + image textures graph.
+
+    The original Mix/Add shader stack and any unsupported branches are
+    discarded. Original ``bpy.types.Image`` datablocks are reused so the
+    exported glTF references the same texture data already present in the
+    blend file.
+
+    Args:
+        mat: Material to rewrite in place.
+        info: Result from `extract_glb_native_material` describing which
+            ``TEX_IMAGE`` node sources each glTF-relevant slot.
+
+    Returns:
+        None.
+    """
+    if not mat.node_tree:
+        return
+
+    sources = _collect_native_image_sources(info)
+
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    output = nodes.new(type="ShaderNodeOutputMaterial")
+    output.location = (600, 0)
+
+    bsdf = nodes.new(type="ShaderNodeBsdfPrincipled")
+    bsdf.location = (300, 0)
+    links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+
+    # Single UV node feeding all texture nodes — keeps the exporter happy and
+    # preserves the original UV map (default = first/active one on the mesh).
+    uv_node = nodes.new(type="ShaderNodeUVMap")
+    uv_node.location = (-700, 0)
+
+    def _make_tex(image: bpy.types.Image, colorspace: str, y: int) -> bpy.types.Node:
+        tex = nodes.new(type="ShaderNodeTexImage")
+        tex.image = image
+        tex.location = (-400, y)
+        if colorspace:
+            try:
+                tex.image.colorspace_settings.name = colorspace
+            except (TypeError, AttributeError):
+                logger.debug("Could not enforce colorspace '%s' on '%s'", colorspace, image.name)
+        links.new(uv_node.outputs["UV"], tex.inputs["Vector"])
+        return tex
+
+    base_image_info = sources.get("base_color")
+    base_tex: bpy.types.Node | None = None
+    if base_image_info:
+        base_tex = _make_tex(*base_image_info, y=300)
+        links.new(base_tex.outputs["Color"], bsdf.inputs["Base Color"])
+
+    alpha_image_info = sources.get("alpha")
+    if alpha_image_info:
+        alpha_tex = _make_tex(*alpha_image_info, y=100)
+        if "Alpha" in bsdf.inputs:
+            links.new(alpha_tex.outputs["Color"], bsdf.inputs["Alpha"])
+    elif base_tex is not None and "Alpha" in bsdf.inputs and info.get("has_alpha"):
+        links.new(base_tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+
+    metallic_info = sources.get("metallic")
+    if metallic_info and "Metallic" in bsdf.inputs:
+        metallic_tex = _make_tex(*metallic_info, y=-100)
+        links.new(metallic_tex.outputs["Color"], bsdf.inputs["Metallic"])
+
+    roughness_info = sources.get("roughness")
+    if roughness_info and "Roughness" in bsdf.inputs:
+        rough_tex = _make_tex(*roughness_info, y=-300)
+        links.new(rough_tex.outputs["Color"], bsdf.inputs["Roughness"])
+
+    normal_info = sources.get("normal")
+    if normal_info and "Normal" in bsdf.inputs:
+        normal_tex = _make_tex(*normal_info, y=-500)
+        normal_map = nodes.new(type="ShaderNodeNormalMap")
+        normal_map.location = (-100, -500)
+        links.new(normal_tex.outputs["Color"], normal_map.inputs["Color"])
+        links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+
+    emission_info = sources.get("emission")
+    if emission_info:
+        emission_tex = _make_tex(*emission_info, y=-700)
+        emission_socket = bsdf.inputs.get("Emission Color") or bsdf.inputs.get("Emission")
+        if emission_socket is not None:
+            links.new(emission_tex.outputs["Color"], emission_socket)
+
+    if info.get("has_alpha"):
+        _set_alpha_blend_mode(mat)
+
+    logger.info(
+        "Simplified material '%s' to glTF-native Principled (textures: %s)",
+        mat.name,
+        sorted(sources.keys()),
+    )
 
 
 def is_procedural_material(mat: bpy.types.Material | bpy.types.NodeTree) -> bool:  # noqa: C901, PLR0911, PLR0912
@@ -1734,7 +2080,28 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901, 
         None.
     """
     _ensure_single_user_materials(obj)
-    procedural_materials = [mat for mat in obj.data.materials if mat and is_procedural_material(mat)]
+
+    # First pass: simplify any glTF-native materials in place (no baking
+    # required). They reuse the original images on the original UVs.
+    simplified: list[bpy.types.Material] = []
+    for mat in obj.data.materials:
+        if not mat:
+            continue
+        info = extract_glb_native_material(mat)
+        if info is None:
+            continue
+        simplify_material_to_principled(mat, info)
+        simplified.append(mat)
+    if simplified:
+        logger.info(
+            "Simplified %d glTF-native material(s) on '%s' (skipped baking)",
+            len(simplified),
+            obj.name,
+        )
+
+    procedural_materials = [
+        mat for mat in obj.data.materials if mat and mat not in simplified and is_procedural_material(mat)
+    ]
     if not procedural_materials:
         logger.info("No procedural materials found on '%s'. Skipping bake.", obj.name)
         return

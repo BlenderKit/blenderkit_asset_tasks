@@ -82,7 +82,7 @@ if "godot" in TARGET_FORMAT:
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
-def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, target_format: str) -> bool:  # noqa: C901, PLR0915
+def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, target_format: str) -> bool:  # noqa: C901, PLR0912, PLR0915
     """Generate and upload a Godot-optimized GLTF for a single asset.
 
     Steps:
@@ -122,7 +122,7 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
     temp_folder = tempfile.mkdtemp()
     result_path = os.path.join(temp_folder, asset_data["assetBaseId"] + "_resdata.json")
     # should we remove the temp folder after use? yes, we do it in send_to_bg
-    send_to_bg.send_to_bg(
+    bg_returncode = send_to_bg.send_to_bg(
         asset_data,
         asset_file_path=asset_file_path,
         result_path=result_path,
@@ -130,6 +130,13 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
         binary_path=binary_path,
         target_format=target_format,
     )
+    if bg_returncode != 0:
+        logger.error(
+            "Background gltf_bg_blender.py exited with non-zero return code %s for asset %s",
+            bg_returncode,
+            asset_data.get("id"),
+        )
+        error += f" bg_returncode={bg_returncode}"
 
     files: list[dict[str, Any]] | None = None
     try:
