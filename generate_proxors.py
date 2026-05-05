@@ -1,0 +1,236 @@
+"""Generate PRXC files.
+
+This is a plcaholder script.
+"""
+
+import argparse
+import json
+import os
+import sys
+import tempfile
+from typing import Any
+
+from blenderkit_server_utils import (
+    concurrency,
+    config,
+    datetime_utils,
+    download,
+    log,
+    search,
+    send_to_bg,
+    upload,
+    utils,
+)
+
+logger = log.create_logger(__name__)
+
+utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
+
+# if BLENDER_PATH is not defined but we have BLENDERS_PATH
+# get latest version from there
+if not config.BLENDER_PATH and config.BLENDERS_PATH:
+    logger.error("BLENDER_PATH not set, checking BLENDERS_PATH, result may be tainted.")
+    latest_version = utils.get_latest_blender_binary_path(config.BLENDERS_PATH)
+    if latest_version:
+        config.BLENDER_PATH = latest_version
+
+if not config.BLENDER_PATH:
+    logger.error("At least one of BLENDER_PATH & BLENDERS_PATH must be set.")
+    sys.exit(1)
+
+
+PAGE_SIZE_LIMIT: int = 100
+PARAM_DATE: str = "last_prxc_upload"
+
+SKIP_UPDATE: bool = config.SKIP_UPDATE
+
+
+def generate_prxc(asset_data: dict[str, Any], api_key: str, binary_path: str) -> bool:  # noqa: C901
+    """Generate and upload a PRXC file for a single asset.
+
+    Steps:
+    1. Download the asset archive.
+    2. Unpack the asset via a background Blender process.
+    3. Run a background Blender export to produce a PRXC file.
+    4. Upload the generated files and patch an asset parameter on success.
+
+    Args:
+        asset_data: Asset metadata returned from the search API.
+        api_key: API key used for authenticated operations.
+        binary_path: Absolute path to the Blender binary used for background operations.
+
+    Returns:
+        True when the PRXC file was generated and uploaded successfully; False otherwise.
+    """
+    error = ""
+    destination_directory = tempfile.gettempdir()
+
+    # Download asset
+    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+
+    if not asset_file_path:
+        logger.error("Asset file not found on path %s", asset_file_path)
+        return False
+
+    # Unpack asset
+    send_to_bg.send_to_bg(
+        asset_data=asset_data,
+        asset_file_path=asset_file_path,
+        script="unpack_asset_bg.py",
+        binary_path=binary_path,
+    )
+
+    # Send to background to generate GLTF
+    temp_folder = tempfile.mkdtemp()
+    result_path = os.path.join(temp_folder, asset_data["assetBaseId"] + "_resdata.json")
+    # should we remove the temp folder after use? yes, we do it in send_to_bg
+    bg_returncode = send_to_bg.send_to_bg(
+        asset_data,
+        asset_file_path=asset_file_path,
+        temp_folder=temp_folder,
+        result_path=result_path,
+        script="prxc_bg_blender.py",
+        binary_path=binary_path,
+    )
+    if bg_returncode != 0:
+        logger.error(
+            "Background prxc_bg_blender.py exited with non-zero return code %s for asset %s",
+            bg_returncode,
+            asset_data.get("id"),
+        )
+        error += f" bg_returncode={bg_returncode}"
+
+    files: list[dict[str, Any]] | None = None
+    try:
+        with open(result_path, encoding="utf-8") as f:
+            files = json.load(f)
+    except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError) as exc:
+        logger.exception("Error reading result JSON %s", result_path)
+        error += f" {exc}"
+
+    logger.info("Cleaning up temporary folder %s", temp_folder)
+    if files:
+        logger.info("Generated files: %s", files)
+
+    if files is None:
+        error += " Files are None"
+    elif len(files) == 0:
+        error += " len(files)=0"
+    else:
+        logger.info("Generated files: %s", files)
+
+        if SKIP_UPDATE:
+            logger.info("SKIP_UPDATE is set, not patching the asset.")
+            logger.debug("Generated files: %s", files)
+            opened = utils.open_folder(os.path.dirname(files[0]["file_path"]))
+            if not opened:
+                logger.error("Failed to open folder %s", os.path.dirname(files[0]["file_path"]))
+                utils.cleanup_temp(temp_folder)
+
+            return False
+
+        try:
+            upload.upload_resolutions(files, asset_data, api_key=api_key)
+            today = datetime_utils.today_date_iso()
+            upload.patch_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=PARAM_DATE,
+                param_value=today,
+                api_key=api_key,
+            )
+            upload.get_individual_parameter(
+                asset_id=asset_data["id"],
+                param_name=PARAM_DATE,
+                api_key=api_key,
+            )
+
+            logger.info("Patched %s=%s for asset %s", PARAM_DATE, today, asset_data.get("id"))
+        except Exception:  # upload module uses requests; narrow errors are internal
+            logger.exception(
+                "Failed to upload resolutions or patch success parameter for asset %s",
+                asset_data.get("id"),
+            )
+            error += " upload/patch failed"
+        else:
+            # Success path
+            utils.cleanup_temp(temp_folder)
+
+            return True
+
+    # Failure path: patch error parameter
+    logger.error(
+        "PRXC format generation failed for asset %s: %s",
+        asset_data.get("id"),
+        error.strip(),
+    )
+
+    utils.cleanup_temp(temp_folder)
+    return False
+
+
+def iterate_assets(
+    assets: list[dict[str, Any]],
+    api_key: str = "",
+    binary_path: str = "",
+) -> None:
+    """Iterate over assets and generate PRXC outputs for each.
+
+    Args:
+        assets: A list of asset dictionaries to process.
+        api_key: API key for authenticated server operations.
+        binary_path: Absolute path to the Blender executable for background tasks.
+    """
+    concurrency.run_asset_threads(
+        assets,
+        worker=generate_prxc,
+        worker_kwargs={
+            "api_key": api_key,
+            "binary_path": binary_path,
+        },
+        asset_arg_position=0,
+        max_concurrency=2,
+        logger=logger,
+    )
+
+
+def main() -> None:
+    """Entry point for running the PRXC generation workflow.
+
+    Reads configuration from environment variables, searches for assets, and
+    triggers generation for each asset.
+    """
+    asset_base_id = config.ASSET_BASE_ID
+
+    if asset_base_id is not None:  # Single asset handling - for asset validation hook
+        params = {
+            "asset_base_id": asset_base_id,
+            "asset_type": "model",
+        }
+    else:  # None asset specified - will run on 100 unprocessed assets - for nightly jobs
+        params = {
+            "asset_type": "model",
+            "order": "-created",
+            "verification_status": "validated",
+            # Assets which do not have generated PRXC files
+            f"{PARAM_DATE}_isnull": True,
+        }
+
+    assets = search.get_search_paginated(
+        params,
+        page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
+        max_results=config.MAX_ASSET_COUNT,
+        api_key=config.BLENDERKIT_API_KEY,
+    )
+    logger.info("Found %s assets for PRXC conversion", len(assets))
+    for i, asset in enumerate(assets):
+        logger.info("%s %s ||| %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"), asset.get("assetBaseId"))
+
+    iterate_assets(
+        assets,
+        api_key=config.BLENDERKIT_API_KEY,
+        binary_path=config.BLENDER_PATH,
+    )
+
+
+if __name__ == "__main__":
+    main()
