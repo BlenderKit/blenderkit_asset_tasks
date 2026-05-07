@@ -23,7 +23,7 @@ def build_params() -> dict[str, Any]:
         "order": "-created",
         "asset_type": "model,printable",
         "author_id": "2",
-        "verification_status": "validated,uploaded",
+        "verification_status": "validated",
         "last_prxc_upload_isnull": True,
     }
 
