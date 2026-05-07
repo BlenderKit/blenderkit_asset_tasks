@@ -163,5 +163,5 @@ arg-type-hints-in-docstring = false
 check-return-types = false
 ignore-private-args = true
 ignore-underscore-args = true
-exclude = "\\.venv"
+exclude = "\\.venv|blender_bg_scripts[/\\\\]bl_proxor"
 
