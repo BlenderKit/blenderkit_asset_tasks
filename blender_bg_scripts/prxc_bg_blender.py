@@ -136,9 +136,7 @@ def generate_prxc(data: dict[str, Any]) -> None:
         logger.error("write_prx did not produce a file at %s", prxc_path)
         sys.exit(24)
 
-    logger.info(
-        "Proxor written to %s (%d bytes)", prxc_path, os.path.getsize(prxc_path)
-    )
+    logger.info("Proxor written to %s (%d bytes)", prxc_path, os.path.getsize(prxc_path))
 
     # File descriptor list consumed by upload.upload_resolutions in the
     # parent process. The "prxc" type matches what the Go client uploads

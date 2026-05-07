@@ -3,7 +3,6 @@
 This is a plcaholder script.
 """
 
-import argparse
 import json
 import os
 import sys

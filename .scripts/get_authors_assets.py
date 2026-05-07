@@ -43,7 +43,14 @@ def main() -> None:
         # run proxor generation for each asset, which will download the zip file as part of the process
         config.ASSET_BASE_ID = asset.get("assetBaseId")
         generate_proxors.main()
-        logger.info("%s/%s %s ||| %s ||| %s", i + 1, len(assets), asset.get("name"), asset.get("assetType"), asset.get("assetBaseId"))
+        logger.info(
+            "%s/%s %s ||| %s ||| %s",
+            i + 1,
+            len(assets),
+            asset.get("name"),
+            asset.get("assetType"),
+            asset.get("assetBaseId"),
+        )
 
 
 if __name__ == "__main__":
