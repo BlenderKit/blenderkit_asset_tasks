@@ -184,6 +184,38 @@
         },
 
         {
+            "name": "[TASK] Generate PROXORs",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "program": "${workspaceFolder}/generate_proxors.py",
+            "cwd": "${workspaceFolder}/",
+            "console": "integratedTerminal",
+            "envFile": "${workspaceFolder}/.env",
+            "env": {
+                "LOCAL_DEBUG": "1",
+                "DEBUG_LOGGGING": "1",
+                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
+                "MAX_ASSET_COUNT": "3",
+                "SKIP_UPDATE": "True",
+                // optional, for testing a specific asset "ASSET_BASE_ID"
+
+                //  bk skull
+                // "ASSET_BASE_ID": "da0d03bb-b00a-43e3-94e9-3ecbd9039060"  // model
+
+                // bk hamer
+                // "ASSET_BASE_ID": "99224a8a-63bc-4fa6-8bc4-75d8be5b1e7a"  // model
+
+                // bk rock pile
+                "ASSET_BASE_ID": "3429e718-463d-40df-b036-c26f1358fdcc"  // model
+
+                 //  something faulty
+                // bronze_elephant_decimated
+                // "ASSET_BASE_ID": "fd7b271b-bb38-4984-b51a-c85287cd3913"  // material
+            }
+        },
+
+        {
             "name": "[TASK] Generate Clip Interrogator",
             "type": "debugpy",
             "request": "launch",
