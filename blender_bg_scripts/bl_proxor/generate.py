@@ -214,11 +214,15 @@ def _iter_mesh_descendants(obj):
 
 
 def collect_sources(
-    obj,
+    obj: bpy.types.Object | None,
     *,
     include_children: bool = True,
 ) -> list[tuple]:
     """Collect mesh sources from *obj* and optionally its children.
+
+    Args:
+        obj: The Blender object to collect from. May be ``None``.
+        include_children: When ``True``, also recurse into child meshes.
 
     Returns:
         List of ``(blender_object, world_matrix)`` tuples. The transform
@@ -504,8 +508,8 @@ def _interpolate_uv(
 
 
 def _fast_grid_sample(
-    obj_eval,
-    mesh,
+    obj_eval: bpy.types.Object,
+    mesh: bpy.types.Mesh,
     count: int,
     *,
     include_normals: bool = False,
@@ -610,14 +614,23 @@ def _fast_grid_sample(
 
 
 def _sample_uniform_surface_points(
-    obj,
+    obj: bpy.types.Object | None,
     count: int,
     *,
-    depsgraph,
+    depsgraph: bpy.types.Depsgraph,
     include_normals: bool = False,
     include_colors: bool = False,
 ) -> tuple[list[list[float]], list[list[float]], list[list[float]]]:
     """Sample *count* random points on the surface of *obj*.
+
+    Args:
+        obj: The Blender mesh object to sample. May be ``None``.
+        count: Number of points to sample.
+        depsgraph: Evaluated dependency graph used to access the
+            object's deformed mesh.
+        include_normals: When ``True``, also return per-point normals.
+        include_colors: When ``True``, also return per-point RGBA
+            colours sampled from the active UV layer's diffuse texture.
 
     Returns:
         ``(positions, normals, colors)`` where positions/normals are
@@ -831,7 +844,10 @@ def _safe_world_matrix(obj) -> Optional[Matrix]:
 _COMBINE_SOURCE_THRESHOLD = 2
 
 
-def _build_combined_world_mesh(sources: list[tuple], depsgraph):
+def _build_combined_world_mesh(
+    sources: list[tuple],
+    depsgraph: bpy.types.Depsgraph,
+):
     """Combine ``sources`` into a single world-space mesh.
 
     Each source's evaluated mesh is read once, its vertex coordinates
@@ -839,6 +855,12 @@ def _build_combined_world_mesh(sources: list[tuple], depsgraph):
     into a shared :class:`bmesh.types.BMesh`. The combined geometry is
     written to a fresh ``bpy.data.meshes`` entry wrapped in an unlinked
     ``bpy.data.objects`` entry with identity ``matrix_world``.
+
+    Args:
+        sources: List of ``(blender_object, world_matrix)`` tuples
+            as produced by :func:`collect_sources`.
+        depsgraph: Evaluated dependency graph used to access each
+            source's deformed mesh.
 
     Returns:
         ``(combined_obj, cleanup_fn)`` on success, or ``(None, noop)``
@@ -2011,7 +2033,7 @@ def _build_cpu_marching_cubes_mesh(
 
 
 def generate_proxor(
-    obj,
+    obj: bpy.types.Object | None,
     *,
     include_children: bool = True,
     include_normals: bool = True,
@@ -2019,7 +2041,7 @@ def generate_proxor(
     reproject_factor: float = _REPROJECT_MAX_DIST_FACTOR,
     smooth_iterations: int = _SMOOTH_ITERATIONS_DEFAULT,
     decimation_ratio: float = _DECIMATION_RATIO_DEFAULT,
-    context=None,
+    context: bpy.types.Context | None = None,
 ) -> Optional[dict]:
     """Generate a PRX payload dict from a Blender object.
 
@@ -2200,7 +2222,7 @@ def generate_proxor_multi(
     reproject_factor: float = _REPROJECT_MAX_DIST_FACTOR,
     smooth_iterations: int = _SMOOTH_ITERATIONS_DEFAULT,
     decimation_ratio: float = _DECIMATION_RATIO_DEFAULT,
-    context=None,
+    context: bpy.types.Context | None = None,
 ) -> Optional[dict]:
     """Generate a single PRX payload from multiple Blender objects.
 
@@ -2431,15 +2453,25 @@ def _resolve_loop_color(
 
 
 def _collect_direct_mesh_data(
-    mesh,
+    mesh: bpy.types.Mesh,
     combined_matrix: Matrix,
     linear_matrix: Matrix,
     *,
     include_normals: bool = True,
     include_colors: bool = True,
-    source_obj=None,
+    source_obj: bpy.types.Object | None = None,
 ) -> tuple[list[list[float]], list[list[float]], list[list[float]]]:
     """Read triangle face data directly from a Blender mesh.
+
+    Args:
+        mesh: The Blender mesh to read triangles from.
+        combined_matrix: World-space transform applied to vertex positions.
+        linear_matrix: Linear (3x3) transform applied to vertex normals.
+        include_normals: When ``True``, also return per-vertex normals.
+        include_colors: When ``True``, also return per-vertex RGBA colours
+            sampled from the active UV layer's diffuse texture.
+        source_obj: Optional source object used to look up the diffuse
+            texture when ``include_colors`` is set.
 
     Returns:
         (positions, normals, colors) – flat lists with 3 entries per triangle.
@@ -2485,10 +2517,14 @@ def _collect_direct_mesh_data(
 
 
 def _collect_direct_line_data(
-    mesh,
+    mesh: bpy.types.Mesh,
     combined_matrix: Matrix,
 ) -> list[list[float]]:
     """Read edge wireframe data directly from a Blender mesh.
+
+    Args:
+        mesh: The Blender mesh to read edges from.
+        combined_matrix: World-space transform applied to vertex positions.
 
     Returns:
         Flat list of positions – 2 entries per edge segment.
@@ -2509,12 +2545,12 @@ def _collect_direct_line_data(
 
 
 def generate_proxor_direct(
-    obj,
+    obj: bpy.types.Object | None,
     *,
     include_children: bool = True,
     include_normals: bool = True,
     include_colors: bool = True,
-    context=None,
+    context: bpy.types.Context | None = None,
 ) -> Optional[dict]:
     """Generate a PRX payload by reading mesh geometry directly.
 

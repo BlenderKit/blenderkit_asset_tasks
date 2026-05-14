@@ -220,13 +220,20 @@ def generate_hdr_thumbnail() -> None:
 
 
 def find_color_mode(image: Any) -> str:
-    """Infer the color mode for a Blender image based on bit depth.
+    """Infer the color mode for a Blender image.
+
+    Uses ``image.channels`` as the primary signal (4 -> has alpha), falls back
+    to ``image.depth`` for distinguishing RGB vs BW, and honors
+    ``image.alpha_mode`` as an additional safeguard. The previous depth-only
+    mapping was incomplete (e.g. 16-bit RGBA = depth 64 was missing), and on
+    the downscale pass — after ``image.pack()`` and ``buffers_free()`` —
+    ``image.depth`` is not always reliable, so channels is preferred.
 
     Args:
         image: Blender image object (`bpy.types.Image`).
 
     Returns:
-        'BW', 'RGB', or 'RGBA' depending on depth.
+        'BW', 'RGB', or 'RGBA'.
 
     Raises:
         TypeError: If `image` is not a Blender image.
@@ -235,15 +242,36 @@ def find_color_mode(image: Any) -> str:
     if not isinstance(image, bpy.types.Image):  # type: ignore[attr-defined]
         raise TypeError("image must be a bpy.types.Image")
 
+    channels = int(getattr(image, "channels", 0) or 0)
+    depth = int(getattr(image, "depth", 0) or 0)
+    alpha_mode = getattr(image, "alpha_mode", "NONE")
+    has_alpha_mode = bool(alpha_mode) and alpha_mode != "NONE"
+
+    # Channels == 4 is the strongest signal Blender provides for "this image
+    # has an alpha channel". Always honor it.
+    if channels >= CHANNELS_RGBA:
+        return "RGBA"
+
+    # If Blender flags the image as carrying alpha, keep alpha on save even
+    # when channels/depth would suggest otherwise (e.g. on freshly packed
+    # images where channels can report 3 before pixels are loaded).
+    if has_alpha_mode:
+        return "RGBA"
+
+    # Otherwise use depth to distinguish RGB vs BW. Covers 8-bit, 16-bit
+    # integer and 16/32-bit float variants.
+    # BW=8/16/32, RGB=24/48/96, RGBA=32/64/128.
     depth_mapping = {
         8: "BW",
+        16: "BW",
         24: "RGB",
-        32: "RGBA",  # can also be BW, but image.channels may not reflect that
+        32: "RGBA",
+        48: "RGB",
+        64: "RGBA",
         96: "RGB",
         128: "RGBA",
     }
-    color_mode = depth_mapping.get(image.depth, "RGB")
-    return color_mode
+    return depth_mapping.get(depth, "RGB")
 
 
 def find_image_depth(image: Any) -> str:
@@ -264,8 +292,11 @@ def find_image_depth(image: Any) -> str:
 
     depth_mapping = {
         8: "8",
+        16: "16",
         24: "8",
-        32: "8",  # can also be BW, but image.channels may not reflect that
+        32: "8",
+        48: "16",
+        64: "16",
         96: "16",
         128: "16",
     }
@@ -635,6 +666,28 @@ def _apply_udim_marker_if_needed(teximage: Any, filepath: str) -> str:
     return f"{base}{separator}<UDIM>{ext}"
 
 
+def _set_color_mode_safe(ims: Any, desired: str) -> str:
+    """Assign ``ims.color_mode`` clamped to values supported by the current format.
+
+    Blender restricts the enum based on ``ims.file_format`` (e.g. JPEG only
+    allows BW/RGB). Assigning an unsupported value raises TypeError. This
+    helper downgrades the request to the closest supported mode and returns
+    the value actually assigned.
+    """
+    try:
+        ims.color_mode = desired
+        return desired  # noqa: TRY300
+    except TypeError:
+        # JPEG and a few other formats don't support RGBA; fall back to RGB.
+        fallback = "RGB"
+        try:
+            ims.color_mode = fallback
+            return fallback  # noqa: TRY300
+        except TypeError:
+            ims.color_mode = "BW"
+            return "BW"
+
+
 def make_possible_reductions_on_image(
     teximage: Any,
     input_filepath: str,
@@ -661,6 +714,7 @@ def make_possible_reductions_on_image(
 
     rs = bpy.context.scene.render  # type: ignore[attr-defined]
     ims = rs.image_settings
+    vs = bpy.context.scene.view_settings  # type: ignore[attr-defined]
 
     orig_settings = (
         ims.file_format,
@@ -669,18 +723,30 @@ def make_possible_reductions_on_image(
         ims.compression,
         ims.color_depth,
     )
+    orig_view_transform = vs.view_transform
+    # Force Raw view transform so save_render writes the buffer 1:1 without
+    # display-space color conversion that could otherwise affect alpha
+    # compositing on certain configurations.
+    vs.view_transform = "Raw"
 
     logger.debug(
-        "Image name=%s, depth=%s, channels=%s",
+        "Image name=%s, depth=%s, channels=%s, alpha_mode=%s",
         getattr(teximage, "name", "<image>"),
         getattr(teximage, "depth", "?"),
         getattr(teximage, "channels", "?"),
+        getattr(teximage, "alpha_mode", "?"),
     )
 
     image_depth = find_image_depth(teximage)
     logger.debug("Found image depth: %s", image_depth)
-    ims.color_mode = find_color_mode(teximage)
-    logger.debug("Found color mode: %s", ims.color_mode)
+
+    # IMPORTANT: file_format must be set BEFORE color_mode, because Blender
+    # restricts the color_mode enum based on the current file_format (e.g.
+    # JPEG only allows BW/RGB and would raise TypeError for "RGBA").
+    ims.file_format = teximage.file_format
+    desired_color_mode = find_color_mode(teximage)
+    ims.color_mode = _set_color_mode_safe(ims, desired_color_mode)
+    logger.debug("Color mode (desired=%s, applied=%s)", desired_color_mode, ims.color_mode)
 
     fp = _apply_udim_marker_if_needed(teximage, input_filepath)
     if do_reductions:
@@ -696,24 +762,36 @@ def make_possible_reductions_on_image(
             teximage.name = teximage.name.replace(".png", ".jpg").replace(".PNG", ".jpg")
 
             teximage.file_format = "JPEG"
+            ims.file_format = "JPEG"
             ims.quality = JPEG_QUALITY_DEFAULT
-            ims.color_mode = "RGB"
+            ims.color_mode = _set_color_mode_safe(ims, "RGB")
             image_depth = "8"
 
-        if is_image_bw(na):
-            ims.color_mode = "BW"
+        if is_image_bw(na) and ims.color_mode != "RGBA":
+            # Only collapse to BW when there is no alpha channel to preserve.
+            ims.color_mode = _set_color_mode_safe(ims, "BW")
 
-    ims.file_format = teximage.file_format
     ims.color_depth = image_depth
 
     if ims.file_format == "PNG":
         ims.compression = PNG_MAX_COMPRESSION
-    if ims.file_format == "JPG":
+    if ims.file_format in {"JPG", "JPEG"}:
         ims.quality = JPEG_QUALITY_DEFAULT
 
     if do_downscale:
         downscale(teximage)
+        # After scale Blender may reinitialize internal flags; re-assert the
+        # color mode based on the (still-valid) image.channels so alpha is
+        # not silently dropped during save_render.
+        ims.color_mode = _set_color_mode_safe(ims, find_color_mode(teximage))
 
+    logger.debug(
+        "Saving %s: format=%s, color_mode=%s, color_depth=%s",
+        fp,
+        ims.file_format,
+        ims.color_mode,
+        ims.color_depth,
+    )
     teximage.save_render(filepath=bpy.path.abspath(fp), scene=bpy.context.scene)  # type: ignore[attr-defined]
     if len(teximage.packed_files) > 0:
         teximage.unpack(method="REMOVE")
@@ -721,5 +799,6 @@ def make_possible_reductions_on_image(
     _finalize_image_paths(teximage, fp)
 
     teximage.colorspace_settings.name = colorspace
+    vs.view_transform = orig_view_transform
 
     _restore_image_settings(ims, orig_settings)
