@@ -274,26 +274,6 @@
         },
 
         {
-            "name": "[TASK] Validate resolution Model",
-            "type": "debugpy",
-            "request": "launch",
-            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
-            "program": "${workspaceFolder}/generate_resolutions.py",
-            "cwd": "${workspaceFolder}/",
-            "console": "integratedTerminal",
-            "envFile": "${workspaceFolder}/.env",
-            "env": {
-                "DEBUG_LOGGGING": "1",
-                "BLENDERKIT_SERVER": "https://www.blenderkit.com",
-                "MAX_ASSET_COUNT": "3",
-                "SKIP_UPDATE": "True",
-                 // some shampoo
-                "ASSET_BASE_ID": "94dcdcf8-2b35-449e-8760-862628b10fcf"  // model
-            }
-
-        },
-
-        {
             "name": "[TASK] Validate resolution Meterial",
             "type": "debugpy",
             "request": "launch",
@@ -358,7 +338,7 @@
                 // "ASSET_BASE_ID": "066aa61d-6eb9-4e9a-8188-8f34c0b4d030"  // HDR
 
                 // tower with loads of textures ?
-                "ASSET_BASE_ID": "4074e4b5-6048-4931-a37d-294fe607af30" // asset_type:model
+                "ASSET_BASE_ID": "e34c88d5-faaf-4f18-b0dc-1afa6f889770" // asset_type:model
             }
 
         },

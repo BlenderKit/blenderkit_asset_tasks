@@ -36,7 +36,29 @@ BLENDERS_PATH: str = os.getenv("BLENDERS_PATH", "")
 ASSET_BASE_ID: str | None = os.getenv("ASSET_BASE_ID", None)
 """Asset base ID to be processed."""
 
-MAX_ASSET_COUNT: int = int(os.getenv("MAX_ASSET_COUNT", "100"))
+CUSTOM_SEARCH_PARAMS: dict[str, str] | None = None
+"""Custom search parameters to filter assets for processing. Should be a dictionary of query parameters."""
+# check env var for custom search params and parse it as JSON if it exists
+if os.getenv("CUSTOM_SEARCH_PARAMS"):
+    import json
+
+    try:
+        CUSTOM_SEARCH_PARAMS = json.loads(os.getenv("CUSTOM_SEARCH_PARAMS", "{}"))
+    except Exception as e:  # noqa: BLE001
+        print(f"ERROR: Invalid JSON for CUSTOM_SEARCH_PARAMS: {e}")  # noqa: T201
+        CUSTOM_SEARCH_PARAMS = {}
+        # try convert direct simple string of key=value;key2=value2 to dict (values may contain commas)
+        if "=" in os.getenv("CUSTOM_SEARCH_PARAMS", ""):
+            CUSTOM_SEARCH_PARAMS = dict(
+                item.split("=", 1) for item in os.getenv("CUSTOM_SEARCH_PARAMS", "").split(";") if "=" in item
+            )
+            # validate that all keys and values are non-empty
+            if not all(k and v for k, v in CUSTOM_SEARCH_PARAMS.items()):
+                print("ERROR: Invalid key=value pairs in CUSTOM_SEARCH_PARAMS.")  # noqa: T201
+                CUSTOM_SEARCH_PARAMS = {}
+
+
+MAX_ASSET_COUNT: int = int(os.getenv("MAX_ASSET_COUNT", "200"))
 """Maximum number of assets to process in one run."""
 
 MAX_VALIDATION_THREADS: int = int(os.getenv("MAX_VALIDATION_THREADS", "8"))

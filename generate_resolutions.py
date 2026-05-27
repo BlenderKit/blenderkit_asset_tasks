@@ -30,7 +30,6 @@ if not config.BLENDER_PATH and config.BLENDERS_PATH:
 
 
 # Constants
-PAGE_SIZE_LIMIT: int = 100
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
@@ -251,7 +250,6 @@ def main() -> None:
     # Note: We should also process updated assets and record a specific parameter for updates.
     params = {
         "asset_type": "model,material,hdr",
-        # >'asset_type': 'hdr',
         "order": "-created",
         "verification_status": "validated",
         # >'textureResolutionMax_gte': '1024',
@@ -265,21 +263,24 @@ def main() -> None:
         params = {
             "asset_base_id": config.ASSET_BASE_ID,
         }
+    if config.CUSTOM_SEARCH_PARAMS:
+        params.update(config.CUSTOM_SEARCH_PARAMS)
 
-    assets = search.get_search_simple(
-        params,
-        filepath=filepath,
-        page_size=min(config.MAX_ASSET_COUNT, PAGE_SIZE_LIMIT),
+    assets = []
+    for page in search.iter_search_pages(
+          params,
+        custom_tokens=None,
         max_results=config.MAX_ASSET_COUNT,
         api_key=config.BLENDERKIT_API_KEY,
-    )
+        ):
+            if not page:
+                continue
+            assets.extend(page)
 
-    assets = search.load_assets_list(filepath)
 
     logger.info("Count of assets to be processed: %s", len(assets))
     for a in assets:
         logger.debug("%s ||| %s", a.get("name"), a.get("assetType"))
-
     iterate_assets(assets, process_count=1, api_key=config.BLENDERKIT_API_KEY)
 
 
