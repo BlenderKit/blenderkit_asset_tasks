@@ -224,17 +224,30 @@ def _run_generation_jobs(asset_data: dict[str, Any], api_key: str, binary_path: 
 
 
 def _record_result(record: dict[str, str]) -> None:
-    """Append a per-asset result record and refresh the run summary.
+    """Append a per-asset result record, log live progress, and refresh the summary.
 
     The summary file is rewritten after every asset so partial progress is
-    captured even if the run is cancelled or fails part-way through.
+    captured even if the run is cancelled or fails part-way through. A numbered
+    completion line is also logged so progress streams live in the job log (the
+    GitHub Summary tab only renders once the step finishes).
 
     Args:
         record: The result record to store for the run summary.
     """
     with _RESULTS_LOCK:
         _RESULTS.append(record)
+        done = len(_RESULTS)
         _flush_step_summary()
+    logger.info(
+        "[%s/%s] DONE %s (%s) -- mark=%s jobs=%s status=%s",
+        done,
+        _ASSET_COUNT or "?",
+        record["name"],
+        record["type"],
+        record["mark"],
+        record["jobs"],
+        record["status"],
+    )
 
 
 def _summarize(atype: str | None, *, mark_ok: bool, ran_resolutions: bool) -> tuple[str, str, str]:
@@ -298,7 +311,7 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
     atype = asset_data.get("assetType")
     name = str(asset_data.get("name", ""))
     base_id = str(asset_data.get("assetBaseId", ""))
-    logger.info("Processing asset %s (%s)", base_id, atype)
+    logger.info("START %s (%s) %s", name, atype, base_id)
 
     work_dir = tempfile.mkdtemp()
     try:
