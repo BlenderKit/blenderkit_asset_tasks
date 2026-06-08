@@ -305,10 +305,10 @@ def _download_thumbnail(url: str) -> str:
     if os.path.exists(target_path):
         return target_path
     try:
-        req = urllib.request.Request(url)  # noqa: S310
+        req = urllib.request.Request(url)  # noqa: S310  # nosec B310 - scheme restricted to http(s) above
         req.add_header("User-Agent", "BlenderKit")
         req.add_header("Accept", "image/*")
-        with urllib.request.urlopen(req, timeout=15) as response, open(target_path, "wb") as handle:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15) as response, open(target_path, "wb") as handle:  # noqa: S310  # nosec B310
             handle.write(response.read())
     except (urllib.error.URLError, OSError):
         logger.exception("Failed to download thumbnail from %s", url)
