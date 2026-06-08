@@ -18,8 +18,10 @@ The individual ``generate_*`` scripts remain runnable by hand for targeted rerun
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
+import threading
 from typing import Any
 
 import generate_gltf
@@ -39,6 +41,12 @@ from blenderkit_server_utils import (
 logger = log.create_logger(__name__)
 
 utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
+
+# Collected per-asset results, written to the GitHub Actions run summary.
+_RESULTS: list[dict[str, str]] = []
+_RESULTS_LOCK = threading.Lock()
+# Total assets the search returned for this run (for the summary header).
+_ASSET_COUNT: int = 0
 
 # Asset types eligible for each job.
 RESOLUTION_TYPES: frozenset[str] = frozenset({"model", "material", "hdr", "scene", "printable"})
@@ -215,6 +223,48 @@ def _run_generation_jobs(asset_data: dict[str, Any], api_key: str, binary_path: 
     return ran_resolutions
 
 
+def _record_result(record: dict[str, str]) -> None:
+    """Append a per-asset result record and refresh the run summary.
+
+    The summary file is rewritten after every asset so partial progress is
+    captured even if the run is cancelled or fails part-way through.
+
+    Args:
+        record: The result record to store for the run summary.
+    """
+    with _RESULTS_LOCK:
+        _RESULTS.append(record)
+        _flush_step_summary()
+
+
+def _summarize(atype: str | None, *, mark_ok: bool, ran_resolutions: bool) -> tuple[str, str, str]:
+    """Compute the mark, jobs, and status columns for an asset's summary row.
+
+    Args:
+        atype: The asset type.
+        mark_ok: Whether marking succeeded (or the type is not markable).
+        ran_resolutions: Whether a resolutions job ran.
+
+    Returns:
+        A tuple of (mark_label, jobs_label, status_label).
+    """
+    if atype not in MARKABLE_TYPES:
+        mark = "n/a"
+    elif mark_ok:
+        mark = "ok"
+    else:
+        mark = "FAILED"
+
+    jobs: list[str] = []
+    if ran_resolutions:
+        jobs.append("resolutions")
+    if atype in GLTF_TYPES:
+        jobs.append("gltf+godot")
+
+    status = "ok" if mark_ok else "marking failed"
+    return mark, ", ".join(jobs) or "-", status
+
+
 def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) -> None:
     """Run every job applicable to a single asset, sequentially.
 
@@ -233,16 +283,38 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
     """
     if not asset_data or not asset_data.get("files"):
         logger.warning("Skipping empty or invalid asset entry")
+        _record_result(
+            {
+                "name": str(asset_data.get("name", "?")) if asset_data else "?",
+                "type": str(asset_data.get("assetType", "?")) if asset_data else "?",
+                "base_id": str(asset_data.get("assetBaseId", "?")) if asset_data else "?",
+                "mark": "-",
+                "jobs": "-",
+                "status": "skipped (no files)",
+            },
+        )
         return
 
     atype = asset_data.get("assetType")
-    logger.info("Processing asset %s (%s)", asset_data.get("assetBaseId"), atype)
+    name = str(asset_data.get("name", ""))
+    base_id = str(asset_data.get("assetBaseId", ""))
+    logger.info("Processing asset %s (%s)", base_id, atype)
 
     work_dir = tempfile.mkdtemp()
     try:
         blend_path = download.download_asset(asset_data, api_key=api_key, directory=work_dir)
         if not blend_path:
             logger.warning("Could not download blend for asset %s", asset_data.get("id"))
+            _record_result(
+                {
+                    "name": name,
+                    "type": str(atype),
+                    "base_id": base_id,
+                    "mark": "-",
+                    "jobs": "-",
+                    "status": "failed (download)",
+                },
+            )
             return
 
         # Mark and re-upload the canonical .blend first (textures packed) so the
@@ -263,6 +335,22 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
             _patch_processing_date(asset_data, api_key)
         else:
             logger.warning("Marking failed for %s -> not stamping processingDate (will retry)", asset_data.get("id"))
+
+        mark_label, jobs_label, status_label = _summarize(
+            atype,
+            mark_ok=mark_ok,
+            ran_resolutions=ran_resolutions,
+        )
+        _record_result(
+            {
+                "name": name,
+                "type": str(atype),
+                "base_id": base_id,
+                "mark": mark_label,
+                "jobs": jobs_label,
+                "status": status_label,
+            },
+        )
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -371,15 +459,66 @@ def _collect_assets_from_both_ends() -> list[dict[str, Any]]:
     return merged
 
 
+def _flush_step_summary() -> None:
+    """Rewrite the GitHub Actions step summary from the results collected so far.
+
+    Callers must hold ``_RESULTS_LOCK``. The file is opened in overwrite mode so
+    the summary always reflects the latest progress. The GitHub Summary tab only
+    renders after the step finishes, but writing incrementally means a cancelled
+    or failed run still shows everything processed up to that point.
+    """
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    records = _RESULTS
+    ok = sum(1 for r in records if r["status"] == "ok")
+    failed = len(records) - ok
+    scope = f"single asset `{config.ASSET_BASE_ID}`" if config.ASSET_BASE_ID else "bulk backlog"
+
+    lines = [
+        "## Asset processing summary",
+        "",
+        f"- **Server:** `{config.SERVER}`",
+        f"- **Scope:** {scope}",
+        f"- **Found:** {_ASSET_COUNT} &nbsp;|&nbsp; **Processed:** {len(records)} "
+        f"&nbsp;|&nbsp; **OK:** {ok} &nbsp;|&nbsp; **Issues:** {failed}",
+        f"- **Max asset count:** {config.MAX_ASSET_COUNT}",
+        f"- **SKIP_UPDATE:** {SKIP_UPDATE}",
+        "",
+        "| # | Name | Type | Mark | Jobs | Status | Asset Base ID |",
+        "| - | ---- | ---- | ---- | ---- | ------ | ------------- |",
+    ]
+    for i, r in enumerate(records, start=1):
+        lines.append(
+            f"| {i} | {r['name']} | {r['type']} | {r['mark']} | {r['jobs']} | {r['status']} | `{r['base_id']}` |",
+        )
+    lines.append("")
+
+    try:
+        with open(summary_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines))
+    except OSError:
+        logger.exception("Failed to write GitHub step summary to %s", summary_path)
+
+
 def main() -> None:
     """Search for assets and run all applicable processing jobs for each one."""
+    global _ASSET_COUNT  # noqa: PLW0603
     assets = _collect_assets_from_both_ends()
+    _ASSET_COUNT = len(assets)
 
     logger.info("Found %s assets to process", len(assets))
     for i, asset in enumerate(assets):
         logger.info("%s %s ||| %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"), asset.get("assetBaseId"))
 
+    with _RESULTS_LOCK:
+        _flush_step_summary()
+
     iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY, binary_path=config.BLENDER_PATH)
+
+    with _RESULTS_LOCK:
+        _flush_step_summary()
 
 
 if __name__ == "__main__":
