@@ -45,6 +45,8 @@ utils.raise_on_missing_env_vars(["BLENDERKIT_API_KEY"])
 # Collected per-asset results, written to the GitHub Actions run summary.
 _RESULTS: list[dict[str, str]] = []
 _RESULTS_LOCK = threading.Lock()
+# Total assets the search returned for this run (for the summary header).
+_ASSET_COUNT: int = 0
 
 # Asset types eligible for each job.
 RESOLUTION_TYPES: frozenset[str] = frozenset({"model", "material", "hdr", "scene", "printable"})
@@ -222,13 +224,17 @@ def _run_generation_jobs(asset_data: dict[str, Any], api_key: str, binary_path: 
 
 
 def _record_result(record: dict[str, str]) -> None:
-    """Append a per-asset result record in a thread-safe way.
+    """Append a per-asset result record and refresh the run summary.
+
+    The summary file is rewritten after every asset so partial progress is
+    captured even if the run is cancelled or fails part-way through.
 
     Args:
         record: The result record to store for the run summary.
     """
     with _RESULTS_LOCK:
         _RESULTS.append(record)
+        _flush_step_summary()
 
 
 def _summarize(atype: str | None, *, mark_ok: bool, ran_resolutions: bool) -> tuple[str, str, str]:
@@ -453,19 +459,19 @@ def _collect_assets_from_both_ends() -> list[dict[str, Any]]:
     return merged
 
 
-def _write_step_summary(asset_count: int) -> None:
-    """Write a markdown run summary to the GitHub Actions step summary, if present.
+def _flush_step_summary() -> None:
+    """Rewrite the GitHub Actions step summary from the results collected so far.
 
-    Args:
-        asset_count: Number of assets the search returned for this run.
+    Callers must hold ``_RESULTS_LOCK``. The file is opened in overwrite mode so
+    the summary always reflects the latest progress. The GitHub Summary tab only
+    renders after the step finishes, but writing incrementally means a cancelled
+    or failed run still shows everything processed up to that point.
     """
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not summary_path:
         return
 
-    with _RESULTS_LOCK:
-        records = list(_RESULTS)
-
+    records = _RESULTS
     ok = sum(1 for r in records if r["status"] == "ok")
     failed = len(records) - ok
     scope = f"single asset `{config.ASSET_BASE_ID}`" if config.ASSET_BASE_ID else "bulk backlog"
@@ -475,7 +481,7 @@ def _write_step_summary(asset_count: int) -> None:
         "",
         f"- **Server:** `{config.SERVER}`",
         f"- **Scope:** {scope}",
-        f"- **Found:** {asset_count} &nbsp;|&nbsp; **Processed:** {len(records)} "
+        f"- **Found:** {_ASSET_COUNT} &nbsp;|&nbsp; **Processed:** {len(records)} "
         f"&nbsp;|&nbsp; **OK:** {ok} &nbsp;|&nbsp; **Issues:** {failed}",
         f"- **Max asset count:** {config.MAX_ASSET_COUNT}",
         f"- **SKIP_UPDATE:** {SKIP_UPDATE}",
@@ -490,7 +496,7 @@ def _write_step_summary(asset_count: int) -> None:
     lines.append("")
 
     try:
-        with open(summary_path, "a", encoding="utf-8") as handle:
+        with open(summary_path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(lines))
     except OSError:
         logger.exception("Failed to write GitHub step summary to %s", summary_path)
@@ -498,14 +504,21 @@ def _write_step_summary(asset_count: int) -> None:
 
 def main() -> None:
     """Search for assets and run all applicable processing jobs for each one."""
+    global _ASSET_COUNT  # noqa: PLW0603
     assets = _collect_assets_from_both_ends()
+    _ASSET_COUNT = len(assets)
 
     logger.info("Found %s assets to process", len(assets))
     for i, asset in enumerate(assets):
         logger.info("%s %s ||| %s ||| %s", i + 1, asset.get("name"), asset.get("assetType"), asset.get("assetBaseId"))
 
+    with _RESULTS_LOCK:
+        _flush_step_summary()
+
     iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY, binary_path=config.BLENDER_PATH)
-    _write_step_summary(len(assets))
+
+    with _RESULTS_LOCK:
+        _flush_step_summary()
 
 
 if __name__ == "__main__":
