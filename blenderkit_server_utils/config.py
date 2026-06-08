@@ -58,7 +58,7 @@ if os.getenv("CUSTOM_SEARCH_PARAMS"):
                 CUSTOM_SEARCH_PARAMS = {}
 
 
-MAX_ASSET_COUNT: int = int(os.getenv("MAX_ASSET_COUNT", "200"))
+MAX_ASSET_COUNT: int = int(os.getenv("MAX_ASSET_COUNT", "1000"))
 """Maximum number of assets to process in one run."""
 
 MAX_VALIDATION_THREADS: int = int(os.getenv("MAX_VALIDATION_THREADS", "8"))

@@ -40,13 +40,12 @@ env:
   ASSET_BASE_ID: ${{ github.event.inputs.asset_base_id || github.event.client_payload.asset_base_id }}
 
 jobs:
-  RESOLUTIONS:
-    name: Public & Validated -> generate resolutions
+  PROCESS:
+    name: Public & Validated -> process (resolutions, GLTF, Godot GLTF, marking, reindex)
     runs-on: ubuntu-latest
     env:
       BLENDERS_PATH: /home/headless/blenders
-    if: contains(fromJSON('["model", "material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
-        (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
+    if: (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
         (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
     container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
 
@@ -60,83 +59,9 @@ jobs:
       - run: python3 -m pip install -r requirements.txt
       - name: Set BLENDER_PATH
         run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
-      - name: Generate resolutions
-        run: python3 generate_resolutions.py
+      - name: Process asset (resolutions, GLTF, marking and reindex)
+        run: python3 process_asset.py
 
-  GLTF:
-    name: Public, Validated and Model -> generate GLTF
-    runs-on: ubuntu-latest
-    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
-      (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
-      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install lsb-release
-        run: apt-get update && apt-get install -y lsb-release python3-pip
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python3 -m pip install -r requirements.txt
-      - name: Set BLENDER_PATH
-        run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
-      - name: Generate GLTF
-        run: python3 generate_gltf.py --target_format gltf
-
-  GLTF_GODOT:
-    name: Public, Validated and Model -> generate Godot GLTF
-    runs-on: ubuntu-latest
-    if: contains(fromJSON('["model",]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
-      (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
-      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true')
-    container: ghcr.io/blenderkit/headless-blender:blender-${{ github.event.inputs.source_app_version_xy || github.event.client_payload.source_app_version_xy || '5.0'}}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install lsb-release
-        run: apt-get update && apt-get install -y lsb-release python3-pip
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python3 -m pip install -r requirements.txt
-      - name: Set BLENDER_PATH
-        run: echo "BLENDER_PATH=/home/headless/blender/blender" >> $GITHUB_ENV
-      - name: Generate GLTF for Godot
-        run: python3 generate_gltf.py --target_format gltf_godot
-
-
-  REINDEX-model:
-    runs-on: ubuntu-latest
-    needs: [RESOLUTIONS, GLTF, GLTF_GODOT]
-    if: contains(fromJSON('["model"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
-      (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
-      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true') # same statement as in RESOLUTIONS
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
-      - run: python3 reindex.py
-
-  REINDEX-hdr-or-mat: # We do it separately, because needs is not triggered when GLTF is skipped
-    runs-on: ubuntu-latest
-    needs: [RESOLUTIONS]
-    if: contains(fromJSON('["material", "hdr"]'), github.event.inputs.asset_type || github.event.client_payload.asset_type) &&
-      (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
-      (github.event.inputs.is_private != 'true' && github.event.client_payload.is_private != 'true') # same statement as in RESOLUTIONS
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
-      - run: python3 reindex.py
 
   CLEAN_MANUFACTURER_TAGS:
     name: Public Uploaded/Validated Assets -> clean manufacturer tags

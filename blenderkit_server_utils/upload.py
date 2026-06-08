@@ -271,6 +271,35 @@ def upload_resolutions(files: Iterable[dict[str, Any]], asset_data: dict[str, An
         logger.error("Upload of resolutions failed")
 
 
+def reupload_main_blend(asset_data: dict[str, Any], blend_path: str, api_key: str = "") -> bool:
+    """Re-upload a (re-marked) .blend as the canonical original ``blend`` file.
+
+    Used to push correctly marked assets back to the server. The textures must
+    remain packed inside ``blend_path`` so the original stays self-contained.
+
+    Args:
+        asset_data: Asset info dict with name, displayName, id.
+        blend_path: Path to the marked .blend file to upload.
+        api_key: BlenderKit API key.
+
+    Returns:
+        True if the file uploaded successfully, False otherwise.
+    """
+    upload_data = {
+        "name": asset_data["name"],
+        "displayName": asset_data["displayName"],
+        "token": api_key,
+        "id": asset_data["id"],
+    }
+    descriptor = {"type": "blend", "index": 0, "file_path": blend_path}
+    uploaded = upload_files(upload_data, [descriptor])
+    if uploaded:
+        logger.info("Re-upload of marked blend finished successfully for %s", asset_data.get("id"))
+    else:
+        logger.error("Re-upload of marked blend failed for %s", asset_data.get("id"))
+    return uploaded
+
+
 def get_individual_parameter(asset_id: str = "", param_name: str = "", api_key: str = "") -> dict[str, Any]:
     """Fetch a single parameter value for an asset.
 
