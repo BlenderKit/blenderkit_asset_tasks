@@ -65,22 +65,22 @@ class UnpackAssetBgTests(unittest.TestCase):
         image.unpack.assert_called()
         self.assertEqual(image.filepath, "//tex/img.png")
 
-    def test_mark_assets_model_visible_objects(self):
-        # NOTE: passing parent=None to Mock constructor does not create an attribute
-        # `.parent` that is None for truth testing; instead it's used internally by
-        # the mocking machinery. We explicitly assign after creation so the code
-        # under test (`_mark_model_assets`) sees `ob.parent is None` and treats it
-        # as a top-level object.
-        ob = mock.Mock()
-        ob.parent = None
-        self.bpy.context.visible_objects = [ob]
-        self.bpy.data.objects = [ob]
-        self.U._mark_model_assets()
-        ob.asset_mark.assert_called_once()
+    def test_mark_asset_material_marks_single(self):
+        # Materials have no wrapping collection; the single main material is marked.
+        mat = mock.MagicMock()
+        mat.name = "M"
+        mat.asset_data = None
+        self.bpy.data.materials = [mat]
+        result = self.U.mark_asset({"assetType": "material", "name": "M"})
+        mat.asset_mark.assert_called_once()
+        self.assertIs(result, mat)
 
-    def test_set_asset_tags_safely_handles_none(self):
-        # Should early return quietly
-        self.U._set_asset_tags(None, {"tags": ["a"]})
+    def test_resolve_author_name_prefers_full_name(self):
+        self.assertEqual(self.U._resolve_author_name({"author": {"fullName": "John Doe"}}), "John Doe")
+        self.assertEqual(
+            self.U._resolve_author_name({"author": {"firstName": "Jane", "lastName": "Roe"}}),
+            "Jane Roe",
+        )
 
     def test_unload_saves_and_removes_backup(self):
         data = {"asset_data": {"assetType": "material", "resolution": "blend"}}

@@ -82,11 +82,31 @@ if "godot" in TARGET_FORMAT:
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
-def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, target_format: str) -> bool:  # noqa: C901, PLR0912, PLR0915
+def _gltf_param_names(target_format: str) -> tuple[str, str]:
+    """Return the (success, error) asset parameter names for a GLTF target format.
+
+    Args:
+        target_format: The export format, e.g. 'gltf' or 'gltf_godot'.
+
+    Returns:
+        A tuple of (success_param_name, error_param_name).
+    """
+    if "godot" in target_format:
+        return "gltfGodotGeneratedDate", "gltfGodotGeneratedError"
+    return "gltfGeneratedDate", "gltfGeneratedError"
+
+
+def generate_gltf(  # noqa: C901, PLR0912, PLR0915
+    asset_data: dict[str, Any],
+    api_key: str,
+    binary_path: str,
+    target_format: str,
+    asset_file_path: str | None = None,
+) -> bool:
     """Generate and upload a Godot-optimized GLTF for a single asset.
 
     Steps:
-    1. Download the asset archive.
+    1. Download the asset archive (unless a pre-downloaded one is supplied).
     2. Unpack the asset via a background Blender process.
     3. Run a background Blender export to produce a Godot-optimized GLTF.
     4. Upload the generated files and patch an asset parameter on success.
@@ -96,15 +116,19 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
         api_key: API key used for authenticated operations.
         binary_path: Absolute path to the Blender binary used for background operations.
         target_format: The target export format, e.g., '{DEFAULT_TARGET_FORMAT=gltf_godot}'.
+        asset_file_path: Optional path to an already-downloaded asset .blend. When
+            given, the file is reused instead of downloading a fresh copy.
 
     Returns:
         True when the GLTF was generated and uploaded successfully; False otherwise.
     """
     error = ""
-    destination_directory = tempfile.gettempdir()
+    param_success, param_error = _gltf_param_names(target_format)
 
-    # Download asset
-    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+    # Download asset (unless the caller already provided one)
+    if asset_file_path is None:
+        destination_directory = tempfile.gettempdir()
+        asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
 
     if not asset_file_path:
         logger.error("Asset file not found on path %s", asset_file_path)
@@ -172,17 +196,17 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
             today = datetime_utils.today_date_iso()
             upload.patch_individual_parameter(
                 asset_id=asset_data["id"],
-                param_name=PARAM_SUCCESS,
+                param_name=param_success,
                 param_value=today,
                 api_key=api_key,
             )
             upload.get_individual_parameter(
                 asset_id=asset_data["id"],
-                param_name=PARAM_SUCCESS,
+                param_name=param_success,
                 api_key=api_key,
             )
 
-            logger.info("Patched %s=%s for asset %s", PARAM_SUCCESS, today, asset_data.get("id"))
+            logger.info("Patched %s=%s for asset %s", param_success, today, asset_data.get("id"))
         except Exception:  # upload module uses requests; narrow errors are internal
             logger.exception(
                 "Failed to upload resolutions or patch success parameter for asset %s",
@@ -213,12 +237,12 @@ def generate_gltf(asset_data: dict[str, Any], api_key: str, binary_path: str, ta
         value = error.strip()
         upload.patch_individual_parameter(
             asset_id=asset_data["id"],
-            param_name=PARAM_ERROR,
+            param_name=param_error,
             param_value=value,
             api_key=api_key,
         )
-        upload.get_individual_parameter(asset_data["id"], param_name=PARAM_ERROR, api_key=api_key)
-        logger.info("Patched %s='%s' for asset %s", PARAM_ERROR, value, asset_data.get("id"))
+        upload.get_individual_parameter(asset_data["id"], param_name=param_error, api_key=api_key)
+        logger.info("Patched %s='%s' for asset %s", param_error, value, asset_data.get("id"))
     except Exception:
         logger.exception("Failed to patch error parameter for asset %s", asset_data.get("id"))
     return False

@@ -1,8 +1,7 @@
 name: nightly GLTF
 
+# Superseded by nightly_process.yml for scheduled runs; kept for manual reruns.
 on:
-  schedule:
-    - cron: '30 5 * * *'
   workflow_dispatch:
 
 env:

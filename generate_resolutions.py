@@ -17,7 +17,16 @@ import shutil
 import tempfile
 from typing import Any
 
-from blenderkit_server_utils import concurrency, config, download, log, search, send_to_bg, upload, utils
+from blenderkit_server_utils import (
+    concurrency,
+    config,
+    download,
+    log,
+    search,
+    send_to_bg,
+    upload,
+    utils,
+)
 
 logger = log.create_logger(__name__)
 
@@ -32,6 +41,10 @@ if not config.BLENDER_PATH and config.BLENDERS_PATH:
 # Constants
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
+
+# Asset types that can carry textures and therefore benefit from resolution
+# generation. Marking runs for all of them during the unpack step.
+RESOLUTION_ASSET_TYPES: str = "model,material,hdr,scene,printable"
 
 
 def _maybe_unpack_asset(asset_data: dict[str, Any], asset_file_path: str, blender_binary_path: str) -> None:
@@ -145,18 +158,22 @@ def _determine_result_and_upload(
         return "success"
 
 
-def _cleanup(temp_folder: str, asset_file_path: str, asset_id: str | None) -> None:
+def _cleanup(temp_folder: str, asset_file_path: str | None, asset_id: str | None) -> None:
     """Delete temporary artifacts from disk.
 
     Args:
         temp_folder: Temporary directory path.
-        asset_file_path: Path to the downloaded asset file.
+        asset_file_path: Path to the downloaded asset file, or None to keep a
+            shared file owned by the caller.
         asset_id: Optional asset ID for logging.
     """
     try:
         shutil.rmtree(temp_folder)
     except (FileNotFoundError, PermissionError, OSError):
         logger.exception("Error while deleting temp folder %s", temp_folder)
+    if asset_file_path is None:
+        logger.debug("Deleted temp folder for %s (asset file owned by caller)", asset_id)
+        return
     try:
         os.remove(asset_file_path)
     except (FileNotFoundError, PermissionError, OSError):
@@ -164,11 +181,11 @@ def _cleanup(temp_folder: str, asset_file_path: str, asset_id: str | None) -> No
     logger.debug("Deleted temp folder and asset file for %s", asset_id)
 
 
-def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None:
+def generate_resolution_thread(asset_data: dict[str, Any], api_key: str, asset_file_path: str | None = None) -> None:
     """Thread to generate resolutions for a single asset.
 
     A thread that:
-     1.downloads file
+     1.downloads file (unless a pre-downloaded one is supplied)
      2.starts an instance of Blender that generates the resolutions
      3.uploads files that were prepared
      4.patches asset data with a new parameter.
@@ -176,6 +193,9 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
     Args:
         asset_data: Asset data dictionary.
         api_key: API key for authentication.
+        asset_file_path: Optional path to an already-downloaded asset .blend. When
+            given, the file is reused (and left in place for the caller to clean
+            up) instead of downloading a fresh copy.
 
     Returns:
         None
@@ -185,12 +205,13 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
         logger.warning("Skipping empty or invalid asset entry")
         return
 
-    destination_directory = tempfile.gettempdir()
-
-    asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
-    if not asset_file_path:
-        # wrong api key/plan, or private asset submitted
-        return
+    owns_file = asset_file_path is None
+    if owns_file:
+        destination_directory = tempfile.gettempdir()
+        asset_file_path = download.download_asset(asset_data, api_key=api_key, directory=destination_directory)
+        if not asset_file_path:
+            # wrong api key/plan, or private asset submitted
+            return
 
     _maybe_unpack_asset(asset_data, asset_file_path, config.BLENDER_PATH)
     temp_folder, result_path = _send_to_bg_for_resolutions(asset_data, asset_file_path, config.BLENDER_PATH)
@@ -199,13 +220,20 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str) -> None
     result_state = _determine_result_and_upload(files, asset_data, api_key)
     logger.info("Result state for asset %s: %s", asset_data.get("id"), result_state)
 
+    # Only this function's own download is cleaned here; a shared file is left
+    # for the caller (the orchestrator) to remove.
+    cleanup_file = asset_file_path if owns_file else None
+
     if SKIP_UPDATE:
         logger.warning("SKIP_UPDATE==True -> skipping update")
-        _cleanup(temp_folder, asset_file_path, asset_data.get("id"))
+        _cleanup(temp_folder, cleanup_file, asset_data.get("id"))
         return
 
+    # last_resolution_upload is set server-side by upload.upload_resolutions, so
+    # no explicit completion patch is needed here. The processingDate re-marking
+    # marker is owned by the orchestrator (process_asset.py).
     upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
-    _cleanup(temp_folder, asset_file_path, asset_data.get("id"))
+    _cleanup(temp_folder, cleanup_file, asset_data.get("id"))
     return
 
 
@@ -238,18 +266,17 @@ def iterate_assets(
 
 def main() -> None:
     """Main function to generate resolutions for assets."""
-    dpath = tempfile.gettempdir()
-    filepath = os.path.join(dpath, "assets_for_resolutions.json")
     # search for assets if assets were not provided with these parameters
 
     # this selects specific assets
-    # only material, model and hdr are supported currently. We can do scenes in future potentially
+    # texture-carrying asset types are supported; HDRs use a dedicated bg script.
     # only validated public assets are processed
     # only files from a certain size are processed (over 1 MB)
-    # Note: The parameter last_resolution_upload currently searches for assets that were never processed.
-    # Note: We should also process updated assets and record a specific parameter for updates.
+    # last_resolution_upload marks assets already processed for resolutions; the
+    # one-time re-marking sweep is driven by the orchestrator (process_asset.py)
+    # via processingDate, so this standalone fallback keeps its original meaning.
     params = {
-        "asset_type": "model,material,hdr",
+        "asset_type": RESOLUTION_ASSET_TYPES,
         "order": "-created",
         "verification_status": "validated",
         # >'textureResolutionMax_gte': '1024',
@@ -268,15 +295,14 @@ def main() -> None:
 
     assets = []
     for page in search.iter_search_pages(
-          params,
+        params,
         custom_tokens=None,
         max_results=config.MAX_ASSET_COUNT,
         api_key=config.BLENDERKIT_API_KEY,
-        ):
-            if not page:
-                continue
-            assets.extend(page)
-
+    ):
+        if not page:
+            continue
+        assets.extend(page)
 
     logger.info("Count of assets to be processed: %s", len(assets))
     for a in assets:
