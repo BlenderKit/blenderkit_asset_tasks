@@ -435,18 +435,20 @@ def iterate_assets(assets: list[dict[str, Any]], api_key: str, binary_path: str)
     )
 
 
-def _build_search_params(order: str = "-created") -> dict[str, Any]:
+def _build_search_params(order: str = "-created", base_id: str | None = None) -> dict[str, Any]:
     """Build the asset search parameters for a bulk or single-asset run.
 
     Args:
         order: Sort order for the bulk query (``"-created"`` for newest first,
             ``"created"`` for oldest first). Ignored for single-asset runs.
+        base_id: When provided, build params for that single asset base ID
+            instead of the bulk backlog query.
 
     Returns:
         The query parameters dictionary for the search API.
     """
-    if config.ASSET_BASE_ID is not None:
-        params: dict[str, Any] = {"asset_base_id": config.ASSET_BASE_ID}
+    if base_id is not None:
+        params: dict[str, Any] = {"asset_base_id": base_id}
     else:
         params = {
             "asset_type": PROCESS_ASSET_TYPES,
@@ -489,15 +491,29 @@ def _collect_assets_from_both_ends() -> list[dict[str, Any]]:
 
     Half of ``MAX_ASSET_COUNT`` is taken from the newest assets and half from the
     oldest, so the one-time reprocessing sweep makes progress from both ends of
-    the backlog at once. A single-asset run (``ASSET_BASE_ID``) bypasses the
-    split. Duplicates (possible when the two halves meet in the middle) are
-    removed while preserving order.
+    the backlog at once. A single-asset run (``ASSET_BASE_IDS``) bypasses the
+    split and instead searches each requested base ID. Duplicates (possible when
+    the two halves meet in the middle) are removed while preserving order.
 
     Returns:
         The merged, de-duplicated list of asset dictionaries.
     """
-    if config.ASSET_BASE_ID is not None:
-        return _collect_assets(_build_search_params(), config.MAX_ASSET_COUNT)
+    if config.ASSET_BASE_IDS:
+        collected: list[dict[str, Any]] = []
+        for base_id in config.ASSET_BASE_IDS:
+            collected.extend(
+                _collect_assets(_build_search_params(base_id=base_id), config.MAX_ASSET_COUNT),
+            )
+        merged_ids: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for asset in collected:
+            base_id = asset.get("assetBaseId")
+            if base_id in seen_ids:
+                continue
+            if base_id is not None:
+                seen_ids.add(base_id)
+            merged_ids.append(asset)
+        return merged_ids
 
     newest_budget = config.MAX_ASSET_COUNT // 2
     oldest_budget = config.MAX_ASSET_COUNT - newest_budget
@@ -533,7 +549,7 @@ def _flush_step_summary() -> None:
     records = _RESULTS
     ok = sum(1 for r in records if r["status"] == "ok")
     failed = len(records) - ok
-    scope = f"single asset `{config.ASSET_BASE_ID}`" if config.ASSET_BASE_ID else "bulk backlog"
+    scope = f"assets `{', '.join(config.ASSET_BASE_IDS)}`" if config.ASSET_BASE_IDS else "bulk backlog"
 
     lines = [
         "## Asset processing summary",

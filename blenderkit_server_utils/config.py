@@ -34,7 +34,10 @@ BLENDERS_PATH: str = os.getenv("BLENDERS_PATH", "")
 
 
 ASSET_BASE_ID: str | None = os.getenv("ASSET_BASE_ID", None)
-"""Asset base ID to be processed."""
+"""Asset base ID(s) to be processed. May be a single ID or a comma-separated list."""
+
+ASSET_BASE_IDS: list[str] = [bid.strip() for bid in (ASSET_BASE_ID or "").split(",") if bid.strip()]
+"""Parsed list of asset base IDs to process (empty for a bulk backlog run)."""
 
 CUSTOM_SEARCH_PARAMS: dict[str, str] | None = None
 """Custom search parameters to filter assets for processing. Should be a dictionary of query parameters."""
