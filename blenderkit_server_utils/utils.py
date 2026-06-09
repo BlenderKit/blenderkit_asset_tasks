@@ -470,17 +470,27 @@ def get_all_blender_versions(blenders_path: str | None) -> list[tuple[float, str
         blenders_path: Directory containing Blender installations. If None, uses config.BLENDERS_PATH.
 
     Returns:
-        Blender versions [(version_float, directory_name),..].
+        Blender versions [(version_float, directory_name),..]. Empty list when no
+        path is configured or the directory is missing/unreadable.
     """
     if not blenders_path:
         blenders_path = config.BLENDERS_PATH
 
     if not blenders_path:
         logger.error("No BLENDERS_PATH specified")
-        return None
+        return []
+
+    try:
+        entries = os.listdir(blenders_path)
+    except OSError as exc:
+        # BLENDERS_PATH points at a missing/unreadable directory (e.g. a
+        # single-version container). Treat as "no versions" so callers can fall
+        # back to BLENDER_PATH instead of crashing the whole job.
+        logger.warning("Cannot list BLENDERS_PATH %s: %s", blenders_path, exc)
+        return []
 
     blenders = []
-    for fn in os.listdir(blenders_path):
+    for fn in entries:
         # Skip hidden files and non-version directories
         if fn.startswith(".") or not any(c.isdigit() for c in fn):
             continue
@@ -559,7 +569,7 @@ def get_disk_free_space_gb(folder_path: str, precision: int = 2) -> float:
     Returns:
         Free disk space in gigabytes.
     """
-    #fails nicely
+    # fails nicely
     try:
         _total, _used, free = shutil.disk_usage(folder_path)
         free_gb = free / (1024**3)  # Convert bytes to gigabytes
@@ -568,5 +578,6 @@ def get_disk_free_space_gb(folder_path: str, precision: int = 2) -> float:
         return 0.0
     else:
         return free_gb
+
 
 # endregion disk monitor

@@ -8,3 +8,4 @@ google-auth-httplib2
 google-auth-oauthlib
 psutil
 unidecode
+zstandard

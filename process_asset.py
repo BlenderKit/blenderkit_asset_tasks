@@ -75,6 +75,24 @@ PARAM_PROCESSING_DATE: str = "processingDate"
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
+def _resolve_asset_binary(fallback_binary_path: str) -> str:
+    """Resolve the Blender binary to use for a single asset's background jobs.
+
+    Returns an empty string when ``BLENDERS_PATH`` lists Blender versions, so
+    ``send_to_bg`` auto-selects the build matching the asset's source version
+    (never newer, to avoid re-saving the .blend with a newer Blender). When only
+    a single ``BLENDER_PATH`` is configured, the provided fallback is used.
+
+    Args:
+        fallback_binary_path: Blender binary to use when no ``BLENDERS_PATH`` is set.
+
+    Returns:
+        The Blender binary path, or an empty string to trigger source-version
+        auto-selection inside ``send_to_bg``.
+    """
+    return "" if config.BLENDERS_PATH else fallback_binary_path
+
+
 def _run_job(job_name: str, asset_data: dict[str, Any], func: Any, *args: Any, **kwargs: Any) -> None:
     """Run a single processing job, isolating its failures from sibling jobs.
 
@@ -216,7 +234,7 @@ def _run_generation_jobs(asset_data: dict[str, Any], api_key: str, binary_path: 
                 generate_gltf.generate_gltf,
                 asset_data,
                 api_key,
-                binary_path,
+                _resolve_asset_binary(binary_path),
                 fmt,
                 asset_file_path=blend_path,
             )
@@ -332,7 +350,7 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
 
         # Mark and re-upload the canonical .blend first (textures packed) so the
         # online library is corrected even if the jobs below produce nothing.
-        mark_ok = _mark_and_reupload(asset_data, api_key, binary_path, blend_path)
+        mark_ok = _mark_and_reupload(asset_data, api_key, _resolve_asset_binary(binary_path), blend_path)
 
         # Unpack + generate resolutions/GLTFs, reusing the same downloaded file.
         ran_resolutions = _run_generation_jobs(asset_data, api_key, binary_path, blend_path)

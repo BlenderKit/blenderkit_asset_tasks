@@ -22,7 +22,9 @@ env:
 jobs:
   PROCESS:
     runs-on: ubuntu-latest
-    container: ghcr.io/blenderkit/headless-blender:blender-5.0 # LATEST STABLE
+    # Multi-version image: a bulk run mixes assets from many source Blender
+    # versions, so processing picks the matching (never newer) Blender per asset.
+    container: blenderkit/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release

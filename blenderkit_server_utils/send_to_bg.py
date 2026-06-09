@@ -44,8 +44,9 @@ def get_blender_version_from_blend(blend_file_path: str) -> str:
     version_data = None
     try:
         version_data = read_header.detect_blender_version(blend_file_path)
-    except Exception:
-        logger.exception("Failed to detect Blender version from blend header.")
+    except Exception as exc:  # noqa: BLE001
+        # Not fatal: the byte-level fallback below still recovers a version.
+        logger.warning("Header version reader failed (%s); using byte fallback.", exc)
 
     if version_data and version_data["version"]:
         return version_data["version"]
@@ -101,13 +102,19 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         asset_blender_version = max(asset_blender_version, asset_blender_version_from_blend_f)
         logger.debug("Asset Blender version (picked): %s", asset_blender_version)
 
-        blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
+        # Never pick a Blender newer than the source: re-saving an old .blend
+        # with a newer Blender would silently upgrade (and corrupt) the asset.
+        # Choose the highest installed version that is <= the asset version, and
+        # only fall back to the oldest available when the asset predates them all.
+        not_newer = [b for b in blenders if b[0] <= asset_blender_version]
+        blender_target = max(not_newer, key=lambda x: x[0]) if not_newer else min(blenders, key=lambda x: x[0])
     if binary_type == "NEWEST":
         blender_target = max(blenders, key=lambda x: x[0])
 
-    # use latest blender version for hdrs
+    # use latest blender version for hdrs (the .blend is a fresh template, so a
+    # newer Blender does not upgrade any user-authored file)
     if str(asset_data.get("assetType", "")).lower() == "hdr":
-        blender_target = blenders[-1]
+        blender_target = max(blenders, key=lambda x: x[0])
 
     logger.debug("Selected Blender target: %s", blender_target)
 
@@ -177,7 +184,19 @@ def _select_binary_path(
     if binary_path:
         logger.info("Send_to_BG: using predefined Blender binary path: %s", binary_path)
         return binary_path
-    detected = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
+    try:
+        detected = get_blender_binary(asset_data, file_path=asset_file_path, binary_type=binary_type)
+    except RuntimeError:
+        # Source-version auto-selection could not find a usable Blender (e.g.
+        # BLENDERS_PATH is unset or empty in this environment). Fall back to the
+        # single configured BLENDER_PATH rather than failing the whole job.
+        if config.BLENDER_PATH:
+            logger.warning(
+                "Send_to_BG: source-version selection failed, falling back to BLENDER_PATH: %s",
+                config.BLENDER_PATH,
+            )
+            return config.BLENDER_PATH
+        raise
     logger.info("Send_to_BG: using detected Blender binary path: %s", detected)
     return detected
 
