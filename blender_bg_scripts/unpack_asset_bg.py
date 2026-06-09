@@ -170,6 +170,11 @@ _MARKABLE_DATA_COLLECTIONS = (
     "brushes",
     "worlds",
     "images",
+    # Actions (animation/pose blocks) can also be asset-marked in the asset
+    # browser. Models often ship with NLA/off-timeline actions left marked as
+    # assets; include them so enforce_single_asset_mark strips those stray marks
+    # before the main asset collection stays as the only marked datablock.
+    "actions",
 )
 
 # Maps an asset type to its top-level catalog name in the asset browser.
