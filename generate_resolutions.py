@@ -47,6 +47,21 @@ SKIP_UPDATE: bool = config.SKIP_UPDATE
 RESOLUTION_ASSET_TYPES: str = "model,material,hdr,scene,printable"
 
 
+def _resolve_asset_binary() -> str:
+    """Resolve the Blender binary to use for a single asset's background jobs.
+
+    Returns an empty string when ``BLENDERS_PATH`` lists Blender versions, so
+    ``send_to_bg`` auto-selects the build matching the asset's source version
+    (never newer, to avoid re-saving the .blend with a newer Blender). When only
+    a single ``BLENDER_PATH`` is configured, that path is used as-is.
+
+    Returns:
+        The Blender binary path, or an empty string to trigger source-version
+        auto-selection inside ``send_to_bg``.
+    """
+    return "" if config.BLENDERS_PATH else config.BLENDER_PATH
+
+
 def _maybe_unpack_asset(asset_data: dict[str, Any], asset_file_path: str, blender_binary_path: str) -> None:
     """Unpack asset in Blender when needed.
 
@@ -213,8 +228,12 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str, asset_f
             # wrong api key/plan, or private asset submitted
             return
 
-    _maybe_unpack_asset(asset_data, asset_file_path, config.BLENDER_PATH)
-    temp_folder, result_path = _send_to_bg_for_resolutions(asset_data, asset_file_path, config.BLENDER_PATH)
+    _maybe_unpack_asset(asset_data, asset_file_path, blender_binary_path=_resolve_asset_binary())
+    temp_folder, result_path = _send_to_bg_for_resolutions(
+        asset_data,
+        asset_file_path,
+        blender_binary_path=_resolve_asset_binary(),
+    )
 
     files = _read_result_files(result_path)
     result_state = _determine_result_and_upload(files, asset_data, api_key)

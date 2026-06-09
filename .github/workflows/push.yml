@@ -14,7 +14,9 @@ env:
 jobs:
   RESOLUTIONS:
     runs-on: ubuntu-latest
-    container: ghcr.io/blenderkit/headless-blender:blender-5.0 # LATEST STABLE
+    # Multi-version image so resolutions open each asset with its matching
+    # (never newer) Blender instead of always the latest.
+    container: blenderkit/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release

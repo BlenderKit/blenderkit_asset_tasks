@@ -101,13 +101,19 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         asset_blender_version = max(asset_blender_version, asset_blender_version_from_blend_f)
         logger.debug("Asset Blender version (picked): %s", asset_blender_version)
 
-        blender_target = min(blenders, key=lambda x: abs(x[0] - asset_blender_version))
+        # Never pick a Blender newer than the source: re-saving an old .blend
+        # with a newer Blender would silently upgrade (and corrupt) the asset.
+        # Choose the highest installed version that is <= the asset version, and
+        # only fall back to the oldest available when the asset predates them all.
+        not_newer = [b for b in blenders if b[0] <= asset_blender_version]
+        blender_target = max(not_newer, key=lambda x: x[0]) if not_newer else min(blenders, key=lambda x: x[0])
     if binary_type == "NEWEST":
         blender_target = max(blenders, key=lambda x: x[0])
 
-    # use latest blender version for hdrs
+    # use latest blender version for hdrs (the .blend is a fresh template, so a
+    # newer Blender does not upgrade any user-authored file)
     if str(asset_data.get("assetType", "")).lower() == "hdr":
-        blender_target = blenders[-1]
+        blender_target = max(blenders, key=lambda x: x[0])
 
     logger.debug("Selected Blender target: %s", blender_target)
 
