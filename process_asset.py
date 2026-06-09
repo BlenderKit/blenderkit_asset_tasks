@@ -93,6 +93,34 @@ def _resolve_asset_binary(fallback_binary_path: str) -> str:
     return "" if config.BLENDERS_PATH else fallback_binary_path
 
 
+def _resolve_gltf_binary(fallback_binary_path: str, asset_data: dict[str, Any]) -> str:
+    """Resolve the Blender binary to use for an asset's GLTF export jobs.
+
+    Unlike `_resolve_asset_binary`, this deliberately picks the *newest* installed
+    Blender. GLTF export only reads the .blend and writes a separate .glb — it
+    never re-saves or re-uploads the source .blend — so using a newer Blender than
+    the asset's source version is safe here and yields better material export.
+
+    Falls back to the source-version auto-selection (empty string) when picking
+    the newest build fails, and to the single configured binary when no
+    ``BLENDERS_PATH`` is set.
+
+    Args:
+        fallback_binary_path: Blender binary to use when no ``BLENDERS_PATH`` is set.
+        asset_data: Asset metadata, used to locate installed Blender versions.
+
+    Returns:
+        Absolute path to the newest Blender binary, or a fallback as described.
+    """
+    if not config.BLENDERS_PATH:
+        return fallback_binary_path
+    try:
+        return send_to_bg.get_blender_binary(asset_data, binary_type="NEWEST")
+    except RuntimeError:
+        logger.warning("Could not select newest Blender for GLTF export; using source-version auto-select.")
+        return ""
+
+
 def _run_job(job_name: str, asset_data: dict[str, Any], func: Any, *args: Any, **kwargs: Any) -> None:
     """Run a single processing job, isolating its failures from sibling jobs.
 
@@ -234,7 +262,7 @@ def _run_generation_jobs(asset_data: dict[str, Any], api_key: str, binary_path: 
                 generate_gltf.generate_gltf,
                 asset_data,
                 api_key,
-                _resolve_asset_binary(binary_path),
+                _resolve_gltf_binary(binary_path, asset_data),
                 fmt,
                 asset_file_path=blend_path,
             )

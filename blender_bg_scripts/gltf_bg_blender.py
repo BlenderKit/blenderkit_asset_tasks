@@ -67,6 +67,8 @@ MAX_ISLANDS_FOR_OVERLAP_CHECK = 4096
 # In Blender 6.0+ Material.use_nodes is removed (materials always use nodes).
 BLENDER_6_PLUS: bool = bpy.app.version >= (6, 0, 0)
 TEX_SIZE = int(float(os.environ.get("GLTF_TEXTURE_SIZE", "1024")))  # size for baked textures
+# Number of channels in an RGBA image; used when flattening baked alpha.
+RGBA_CHANNELS: int = 4
 BAKE_PASSES: list[dict[str, Any]] = [
     {
         "key": "diffuse",
@@ -118,6 +120,17 @@ MINIMAL_GLTF: dict[str, Any] = {
     "export_apply": True,  # apply modifiers
     "export_texcoords": True,
     "export_normals": True,
+    # Export tangents so the baked tangent-space normal maps shade correctly in
+    # viewers (Godot/three.js). Without them, importers guess tangents from UVs
+    # and the surface shows the banded/washed-out shading seen on normal-mapped
+    # meshes.
+    "export_tangents": True,
+    # Be explicit about full material export (the default), so the baked
+    # Principled + image-texture graph is written instead of a placeholder.
+    "export_materials": "EXPORT",
+    # # Assets are static turntables; skip animation export so NLA-only / off-timeline
+    # # actions (and the heavy constraint-baking they trigger) don't bloat the GLB.
+    # "export_animations": False,
 }
 MAXIMAL_GLTF: dict[str, Any] = MINIMAL_GLTF | {
     "export_image_format": "WEBP",
@@ -1373,8 +1386,19 @@ def extract_glb_native_material(
     return info
 
 
-def _set_alpha_blend_mode(mat: bpy.types.Material) -> None:
-    """Configure a material's alpha mode for glTF export (BLEND).
+# glTF alpha-clip (MASK) cutoff. Blender's 4.2+/5.x exporter detects a
+# ``Math:ROUND`` node feeding the Alpha socket as a clip with cutoff 0.5.
+ALPHA_CLIP_CUTOFF: float = 0.5
+
+
+def _set_alpha_clip_mode(mat: bpy.types.Material) -> None:
+    """Configure a material for glTF alpha-clip (``MASK``) export.
+
+    On Blender < 4.2 the glTF exporter reads ``Material.blend_method`` to pick
+    the alpha mode, so ``CLIP`` + ``alpha_threshold`` yields ``alphaMode=MASK``.
+    On 4.2+/5.x the exporter ignores ``blend_method`` and derives the mode from
+    the Alpha socket node graph instead (see `_wire_alpha_clip`); the property
+    is still set here for a consistent viewport look.
 
     Args:
         mat: Material to configure.
@@ -1382,14 +1406,53 @@ def _set_alpha_blend_mode(mat: bpy.types.Material) -> None:
     Returns:
         None.
     """
-    # Blender 4.2+ moved the EEVEE alpha mode to ``surface_render_method``.
-    # Set both where available so the glTF exporter picks BLEND.
-    for attr, value in (("blend_method", "BLEND"), ("surface_render_method", "BLENDED")):
-        if hasattr(mat, attr):
-            try:
-                setattr(mat, attr, value)
-            except (TypeError, AttributeError):
-                logger.debug("Failed to set %s on '%s'", attr, mat.name)
+    if hasattr(mat, "blend_method"):
+        try:
+            mat.blend_method = "CLIP"
+        except (TypeError, AttributeError):
+            logger.debug("Failed to set blend_method on '%s'", mat.name)
+    if hasattr(mat, "alpha_threshold"):
+        try:
+            mat.alpha_threshold = ALPHA_CLIP_CUTOFF
+        except (TypeError, AttributeError):
+            logger.debug("Failed to set alpha_threshold on '%s'", mat.name)
+    # Blender 4.2+ EEVEE Next: DITHERED render method approximates alpha clip.
+    if hasattr(mat, "surface_render_method"):
+        try:
+            mat.surface_render_method = "DITHERED"
+        except (TypeError, AttributeError):
+            logger.debug("Failed to set surface_render_method on '%s'", mat.name)
+
+
+def _wire_alpha_clip(
+    node_tree: bpy.types.NodeTree,
+    source_socket: bpy.types.NodeSocket,
+    alpha_input: bpy.types.NodeSocket,
+    location: tuple[float, float],
+) -> None:
+    """Insert a ``Math:ROUND`` node so the glTF exporter emits ``alphaMode=MASK``.
+
+    Blender's 4.2+/5.x glTF exporter detects alpha clipping by recognising a
+    ``Round`` math node feeding the Principled ``Alpha`` socket (cutoff 0.5),
+    instead of the legacy ``blend_method`` property. Routing the alpha source
+    through such a node makes solid assets export as cutout (``MASK``) rather
+    than translucent (``BLEND``), which renders correctly in real-time viewers.
+
+    Args:
+        node_tree: Material node tree to add the clip node to.
+        source_socket: Output socket carrying the raw alpha value.
+        alpha_input: Principled BSDF ``Alpha`` input socket.
+        location: Editor location for the inserted node.
+
+    Returns:
+        None.
+    """
+    clip = node_tree.nodes.new(type="ShaderNodeMath")
+    clip.operation = "ROUND"
+    clip.label = "Alpha Clip"
+    clip.location = location
+    node_tree.links.new(source_socket, clip.inputs[0])
+    node_tree.links.new(clip.outputs["Value"], alpha_input)
 
 
 def _collect_native_image_sources(info: dict[str, Any]) -> dict[str, tuple[bpy.types.Image, str]]:
@@ -1466,17 +1529,34 @@ def simplify_material_to_principled(mat: bpy.types.Material, info: dict[str, Any
 
     base_image_info = sources.get("base_color")
     base_tex: bpy.types.Node | None = None
+    base_image: bpy.types.Image | None = base_image_info[0] if base_image_info else None
     if base_image_info:
         base_tex = _make_tex(*base_image_info, y=300)
         links.new(base_tex.outputs["Color"], bsdf.inputs["Base Color"])
 
+    # Only honour alpha as a real cutout when it comes from a *dedicated* image
+    # distinct from the base colour. When the Principled Alpha was merely traced
+    # back to the base-colour image's own alpha channel, that channel is usually
+    # translucency/coverage data rather than a cutout mask; routing it through an
+    # alpha-clip discards opaque body texels (the model turns transparent in
+    # Godot). In that case the model is treated as opaque instead.
     alpha_image_info = sources.get("alpha")
-    if alpha_image_info:
+    has_dedicated_alpha = bool(
+        alpha_image_info is not None and "Alpha" in bsdf.inputs and alpha_image_info[0] is not base_image,
+    )
+
+    if alpha_image_info is not None and has_dedicated_alpha:
         alpha_tex = _make_tex(*alpha_image_info, y=100)
-        if "Alpha" in bsdf.inputs:
-            links.new(alpha_tex.outputs["Color"], bsdf.inputs["Alpha"])
-    elif base_tex is not None and "Alpha" in bsdf.inputs and info.get("has_alpha"):
-        links.new(base_tex.outputs["Alpha"], bsdf.inputs["Alpha"])
+        _wire_alpha_clip(
+            mat.node_tree,
+            alpha_tex.outputs["Color"],
+            bsdf.inputs["Alpha"],
+            (50, 100),
+        )
+    else:
+        # Opaque model: drop any alpha influence and flatten the base-colour
+        # image's alpha so the exported texture cannot trigger transparency.
+        _flatten_image_alpha(base_image)
 
     metallic_info = sources.get("metallic")
     if metallic_info and "Metallic" in bsdf.inputs:
@@ -1503,8 +1583,8 @@ def simplify_material_to_principled(mat: bpy.types.Material, info: dict[str, Any
         if emission_socket is not None:
             links.new(emission_tex.outputs["Color"], emission_socket)
 
-    if info.get("has_alpha"):
-        _set_alpha_blend_mode(mat)
+    if has_dedicated_alpha:
+        _set_alpha_clip_mode(mat)
 
     logger.info(
         "Simplified material '%s' to glTF-native Principled (textures: %s)",
@@ -1604,6 +1684,9 @@ def _create_single_baked_material(  # noqa: PLR0915
 
     color_image = shared_images.get("diffuse")
     if color_image:
+        # Baked base color is opaque; flatten alpha so viewers (Godot) don't
+        # auto-enable transparency from a 4-channel baseColor texture.
+        _flatten_image_alpha(color_image)
         color_node = nodes.new(type="ShaderNodeTexImage")
         color_node.label = "Baked Color"
         color_node.location = (-600, 200)
@@ -1789,6 +1872,9 @@ def connect_baked_textures(obj: bpy.types.Object) -> None:  # noqa: C901, PLR091
 
         color_node = image_nodes.get("diffuse")
         if color_node and "Base Color" in bsdf.inputs:
+            # Baked base color is opaque; flatten alpha so viewers (Godot) don't
+            # auto-enable transparency from a 4-channel baseColor texture.
+            _flatten_image_alpha(baked_images.get("diffuse"))
             for link in list(bsdf.inputs["Base Color"].links):
                 links.remove(link)
             links.new(color_node.outputs["Color"], bsdf.inputs["Base Color"])
@@ -1986,6 +2072,36 @@ def _ensure_normal_map_node(mat: bpy.types.Material) -> bpy.types.Node:
         normal_node.location = (150, -200)
     normal_node.space = "TANGENT"
     return normal_node
+
+
+def _flatten_image_alpha(image: bpy.types.Image | None) -> None:
+    """Force a baked image's alpha channel fully opaque (1.0).
+
+    glTF viewers (notably Godot) auto-enable material transparency whenever a
+    baseColor texture carries an alpha channel, which washes out otherwise
+    opaque models. The baked base-color pass is always meant to be opaque, so
+    flattening its alpha to 1.0 keeps the exported material solid while leaving
+    RGB untouched.
+
+    Args:
+        image: Baked base-color image to flatten, or ``None``.
+
+    Returns:
+        None.
+    """
+    if image is None or getattr(image, "channels", 0) != RGBA_CHANNELS:
+        return
+    pixel_count = len(image.pixels)
+    if pixel_count == 0:
+        return
+    try:
+        buffer = np.empty(pixel_count, dtype=np.float32)
+        image.pixels.foreach_get(buffer)
+        buffer[3::4] = 1.0
+        image.pixels.foreach_set(buffer)
+        image.update()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to flatten alpha on baked image '%s': %s", image.name, exc)
 
 
 def _pack_and_debug_images(images: Iterable[bpy.types.Image]) -> None:

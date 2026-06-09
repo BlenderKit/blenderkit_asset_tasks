@@ -34,6 +34,14 @@ STREAM_TAIL_LINE_LIMIT: int = 200
 _STDERR_WARN_PATTERNS: tuple[str, ...] = ()
 _STDERR_DEBUG_PATTERNS: tuple[str, ...] = ("DeprecationWarning:",)
 
+# Stdout substrings for noisy, harmless Blender messages (e.g. the glTF
+# exporter's animation-baking warnings). Matching lines are demoted from INFO
+# to DEBUG so they don't clutter normal output.
+_STDOUT_IGNORE_PATTERNS: tuple[str, ...] = (
+    "Baking animation because of unsupported constraints",
+    "Baking animation because there are keyframes with different interpolation",
+)
+
 
 def get_blender_version_from_blend(blend_file_path: str) -> str:
     """Extract Blender version from a .blend file header (2.8+ heuristic).
@@ -296,6 +304,14 @@ class _StderrCallback:
         logger.error("STDERR: %s", line)
 
 
+def _stdout_callback_info(line: str) -> None:
+    """Log a Blender stdout line at INFO, demoting known noisy warnings to DEBUG."""
+    if any(pattern in line for pattern in _STDOUT_IGNORE_PATTERNS):
+        logger.debug("STDOUT: %s", line)
+        return
+    logger.info("STDOUT: %s", line)
+
+
 def _run_blender(command: list[str], verbosity_level: int) -> int:
     """Run Blender with the given command and stream output per verbosity."""
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
@@ -306,7 +322,7 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
     with subprocess.Popen(command, stdout=stdout_val, stderr=stderr_val, creationflags=get_process_flags()) as proc:
         stderr_callback_instance = _StderrCallback()
         if verbosity_level == VERBOSITY_ALL:
-            stdout_callback = lambda line: logger.info("STDOUT: %s", line)  # noqa: E731
+            stdout_callback = _stdout_callback_info
             stderr_callback = stderr_callback_instance
         elif verbosity_level == VERBOSITY_STDERR:
             stdout_callback = lambda line: logger.debug("STDOUT: %s", line)  # noqa: E731
