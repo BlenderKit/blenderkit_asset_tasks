@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       asset_base_id:
-        description: 'Asset Base ID to process (leave empty to process the bulk backlog)'
+        description: 'Asset Base ID(s) to process — single ID or comma-separated list (leave empty to process the bulk backlog)'
         required: false
         type: string
       custom_search_params:

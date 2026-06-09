@@ -364,7 +364,7 @@
         },
 
         {
-            "name": "[TASK] Process Asset SINGLE",
+            "name": "[TASK] Process Asset SINGLE/MULTI",
             "type": "debugpy",
             "request": "launch",
             "python": "${workspaceFolder}/.venv/Scripts/python.exe",
@@ -377,11 +377,11 @@
                 "DEBUG_LOGGGING": "1",
                 "BLENDERKIT_SERVER": "https://www.blenderkit.com",
                 "MAX_ASSET_COUNT": "1",
-                // "SKIP_UPDATE": "True",
+                "SKIP_UPDATE": "True",
                 // optional, for testing a specific asset "ASSET_BASE_ID"
 
                 // yorha
-                "ASSET_BASE_ID": "93d651d2-6932-4e36-8f5a-26ff100a20ff" // asset_type:model
+                "ASSET_BASE_ID": "fae7df56-bfcc-4bb5-af62-5168860ea903,1dc5e0f2-d8d5-4fae-a01b-9dcb0094d56a" // asset_type:model
 
                 // tower with loads of textures
                 // "ASSET_BASE_ID": "e34c88d5-faaf-4f18-b0dc-1afa6f889770" // asset_type:model
