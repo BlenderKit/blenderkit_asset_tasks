@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -18,6 +19,7 @@ import threading
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cache
 from typing import Any
 
 from . import config, log, paths, read_header, utils
@@ -43,6 +45,13 @@ _STDOUT_IGNORE_PATTERNS: tuple[str, ...] = (
     "Baking animation because there are keyframes with different interpolation",
     "Invalid animation fcurve data",
 )
+
+# Release-cycle markers Blender prints on the first line of `blender --version`
+# (e.g. "Blender 4.6.0 Alpha"). Stable releases print no such suffix. Used to
+# avoid picking pre-release builds when selecting the NEWEST Blender.
+_PRERELEASE_MARKERS: tuple[str, ...] = ("alpha", "beta", "candidate")
+# Max seconds to wait for `blender --version` when probing a build's cycle.
+_VERSION_PROBE_TIMEOUT: int = 30
 
 
 def get_blender_version_from_blend(blend_file_path: str) -> str:
@@ -74,6 +83,95 @@ def get_blender_version_from_blend(blend_file_path: str) -> str:
         ver_str = ".".join(version)
         logger.debug("Blend header reported version %s", ver_str)
         return ver_str
+
+
+def _binary_path_for(blenders_path: str, dir_name: str) -> str:
+    """Build the OS-specific Blender executable path for a version directory."""
+    if sys.platform == "darwin":  # macOS
+        return os.path.join(blenders_path, dir_name, "Contents", "MacOS", "Blender")
+    ext = ".exe" if sys.platform == "win32" else ""
+    return os.path.join(blenders_path, dir_name, f"blender{ext}")
+
+
+def _dirname_is_prerelease(dir_name: str) -> bool | None:
+    """Infer release cycle from a version directory/tag name.
+
+    We control the Blender container builder, so the cycle can be encoded in the
+    tag (e.g. 'blender-5.2-alpha' -> dir '5.2-alpha'). Reading it from the name
+    avoids spawning Blender just to learn its cycle.
+
+    Returns:
+        True  if the name carries a pre-release marker (alpha/beta/rc),
+        False if it carries an explicit stable marker (stable/release/lts),
+        None  if the name says nothing about the cycle (caller should probe).
+    """
+    # Tokenize on non-alphanumeric separators so 'rc' doesn't match inside words.
+    tokens = {tok for tok in re.split(r"[^a-z0-9]+", dir_name.lower()) if tok}
+    if tokens & {*_PRERELEASE_MARKERS, "rc"}:
+        return True
+    if tokens & {"stable", "release", "lts"}:
+        return False
+    return None
+
+
+@cache
+def _probe_is_prerelease(binary: str) -> bool:
+    """Return True if `blender --version` reports an alpha/beta/RC build.
+
+    Probes the binary at runtime so we never have to change how the version
+    directories are built or named. The result is cached per binary path since
+    probing spawns Blender and is slow. On any failure (missing binary, timeout,
+    unexpected output) we conservatively return False so selection still works.
+    """
+    try:
+        result = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_PROBE_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Could not probe Blender version for %s: %s", binary, exc)
+        return False
+
+    # The release cycle is on the first "Blender X.Y.Z <Cycle>" line.
+    first_line = next((ln for ln in result.stdout.splitlines() if ln.strip()), "")
+    lowered = first_line.lower()
+    is_prerelease = any(marker in lowered for marker in _PRERELEASE_MARKERS)
+    if is_prerelease:
+        logger.debug("Detected pre-release Blender build: %s", first_line.strip())
+    return is_prerelease
+
+
+def _is_prerelease_build(dir_name: str, binary: str) -> bool:
+    """Decide whether a Blender build is a pre-release.
+
+    Prefers the cheap name-based marker (the builder can tag the cycle); only
+    falls back to the slow `blender --version` probe when the name is silent.
+    """
+    from_name = _dirname_is_prerelease(dir_name)
+    if from_name is not None:
+        return from_name
+    return _probe_is_prerelease(binary)
+
+
+def _select_newest_stable(blenders: list[tuple[float, str]], blenders_path: str) -> tuple[float, str]:
+    """Pick the newest non-pre-release Blender, falling back to the newest overall.
+
+    Iterates installed versions from newest to oldest and returns the first one
+    that is a stable release. The cycle is read from the directory/tag name when
+    present, otherwise probed via `blender --version`. If every build is a
+    pre-release (or none can be classified), returns the newest version so
+    behavior degrades gracefully instead of failing.
+    """
+    for candidate in sorted(blenders, key=lambda x: x[0], reverse=True):
+        binary = _binary_path_for(blenders_path, candidate[1])
+        if not _is_prerelease_build(candidate[1], binary):
+            return candidate
+        logger.info("Skipping pre-release Blender %s for NEWEST selection", candidate[1])
+    logger.warning("No stable Blender build found; falling back to newest available.")
+    return max(blenders, key=lambda x: x[0])
 
 
 def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_type: str = "CLOSEST") -> str:
@@ -119,27 +217,16 @@ def get_blender_binary(asset_data: dict[str, Any], file_path: str = "", binary_t
         not_newer = [b for b in blenders if b[0] <= asset_blender_version]
         blender_target = max(not_newer, key=lambda x: x[0]) if not_newer else min(blenders, key=lambda x: x[0])
     if binary_type == "NEWEST":
-        blender_target = max(blenders, key=lambda x: x[0])
+        blender_target = _select_newest_stable(blenders, blenders_path)
 
     # use latest blender version for hdrs (the .blend is a fresh template, so a
     # newer Blender does not upgrade any user-authored file)
     if str(asset_data.get("assetType", "")).lower() == "hdr":
-        blender_target = max(blenders, key=lambda x: x[0])
+        blender_target = _select_newest_stable(blenders, blenders_path)
 
     logger.debug("Selected Blender target: %s", blender_target)
 
-    # Handle different OS paths
-    if sys.platform == "darwin":  # macOS
-        binary = os.path.join(
-            blenders_path,
-            blender_target[1],
-            "Contents",
-            "MacOS",
-            "Blender",
-        )
-    else:  # Windows and Linux
-        ext = ".exe" if sys.platform == "win32" else ""
-        binary = os.path.join(blenders_path, blender_target[1], f"blender{ext}")
+    binary = _binary_path_for(blenders_path, blender_target[1])
 
     logger.info("Using Blender binary: %s", binary)
     if not os.path.exists(binary):

@@ -452,13 +452,22 @@ MIN_PARTS_FOR_PATCH: int = 3
 def version_to_float(version: str) -> float:
     """Convert a version string like '3.6.2' to a sortable float.
 
+    Tolerates a release-cycle suffix on any component (e.g. '5.2.0-alpha' or
+    '5.2-beta'): only the leading integer of each dotted part is used. Parts
+    without a leading integer are treated as 0.
+
     Note: this retains original behavior where the third component has a small
     weight. It is sufficient for nearest-version matching.
     """
+
+    def _leading_int(part: str) -> int:
+        match = re.match(r"\d+", part)
+        return int(match.group()) if match else 0
+
     parts = version.split(".")
-    major = int(parts[0])
-    minor = int(parts[1]) if len(parts) >= MIN_PARTS_FOR_MINOR else 0
-    patch = int(parts[2]) if len(parts) >= MIN_PARTS_FOR_PATCH else 0
+    major = _leading_int(parts[0])
+    minor = _leading_int(parts[1]) if len(parts) >= MIN_PARTS_FOR_MINOR else 0
+    patch = _leading_int(parts[2]) if len(parts) >= MIN_PARTS_FOR_PATCH else 0
     result = major + 0.01 * minor + 0.0001 * patch
     return result
 
