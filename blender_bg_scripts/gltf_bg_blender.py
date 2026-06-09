@@ -128,9 +128,6 @@ MINIMAL_GLTF: dict[str, Any] = {
     # Be explicit about full material export (the default), so the baked
     # Principled + image-texture graph is written instead of a placeholder.
     "export_materials": "EXPORT",
-    # # Assets are static turntables; skip animation export so NLA-only / off-timeline
-    # # actions (and the heavy constraint-baking they trigger) don't bloat the GLB.
-    # "export_animations": False,
 }
 MAXIMAL_GLTF: dict[str, Any] = MINIMAL_GLTF | {
     "export_image_format": "WEBP",
