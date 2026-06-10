@@ -146,12 +146,17 @@ def generate_gltf(  # noqa: C901, PLR0912, PLR0915
     temp_folder = tempfile.mkdtemp()
     result_path = os.path.join(temp_folder, asset_data["assetBaseId"] + "_resdata.json")
     # should we remove the temp folder after use? yes, we do it in send_to_bg
+    # Use the newest installed Blender for the export: a newer glTF exporter
+    # produces better/more compatible output, and exporting to glTF never
+    # re-saves (and thus never upgrades) the source .blend. Passing an empty
+    # binary_path lets send_to_bg auto-select NEWEST instead of being pinned to
+    # the predefined BLENDER_PATH.
     bg_returncode = send_to_bg.send_to_bg(
         asset_data,
         asset_file_path=asset_file_path,
         result_path=result_path,
         script="gltf_bg_blender.py",
-        binary_path=binary_path,
+        binary_type="NEWEST",
         target_format=target_format,
     )
     if bg_returncode != 0:
