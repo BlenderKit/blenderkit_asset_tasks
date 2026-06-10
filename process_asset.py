@@ -121,6 +121,51 @@ def _resolve_gltf_binary(fallback_binary_path: str, asset_data: dict[str, Any]) 
         return ""
 
 
+def _resolve_processing_binary(fallback_binary_path: str, asset_data: dict[str, Any], blend_path: str) -> str:
+    """Resolve the actual Blender binary used for the unpack and resolution jobs.
+
+    Mirrors the source-version (CLOSEST) selection that ``send_to_bg`` performs
+    when ``BLENDERS_PATH`` lists multiple builds, so the orchestrator can report
+    the exact Blender version those jobs ran with. Unpack and resolutions share
+    this same build. Falls back to the single configured binary when no
+    ``BLENDERS_PATH`` is set, and to the fallback when selection fails.
+
+    Args:
+        fallback_binary_path: Blender binary to use when no ``BLENDERS_PATH`` is set.
+        asset_data: Asset metadata, used to locate installed Blender versions.
+        blend_path: Path to the downloaded .blend, used to refine version detection.
+
+    Returns:
+        Absolute path to the resolved Blender binary, or the fallback as described.
+    """
+    if not config.BLENDERS_PATH:
+        return fallback_binary_path
+    try:
+        return send_to_bg.get_blender_binary(asset_data, file_path=blend_path, binary_type="CLOSEST")
+    except RuntimeError:
+        logger.warning("Could not select source-version Blender for unpack/resolution.")
+        return fallback_binary_path
+
+
+def _blender_version_label(binary_path: str) -> str:
+    """Return a human-readable Blender version label for a resolved binary path.
+
+    The binary lives at ``<BLENDERS_PATH>/<version_dir>/blender[.exe]``, so the
+    parent directory name encodes the version. Falls back to the binary's own
+    name, or ``"?"`` when no path is available.
+
+    Args:
+        binary_path: Absolute path to the resolved Blender binary.
+
+    Returns:
+        A short label identifying the Blender version/build.
+    """
+    if not binary_path:
+        return "?"
+    version_dir = os.path.basename(os.path.dirname(binary_path))
+    return version_dir or os.path.basename(binary_path) or "?"
+
+
 def _run_job(job_name: str, asset_data: dict[str, Any], func: Any, *args: Any, **kwargs: Any) -> None:
     """Run a single processing job, isolating its failures from sibling jobs.
 
@@ -349,6 +394,7 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
                 "base_id": str(asset_data.get("assetBaseId", "?")) if asset_data else "?",
                 "mark": "-",
                 "jobs": "-",
+                "blender": "-",
                 "status": "skipped (no files)",
             },
         )
@@ -371,6 +417,7 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
                     "base_id": base_id,
                     "mark": "-",
                     "jobs": "-",
+                    "blender": "-",
                     "status": "failed (download)",
                 },
             )
@@ -382,6 +429,12 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
 
         # Unpack + generate resolutions/GLTFs, reusing the same downloaded file.
         ran_resolutions = _run_generation_jobs(asset_data, api_key, binary_path, blend_path)
+
+        # Record the Blender build the unpack/resolution jobs ran with (both
+        # share the same source-version build).
+        blender_label = _blender_version_label(
+            _resolve_processing_binary(binary_path, asset_data, blend_path),
+        )
 
         # The resolutions job already triggers a reindex; only do it explicitly
         # when no resolutions job ran (e.g. brush/nodegroup single-asset runs).
@@ -407,6 +460,7 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
                 "base_id": base_id,
                 "mark": mark_label,
                 "jobs": jobs_label,
+                "blender": blender_label,
                 "status": status_label,
             },
         )
@@ -561,12 +615,13 @@ def _flush_step_summary() -> None:
         f"- **Max asset count:** {config.MAX_ASSET_COUNT}",
         f"- **SKIP_UPDATE:** {SKIP_UPDATE}",
         "",
-        "| # | Name | Type | Mark | Jobs | Status | Asset Base ID |",
-        "| - | ---- | ---- | ---- | ---- | ------ | ------------- |",
+        "| # | Name | Type | Mark | Jobs | Blender | Status | Asset Base ID |",
+        "| - | ---- | ---- | ---- | ---- | ------- | ------ | ------------- |",
     ]
     for i, r in enumerate(records, start=1):
         lines.append(
-            f"| {i} | {r['name']} | {r['type']} | {r['mark']} | {r['jobs']} | {r['status']} | `{r['base_id']}` |",
+            f"| {i} | {r['name']} | {r['type']} | {r['mark']} | {r['jobs']} | "
+            f"{r.get('blender', '-')} | {r['status']} | `{r['base_id']}` |",
         )
     lines.append("")
 

@@ -17,7 +17,7 @@ env:
   BLENDERKIT_API_KEY: '${{ secrets.BLENDERKIT_API_KEY }}'
   BLENDER_PATH: '/home/headless/blender/blender'
   BLENDERS_PATH: '/home/headless/blenders'
-  MAX_ASSET_COUNT: 200
+  MAX_ASSET_COUNT: 500
 
 jobs:
   PROCESS:
