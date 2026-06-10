@@ -100,7 +100,7 @@ def _dirname_is_prerelease(dir_name: str) -> bool | None:
     tag (e.g. 'blender-5.2-alpha' -> dir '5.2-alpha'). Reading it from the name
     avoids spawning Blender just to learn its cycle.
 
-    Returns:
+    outputs:
         True  if the name carries a pre-release marker (alpha/beta/rc),
         False if it carries an explicit stable marker (stable/release/lts),
         None  if the name says nothing about the cycle (caller should probe).
