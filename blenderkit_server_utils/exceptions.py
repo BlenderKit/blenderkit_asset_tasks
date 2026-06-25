@@ -30,3 +30,7 @@ class SearchResultLimitError(BlenderKitError):
 
 class SearchRequestRepeatError(BlenderKitError):
     """Exception raised when repeated search request limit is reached."""
+
+
+class UnsafeArchiveError(BlenderKitError):
+    """Exception raised when an archive member would extract outside the target directory."""

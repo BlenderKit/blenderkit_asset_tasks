@@ -11,11 +11,13 @@ and logging is used instead of print statements.
 from __future__ import annotations
 
 import os
+import zipfile
 from typing import Any
 
 import requests
 
 from . import log, paths, utils
+from .exceptions import UnsafeArchiveError
 
 logger = log.create_logger(__name__)
 
@@ -24,6 +26,9 @@ HTTP_SUCCESS_MAX = 399
 NAME_SLUG_MAX = 16
 MIN_CONTENT_LENGTH = 1000
 TWO_PATHS = 2
+BLEND_FILETYPE = "blend"
+ZIP_FILETYPE = "zip_file"
+ARCHIVE_INNER_EXTENSIONS = (".blend", ".exr")
 
 
 def server_2_local_filename(asset_data: dict[str, Any], filename: str) -> str:
@@ -346,8 +351,114 @@ def download_asset(
     """
     has_url = get_download_url(asset_data, SCENE_UUID, api_key, tcom=None, resolution=filetype)
     if not has_url:
+        # Some assets are stored as a .zip archive (fileType='zip_file') instead of
+        # a direct .blend. When a 'blend' was requested but missing, fall back to the
+        # archive, download it, and extract the inner .blend/.exr file.
+        if filetype == BLEND_FILETYPE and get_file_type(asset_data, ZIP_FILETYPE)[0] is not None:
+            logger.info("No '%s' file for asset '%s'; falling back to zip archive", filetype, asset_data.get("name"))
+            zip_path = download_and_extract_zip(asset_data, api_key=api_key, directory=directory)
+            return zip_path
         logger.warning("Could not get URL for the asset '%s'", asset_data.get("name"))
         return None
 
     fpath = download_asset_file(asset_data, resolution=filetype, api_key=api_key, directory=directory)
     return fpath
+
+
+def _is_within_directory(directory: str, target: str) -> bool:
+    """Check whether a target path resolves to a location inside a directory.
+
+    Args:
+        directory: The base directory that should contain the target.
+        target: The path to verify.
+
+    Returns:
+        True if the target is inside the directory, False otherwise.
+    """
+    abs_directory = os.path.abspath(directory)
+    abs_target = os.path.abspath(target)
+    common = os.path.commonpath([abs_directory, abs_target])
+    is_inside = common == abs_directory
+    return is_inside
+
+
+def _safe_extract_zip(archive: zipfile.ZipFile, extract_dir: str) -> None:
+    """Extract a zip archive while guarding against path traversal (Zip Slip).
+
+    Args:
+        archive: The opened zip archive.
+        extract_dir: The directory into which members are extracted.
+
+    Raises:
+        UnsafeArchiveError: If any member would be written outside ``extract_dir``.
+    """
+    for member in archive.namelist():
+        member_path = os.path.join(extract_dir, member)
+        if not _is_within_directory(extract_dir, member_path):
+            raise UnsafeArchiveError(f"Unsafe path in archive member: {member!r}")
+    archive.extractall(extract_dir)
+
+
+def _find_inner_asset_file(extract_dir: str) -> str | None:
+    """Locate the single usable asset file (.blend or .exr) in an extracted archive.
+
+    Args:
+        extract_dir: Directory containing the extracted archive contents.
+
+    Returns:
+        Path to the inner asset file, preferring .blend over .exr, or None if none found.
+    """
+    matches: list[str] = []
+    for root, _dirs, files in os.walk(extract_dir):
+        matches.extend(os.path.join(root, name) for name in files if name.lower().endswith(ARCHIVE_INNER_EXTENSIONS))
+
+    if not matches:
+        logger.warning("No %s file found in extracted archive at %s", ARCHIVE_INNER_EXTENSIONS, extract_dir)
+        return None
+
+    # Prefer a .blend file when present, otherwise fall back to the first match (e.g. .exr).
+    for path in matches:
+        if path.lower().endswith(".blend"):
+            return path
+
+    inner_path = matches[0]
+    return inner_path
+
+
+def download_and_extract_zip(
+    asset_data: dict[str, Any],
+    api_key: str = "",
+    directory: str | None = None,
+) -> str | None:
+    """Download a zip-archived asset and extract its inner .blend/.exr file.
+
+    Args:
+        asset_data: Asset metadata containing a 'zip_file' entry in its files.
+        api_key: Authentication token for the API.
+        directory: Optional base directory to place the downloaded archive.
+
+    Returns:
+        Path to the extracted .blend (preferred) or .exr file, or None on failure.
+    """
+    has_url = get_download_url(asset_data, SCENE_UUID, api_key, tcom=None, resolution=ZIP_FILETYPE)
+    if not has_url:
+        logger.warning("Could not get zip URL for the asset '%s'", asset_data.get("name"))
+        return None
+
+    zip_path = download_asset_file(asset_data, resolution=ZIP_FILETYPE, api_key=api_key, directory=directory)
+    if not zip_path:
+        logger.warning("Failed to download zip archive for asset '%s'", asset_data.get("name"))
+        return None
+
+    extract_dir = os.path.join(os.path.dirname(zip_path), "unzipped")
+    os.makedirs(extract_dir, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            _safe_extract_zip(archive, extract_dir)
+    except (zipfile.BadZipFile, OSError, UnsafeArchiveError):
+        logger.exception("Failed to extract zip archive '%s'", zip_path)
+        return None
+
+    inner_path = _find_inner_asset_file(extract_dir)
+    return inner_path
