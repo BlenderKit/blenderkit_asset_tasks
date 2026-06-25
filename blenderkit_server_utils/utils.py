@@ -590,3 +590,18 @@ def get_disk_free_space_gb(folder_path: str, precision: int = 2) -> float:
 
 
 # endregion disk monitor
+
+
+# region file copy
+
+def copy_asset(src: str, dst: str) -> None:
+    """Copy a file from src to dst, creating directories if needed.
+
+    Args:
+        src: Source file path.
+        dst: Destination file path.
+    """
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copy2(src, dst)
+
+# endregion file copy
