@@ -193,7 +193,11 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                 verify=True,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
-
+            logger.debug(
+                "Upload response for %s: %s",
+                upload["id"],
+                upload_response.text,
+            )
             status_code = upload_response.status_code
             if status_code in UPLOAD_SUCCESS_STATUS_CODES:
                 upload_done_url = paths.get_api_url() + "/uploads_s3/" + upload["id"] + "/upload-file/"
