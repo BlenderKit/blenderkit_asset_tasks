@@ -72,6 +72,10 @@ MAX_CONCURRENCY: int = 1
 # gltfGeneratedDate, gltfGodotGeneratedDate), which are still updated by the jobs.
 PARAM_PROCESSING_DATE: str = "processingDate"
 
+# Asset files delivered as zip archives are skipped by this orchestrator. They
+# are stamped as processed to avoid repeated retries in the bulk backlog sweep.
+ZIP_FILETYPE: str = "zip_file"
+
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
 
@@ -91,6 +95,21 @@ def _resolve_asset_binary(fallback_binary_path: str) -> str:
         auto-selection inside ``send_to_bg``.
     """
     return "" if config.BLENDERS_PATH else fallback_binary_path
+
+
+def _should_skip_zipped_asset(asset_data: dict[str, Any]) -> bool:
+    """Return whether this asset should be skipped due to zip policy.
+
+    Assets delivered as zip archives are skipped by this orchestrator.
+
+    Args:
+        asset_data: Asset metadata with ``assetType`` and ``files`` entries.
+
+    Returns:
+        True when asset has a ``zip_file`` entry; otherwise False.
+    """
+    has_zip = download.get_file_type(asset_data, ZIP_FILETYPE)[0] is not None
+    return has_zip
 
 
 def _resolve_gltf_binary(fallback_binary_path: str, asset_data: dict[str, Any]) -> str:
@@ -212,20 +231,18 @@ def _patch_processing_date(asset_data: dict[str, Any], api_key: str) -> None:
     if SKIP_UPDATE:
         logger.warning("SKIP_UPDATE==True -> skipping processingDate patch for %s", asset_data.get("id"))
         return
-    # processingDate is a DateTime parameter, so send a full ISO 8601 timestamp
-    # (with timezone) rather than a bare date.
-    timestamp = datetime_utils.now_timestamp_iso()
+    processing_date = datetime_utils.now_timestamp_iso()
     try:
         upload.patch_individual_parameter(
             asset_id=asset_data["id"],
             param_name=PARAM_PROCESSING_DATE,
-            param_value=timestamp,
+            param_value=processing_date,
             api_key=api_key,
         )
     except Exception:
         logger.exception("Failed to patch %s for asset %s", PARAM_PROCESSING_DATE, asset_data.get("id"))
     else:
-        logger.info("Patched %s=%s for asset %s", PARAM_PROCESSING_DATE, timestamp, asset_data.get("id"))
+        logger.info("Patched %s=%s for asset %s", PARAM_PROCESSING_DATE, processing_date, asset_data.get("id"))
 
 
 def _mark_and_reupload(asset_data: dict[str, Any], api_key: str, binary_path: str, blend_path: str) -> bool:
@@ -403,6 +420,27 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
     atype = asset_data.get("assetType")
     name = str(asset_data.get("name", ""))
     base_id = str(asset_data.get("assetBaseId", ""))
+
+    if _should_skip_zipped_asset(asset_data):
+        logger.info(
+            "Skipping zipped asset %s (%s): zip-skip policy",
+            asset_data.get("id"),
+            atype,
+        )
+        _patch_processing_date(asset_data, api_key)
+        _record_result(
+            {
+                "name": name,
+                "type": str(atype),
+                "base_id": base_id,
+                "mark": "n/a",
+                "jobs": "-",
+                "blender": "-",
+                "status": "ZIP file skipped",
+            },
+        )
+        return
+
     logger.info("START %s (%s) %s", name, atype, base_id)
 
     work_dir = tempfile.mkdtemp()
@@ -423,18 +461,18 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
             )
             return
 
+        # Record the Blender build the unpack/resolution jobs ran with (both
+        # share the same source-version build).
+        blender_label = _blender_version_label(
+            _resolve_processing_binary(binary_path, asset_data, blend_path),
+        )
+
         # Mark and re-upload the canonical .blend first (textures packed) so the
         # online library is corrected even if the jobs below produce nothing.
         mark_ok = _mark_and_reupload(asset_data, api_key, _resolve_asset_binary(binary_path), blend_path)
 
         # Unpack + generate resolutions/GLTFs, reusing the same downloaded file.
         ran_resolutions = _run_generation_jobs(asset_data, api_key, binary_path, blend_path)
-
-        # Record the Blender build the unpack/resolution jobs ran with (both
-        # share the same source-version build).
-        blender_label = _blender_version_label(
-            _resolve_processing_binary(binary_path, asset_data, blend_path),
-        )
 
         # The resolutions job already triggers a reindex; only do it explicitly
         # when no resolutions job ran (e.g. brush/nodegroup single-asset runs).
