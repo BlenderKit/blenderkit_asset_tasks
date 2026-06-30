@@ -197,7 +197,7 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                 "Upload response for %s: code %s: %s",
                 upload["id"],
                 upload_response.status_code,
-                upload_response.text,
+                upload_response.content.decode("utf-8"),
             )
             status_code = upload_response.status_code
             if status_code in UPLOAD_SUCCESS_STATUS_CODES:
