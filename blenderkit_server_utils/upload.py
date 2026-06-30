@@ -193,9 +193,10 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                 verify=True,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
-            logger.debug(
-                "Upload response for %s: %s",
+            logger.info(
+                "Upload response for %s: code %s: %s",
                 upload["id"],
+                upload_response.status_code,
                 upload_response.text,
             )
             status_code = upload_response.status_code
