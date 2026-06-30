@@ -19,8 +19,6 @@ from . import log, paths, utils
 logger = log.create_logger(__name__)
 
 # HTTP success range and request timeout
-HTTP_STATUS_SUCCESS_MIN = 199
-HTTP_STATUS_SUCCESS_MAX = 203
 UPLOAD_SUCCESS_STATUS_CODES = {200, 201, 202} # (success, created, accepted)
 
 REQUEST_TIMEOUT_SECONDS = 30
@@ -206,9 +204,11 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                     timeout=REQUEST_TIMEOUT_SECONDS,
                 )
                 logger.info(
-                    "Finished file upload: %s",
+                    "Finished file upload: %s, status code: %s",
                     os.path.basename(f["file_path"]),
+                    status_code,
                 )
+                logger.debug("Upload done response: %s", upload_response.text)
                 return True
             message = f"Upload failed, retry. File : {f['type']} {os.path.basename(f['file_path'])}, status code: {status_code}"  # noqa: E501
             logger.warning(message)
