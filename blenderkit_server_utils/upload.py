@@ -20,7 +20,9 @@ logger = log.create_logger(__name__)
 
 # HTTP success range and request timeout
 HTTP_STATUS_SUCCESS_MIN = 199
-HTTP_STATUS_SUCCESS_MAX = 250
+HTTP_STATUS_SUCCESS_MAX = 203
+UPLOAD_SUCCESS_STATUS_CODES = {200, 201, 202} # (success, created, accepted)
+
 REQUEST_TIMEOUT_SECONDS = 30
 SUCCESS_STATUS_CODES = {200, 201}
 SUCCESS_STATUS_CODES_WITH_NO_CONTENT = {200, 201, 204}
@@ -195,7 +197,7 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
             )
 
             status_code = upload_response.status_code
-            if HTTP_STATUS_SUCCESS_MIN < status_code < HTTP_STATUS_SUCCESS_MAX:
+            if status_code in UPLOAD_SUCCESS_STATUS_CODES:
                 upload_done_url = paths.get_api_url() + "/uploads_s3/" + upload["id"] + "/upload-file/"
                 upload_response = requests.post(
                     upload_done_url,
@@ -208,7 +210,7 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                     os.path.basename(f["file_path"]),
                 )
                 return True
-            message = f"Upload failed, retry. File : {f['type']} {os.path.basename(f['file_path'])}"
+            message = f"Upload failed, retry. File : {f['type']} {os.path.basename(f['file_path'])}, status code: {status_code}"  # noqa: E501
             logger.warning(message)
         except requests.exceptions.RequestException:
             logger.exception(
