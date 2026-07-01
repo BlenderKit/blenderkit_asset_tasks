@@ -381,13 +381,13 @@
                 // optional, for testing a specific asset "ASSET_BASE_ID"
 
                 // vdb cloud
-                "ASSET_BASE_ID": "36cc8fda-e716-468e-8372-d0c8b6ac487e" // asset_type:model
+                // "ASSET_BASE_ID": "36cc8fda-e716-468e-8372-d0c8b6ac487e" // asset_type:model
 
-                // truck
-                // "ASSET_BASE_ID": "565f028b-ef1e-45eb-b1e0-c22bbb474138" // asset_type:model
+                // golem
+                "ASSET_BASE_ID": "063501c6-63e9-4dee-9c61-f814b10ee7d3" // asset_type:model
 
-                // material
-                // "ASSET_BASE_ID": "f2389247-c173-4a33-ae88-e4a2682cb91e" // asset_type:material
+                // yorha test
+                // "ASSET_BASE_ID": "93d651d2-6932-4e36-8f5a-26ff100a20ff"
 
                 // big hdri
                 // "ASSET_BASE_ID": "1c0c9ffa-733e-4259-af5e-2dc2efa8df84" // asset_type:hdr

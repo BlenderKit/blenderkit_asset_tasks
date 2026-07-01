@@ -435,6 +435,7 @@ def cleanup_temp(temp_folder: str) -> None:
     """Delete the temporary working folder if possible."""
     try:
         shutil.rmtree(temp_folder)
+        logger.info("Deleted temp folder: %s", temp_folder)
     except (FileNotFoundError, PermissionError, OSError):
         logger.exception("Error while deleting temp folder %s", temp_folder)
 
