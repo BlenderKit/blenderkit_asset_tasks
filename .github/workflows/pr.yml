@@ -14,6 +14,8 @@ jobs:
   RESOLUTIONS:
     name: Generate RES (${{ matrix.asset_name }})
     runs-on: ubuntu-latest
+    # Fork PRs don't receive repository secrets, so BLENDERKIT_API_KEY would be empty.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     container: blenderkit/headless-blender:multi-version
     strategy:
       fail-fast: false
