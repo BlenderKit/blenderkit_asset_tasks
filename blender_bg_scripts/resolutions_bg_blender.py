@@ -135,16 +135,37 @@ def get_current_resolution() -> int:
     return actres
 
 
+def _image_disk_size(img: Any) -> int:
+    """Return the on-disk byte size of an image, summing all UDIM tiles.
+
+    Tiled images address their tiles through a single ``<UDIM>`` path template,
+    so the literal template never exists on disk; each tile file is summed
+    instead.
+    """
+    abspath = bpy.path.abspath(img.filepath)
+    if getattr(img, "source", "") == "TILED" and "<UDIM>" in abspath:
+        total = 0
+        for tile in img.tiles:
+            tile_path = abspath.replace("<UDIM>", str(tile.number))
+            if os.path.exists(tile_path):
+                try:
+                    total += os.path.getsize(tile_path)
+                except OSError:
+                    logger.exception("Failed to stat tile file: %s", tile_path)
+        return total
+    if os.path.exists(abspath):
+        try:
+            return os.path.getsize(abspath)
+        except OSError:
+            logger.exception("Failed to stat image file: %s", abspath)
+    return 0
+
+
 def _compute_original_textures_size() -> int:
     """Compute the total size of all existing image files in the scene."""
     total = 0
     for img in bpy.data.images:
-        abspath = bpy.path.abspath(img.filepath)
-        if os.path.exists(abspath):
-            try:
-                total += os.path.getsize(abspath)
-            except OSError:
-                logger.exception("Failed to stat image file: %s", abspath)
+        total += _image_disk_size(img)
     return total
 
 
@@ -198,12 +219,7 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
                 do_downscale=True,
             )
 
-        abspath = bpy.path.abspath(img.filepath)
-        if os.path.exists(abspath):
-            try:
-                reduced_total += os.path.getsize(abspath)
-            except OSError:
-                logger.exception("Failed to stat generated image: %s", abspath)
+        reduced_total += _image_disk_size(img)
 
         img.pack()
         img.buffers_free()

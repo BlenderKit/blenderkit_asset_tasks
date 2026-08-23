@@ -688,12 +688,68 @@ def _set_color_mode_safe(ims: Any, desired: str) -> str:
             return "BW"
 
 
-def make_possible_reductions_on_image(
+def _reduce_tiled_image(
+    teximage: Any,
+    input_filepath: str,
+    *,
+    do_reductions: bool,
+    do_downscale: bool,
+) -> None:
+    """Apply reductions to every tile of a UDIM/tiled image individually.
+
+    Blender's render/pixel pipeline only exposes the active tile, so the whole
+    set is processed by loading each tile file as a standalone image, reducing
+    it, and writing it to the resolved per-tile path. The tiled datablock is
+    then repointed to the new ``<UDIM>`` template so a later ``pack()`` picks up
+    every downscaled tile. Format conversion is disabled so all tiles keep a
+    single shared extension.
+
+    Args:
+        teximage: The tiled Blender image (`source == 'TILED'`).
+        input_filepath: Target path template for the reduced tiles; a ``<UDIM>``
+            token is ensured.
+        do_reductions: Forwarded to the per-tile reduction.
+        do_downscale: Forwarded to the per-tile reduction.
+    """
+    src_template = bpy.path.abspath(teximage.filepath)  # type: ignore[attr-defined]
+    dst_template = _apply_udim_marker_if_needed(teximage, input_filepath)
+    if "<UDIM>" not in dst_template:
+        dst_template = re.sub(r"1\d{3}(?=\.[^.]+$)", "<UDIM>", dst_template)
+    colorspace = teximage.colorspace_settings.name
+
+    for tile in list(teximage.tiles):
+        number = str(tile.number)
+        src = src_template.replace("<UDIM>", number)
+        if not os.path.exists(src):
+            logger.warning("UDIM tile file missing, skipping: %s", src)
+            continue
+        dst = dst_template.replace("<UDIM>", number)
+
+        tmp = bpy.data.images.load(src)  # type: ignore[attr-defined]
+        try:
+            tmp.colorspace_settings.name = colorspace
+            make_possible_reductions_on_image(
+                tmp,
+                dst,
+                do_reductions=do_reductions,
+                do_downscale=do_downscale,
+                allow_format_conversion=False,
+            )
+        finally:
+            bpy.data.images.remove(tmp)  # type: ignore[attr-defined]
+
+    teximage.filepath = dst_template
+    teximage.filepath_raw = dst_template
+    teximage.reload()
+
+
+def make_possible_reductions_on_image(  # noqa: PLR0915
     teximage: Any,
     input_filepath: str,
     *,
     do_reductions: bool = False,
     do_downscale: bool = False,
+    allow_format_conversion: bool = True,
 ) -> None:
     """Reduce channels/bit depth or convert formats based on simple heuristics.
 
@@ -706,8 +762,23 @@ def make_possible_reductions_on_image(
         input_filepath: Target file path for saving.
         do_reductions: When True, apply conversions like alpha drop, BW, JPEG.
         do_downscale: When True, downscale image by half with a minimum size.
+        allow_format_conversion: When True, opaque PNGs may be rewritten as JPEG.
+            Disabled for individual UDIM tiles so every tile of a set keeps the
+            same extension (Blender requires a single filepath template).
     """
     _require_bpy()
+
+    # UDIM/tiled images expose only the active tile through the pixel/render
+    # pipeline, so save_render would drop every tile but one. Process each tile
+    # as a standalone image loaded from its own file instead.
+    if getattr(teximage, "source", "") == "TILED":
+        _reduce_tiled_image(
+            teximage,
+            input_filepath,
+            do_reductions=do_reductions,
+            do_downscale=do_downscale,
+        )
+        return
 
     colorspace = teximage.colorspace_settings.name
     teximage.colorspace_settings.name = "Non-Color"
@@ -752,7 +823,7 @@ def make_possible_reductions_on_image(
     if do_reductions:
         na = image_to_numpy_flat(teximage)
 
-        if can_erase_alpha(na) and teximage.file_format == "PNG":
+        if allow_format_conversion and can_erase_alpha(na) and teximage.file_format == "PNG":
             logger.info("Converting PNG to JPEG due to opaque alpha")
             _base, ext = os.path.splitext(fp)
             teximage["original_extension"] = ext

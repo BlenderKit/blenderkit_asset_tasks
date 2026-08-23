@@ -384,8 +384,10 @@
                 // "ASSET_BASE_ID": "36cc8fda-e716-468e-8372-d0c8b6ac487e" // asset_type:model
 
                 // golem
-                "ASSET_BASE_ID": "063501c6-63e9-4dee-9c61-f814b10ee7d3" // asset_type:model
+                // "ASSET_BASE_ID": "063501c6-63e9-4dee-9c61-f814b10ee7d3" // asset_type:model
 
+                // drill
+                "ASSET_BASE_ID": "3479b5e4-bc96-409e-97f1-f3e788fc07c8" // asset_type:model
                 // yorha test
                 // "ASSET_BASE_ID": "93d651d2-6932-4e36-8f5a-26ff100a20ff"
 
