@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -100,6 +101,20 @@ def _ensure_tex_dir(asset_data: dict[str, Any], resolution: str) -> str:
     return tex_dir_path
 
 
+def _udim_template(filepath: str) -> str:
+    """Return a ``<UDIM>``-templated path for a concrete tile filename.
+
+    A UDIM set is stored on disk as one file per tile (``..._1001.png``,
+    ``..._1002.png``); Blender addresses the whole set through a single path
+    with a ``<UDIM>`` token. ``get_texture_filepath`` derives the path from the
+    first packed tile, so it contains a literal tile number that must be turned
+    back into the token.
+    """
+    if "<UDIM>" in filepath:
+        return filepath
+    return re.sub(r"1\d{3}(?=\.[^.]+$)", "<UDIM>", filepath)
+
+
 def _unpack_images_to(tex_dir_path: str, resolution: str) -> list[str]:
     """Write packed images to the target directory and repath image datablocks."""
     unpacked_files = []
@@ -114,11 +129,21 @@ def _unpack_images_to(tex_dir_path: str, resolution: str) -> list[str]:
             fp = paths.get_texture_filepath(tex_dir_path, image, resolution=resolution)
             logger.info("Unpacking image %s -> %s", image.name, fp)
 
-            for pf in image.packed_files:
-                pf.filepath = fp
+            is_tiled = getattr(image, "source", "") == "TILED"
+            if is_tiled:
+                # Preserve one target path per UDIM tile so no tile clobbers
+                # another; without this every tile would unpack to the same file.
+                fp = _udim_template(fp)
+                tiles = list(image.tiles)
+                for idx, pf in enumerate(image.packed_files):
+                    number = tiles[idx].number if idx < len(tiles) else 1001 + idx
+                    pf.filepath = fp.replace("<UDIM>", str(number))
+            else:
+                for pf in image.packed_files:
+                    pf.filepath = fp
 
             if image.packed_files:
-                # WRITE_ORIGINAL writes to image.filepath; safer than REMOVE in our workflow
+                # WRITE_ORIGINAL writes to each packed file's filepath; safer than REMOVE in our workflow
                 try:
                     image.unpack(method="WRITE_ORIGINAL")
                 except RuntimeError:
@@ -126,7 +151,8 @@ def _unpack_images_to(tex_dir_path: str, resolution: str) -> list[str]:
 
             # here is an issue where file is not immediately accessible after unpacking
             # we try to mitigate this by waiting a bit after unpacking all files
-            absolute_path = _get_texture_abs_path(fp)
+            check_fp = fp.replace("<UDIM>", str(image.tiles[0].number)) if is_tiled else fp
+            absolute_path = _get_texture_abs_path(check_fp)
             _ = _wait_for_resource(absolute_path)
 
             image.filepath = fp
