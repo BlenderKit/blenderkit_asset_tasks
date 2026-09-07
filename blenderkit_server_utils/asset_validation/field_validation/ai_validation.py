@@ -1,7 +1,7 @@
 """AI validation helpers for manufacturer field checks.
 
-This module wraps OpenAI and Grok calls with a common interface used by
-validate_fields.py.
+This module wraps DeepSeek, OpenAI, and Grok calls with a common interface
+used by validate_fields.py.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ logger = log.create_logger(__name__)
 
 AI_LIMIT_PER_ITEM = 100
 AI_LOG_PREVIEW = 800
+HTTP_PAYMENT_REQUIRED = 402
 HTTP_TOO_MANY_REQUESTS = 429
 AI_REQUEST_PREVIEW = 600
 AI_ERROR_DETAIL_PREVIEW = 400
@@ -64,8 +65,19 @@ AI_PROVIDER_ENV = config.AI_PROVIDER
 
 OPENAI_DEFAULT_MODEL = "gpt-5"
 GROK_DEFAULT_MODEL = "grok-4-1-fast-reasoning"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-pro"
 
 GROK_ENDPOINT = "https://api.x.ai/v1/responses"
+DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MAX_TOKENS = 2048
+
+SUPPORTED_AI_PROVIDERS = ("deepseek", "grok", "openai")
+
+# Tried in order when the active provider runs out of credits.
+AI_PROVIDER_FALLBACK_ORDER = ("deepseek", "grok", "openai")
+
+# Providers exposing a server-side web_search tool.
+PROVIDERS_WITH_WEB_SEARCH = frozenset({"grok", "openai"})
 
 
 class HeuristicSummary(Protocol):
@@ -77,6 +89,14 @@ class HeuristicSummary(Protocol):
 
 class _GrokHttpError(RuntimeError):
     """HTTP error wrapper for Grok responses."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class _DeepSeekHttpError(RuntimeError):
+    """HTTP error wrapper for DeepSeek responses."""
 
     def __init__(self, status_code: int, message: str) -> None:
         super().__init__(message)
@@ -104,6 +124,7 @@ _AI_CREDITS_EXHAUSTED_MARKERS = (
     "spending limit",
     "insufficient_quota",
     "insufficient quota",
+    "insufficient balance",
     "resource has been exhausted",
     "billing",
 )
@@ -281,10 +302,10 @@ def _get_ai_provider() -> str:
     Returns:
         Normalized provider name.
     """
-    raw = config.AI_PROVIDER or os.getenv("AI_PROVIDER", "grok").lower()
-    if raw not in {"grok", "openai"}:
-        logger.warning("Unknown AI_PROVIDER=%r; defaulting to grok", raw)
-        return "grok"
+    raw = (config.AI_PROVIDER or os.getenv("AI_PROVIDER", "deepseek")).lower()
+    if raw not in SUPPORTED_AI_PROVIDERS:
+        logger.warning("Unknown AI_PROVIDER=%r; defaulting to deepseek", raw)
+        return "deepseek"
     return raw
 
 
@@ -297,6 +318,9 @@ def _get_ai_model(provider: str) -> str:
     Returns:
         Model name to use for requests.
     """
+    if provider == "deepseek":
+        model_name = config.DEEPSEEK_MODEL or DEEPSEEK_DEFAULT_MODEL
+        return model_name
     if provider == "grok":
         model_name = config.GROK_MODEL or GROK_DEFAULT_MODEL
         return model_name
@@ -307,12 +331,15 @@ def _get_ai_model(provider: str) -> str:
 def _build_ai_prompts(
     row: Mapping[str, str],
     heuristics: HeuristicSummary,
+    *,
+    web_search: bool = True,
 ) -> tuple[str, str, str, str]:
     """Build shared prompt content for AI requests.
 
     Args:
         row: Asset field mapping.
         heuristics: Heuristic summary for the asset.
+        web_search: Whether the provider exposes a server-side web_search tool.
 
     Returns:
         Tuple of (system_prompt, instructions, search_query, user_payload).
@@ -320,13 +347,15 @@ def _build_ai_prompts(
     payload = _build_ai_context(row, heuristics)
     search_query = payload.get("search_query") or ""
     user_payload = json.dumps(payload, ensure_ascii=False)
-    system_prompt = (
+    intro = (
         "You verify manufacturer/designer claims for BlenderKit assets. "
         "Reject self-promotional, placeholder, or unverifiable entries. "
         "If manufacturer in metadata matches a known brand, it's likely valid. "
         "Also accept historic or defunct manufacturers when the product name "
         "matches known historic items, including evidence from collector or "
         "marketplace listings (e.g., museum catalogs, auction archives, eBay). "
+    )
+    search_block = (
         "\n\nSEARCH STRATEGY:\n"
         "You MUST call web_search at least once with the provided search_query. "
         "If the first search yields no useful results, you SHOULD call web_search "
@@ -338,6 +367,16 @@ def _build_ai_prompts(
         "5. Search for the manufacturer's official website or product catalog\n"
         "Do NOT give up after a single failed search. A manufacturer may exist "
         "even if one specific query fails.\n"
+    )
+    offline_block = (
+        "\n\nEVIDENCE:\n"
+        "You have no web search tool available. Judge using your own knowledge of "
+        "manufacturers, designers, product lines, and design history. Consider "
+        "alternative spellings and common misspellings before rejecting a brand. "
+        "Never invent sources or cite pages you cannot recall. If you are not "
+        "reasonably confident the manufacturer exists, set valid=false and say so.\n"
+    )
+    correction_block = (
         "\n\nIMPORTANT - Correction Mode:\n"
         "When the submitted data is almost correct but contains small errors "
         "(misspelled manufacturer, wrong collection name, incorrect variant, etc.), "
@@ -355,10 +394,17 @@ def _build_ai_prompts(
         "you can confidently correct the remaining fields, set valid=true with corrections.\n"
         "Set corrections to null when all submitted values are already correct."
     )
+    system_prompt = intro + (search_block if web_search else offline_block) + correction_block
+    if web_search:
+        lead_in = (
+            "Call web_search with the provided search_query. If results are insufficient, "
+            "call web_search again with alternative queries to verify the manufacturer and product. "
+        )
+    else:
+        lead_in = "Verify the manufacturer and product from your own knowledge. "
     instructions = (
-        "Call web_search with the provided search_query. If results are insufficient, "
-        "call web_search again with alternative queries to verify the manufacturer and product. "
-        f"Respond with strict minified JSON matching schema: {AI_RESPONSE_SCHEMA_TEXT}. "
+        f"{lead_in}"
+        f"Respond with strict minified json matching schema: {AI_RESPONSE_SCHEMA_TEXT}. "
         "Do not emit explanations or reasoning outside the JSON body."
     )
     prompts = (system_prompt, instructions, search_query, user_payload)
@@ -445,6 +491,55 @@ def _extract_grok_text(response_json: Mapping[str, Any]) -> str:
             if chunk.get("type") == "output_text" and chunk.get("text"):
                 return str(chunk.get("text"))
     return ""
+
+
+def _build_deepseek_message_input(
+    system_prompt: str,
+    instructions: str,
+    search_query: str,
+    user_payload: str,
+) -> list[dict[str, str]]:
+    """Build DeepSeek chat completion messages.
+
+    Args:
+        system_prompt: System prompt string.
+        instructions: Instruction string.
+        search_query: Search query string.
+        user_payload: JSON payload string.
+
+    Returns:
+        Message list for the DeepSeek chat completions API.
+    """
+    user_parts = [
+        instructions,
+        f"search_query: {search_query or 'n/a'}",
+        user_payload,
+    ]
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "\n".join(user_parts)},
+    ]
+    return messages
+
+
+def _extract_deepseek_text(response_json: Mapping[str, Any]) -> str:
+    """Extract assistant text from a DeepSeek chat completion payload.
+
+    Args:
+        response_json: Parsed response JSON payload.
+
+    Returns:
+        The assistant message content.
+    """
+    choices = response_json.get("choices") or []
+    if not choices:
+        return ""
+    first = choices[0]
+    message = first.get("message") if isinstance(first, Mapping) else None
+    if not isinstance(message, Mapping):
+        return ""
+    content = message.get("content") or ""
+    return str(content)
 
 
 def _describe_ai_exception(error: Exception) -> str:
@@ -579,28 +674,72 @@ class AIClient:
         self.provider = _get_ai_provider()
         self.client = None
         self.grok_api_key = ""
+        self.deepseek_api_key = ""
         self.timeout_s = float(os.getenv("VALIDATOR_AI_TIMEOUT", "45"))
         self.model_name = _get_ai_model(self.provider)
         self.log_raw = os.getenv("VALIDATOR_LOG_AI") == "1"
+        self.attempted_providers: set[str] = set()
 
         if not self.enabled:
             return
-        if self.provider == "grok":
-            api_key = config.GROK_API_KEY
-            if not api_key:
-                logger.warning("AI validation requested but XAI_API_KEY is missing")
-                self.enabled = False
-                return
-            self.grok_api_key = api_key
-            return
-        self._configure_openai()
+        self.attempted_providers.add(self.provider)
+        if not self._configure_provider(self.provider):
+            self.enabled = False
+
+    @property
+    def supports_web_search(self) -> bool:
+        """Whether the active provider exposes a server-side web_search tool."""
+        return self.provider in PROVIDERS_WITH_WEB_SEARCH
+
+    def _configure_provider(self, provider: str) -> bool:
+        """Configure credentials for the given provider.
+
+        Args:
+            provider: Provider name to configure.
+
+        Returns:
+            True when the provider is usable.
+        """
+        if provider == "deepseek":
+            return self._configure_deepseek()
+        if provider == "grok":
+            return self._configure_grok()
+        return self._configure_openai()
+
+    def _activate(self, provider: str) -> None:
+        """Mark a provider as active and refresh its model name.
+
+        Args:
+            provider: Provider name that has been configured.
+        """
+        self.provider = provider
+        self.model_name = _get_ai_model(provider)
+
+    def _configure_deepseek(self) -> bool:
+        """Configure DeepSeek access and return whether it is available."""
+        api_key = config.DEEPSEEK_API_KEY
+        if not api_key:
+            logger.warning("AI validation requested but DEEPSEEK_API_KEY is missing")
+            return False
+        self.deepseek_api_key = api_key
+        self._activate("deepseek")
+        return True
+
+    def _configure_grok(self) -> bool:
+        """Configure Grok access and return whether it is available."""
+        api_key = config.GROK_API_KEY
+        if not api_key:
+            logger.warning("AI validation requested but XAI_API_KEY is missing")
+            return False
+        self.grok_api_key = api_key
+        self._activate("grok")
+        return True
 
     def _configure_openai(self) -> bool:
         """Configure the OpenAI client and return whether it is available."""
         api_key = config.OPENAI_API_KEY
         if not api_key:
             logger.warning("AI validation requested but OPENAI_API_KEY is missing")
-            self.enabled = False
             return False
         try:
             from openai import OpenAI  # type: ignore
@@ -608,23 +747,32 @@ class AIClient:
             logger.warning(
                 "OpenAI SDK is not installed; run `pip install openai` to enable AI validation",
             )
-            self.enabled = False
             return False
         self.client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
-        self.provider = "openai"
-        self.model_name = _get_ai_model(self.provider)
+        self._activate("openai")
         return True
 
-    def _fallback_to_openai(self) -> bool:
-        """Switch from Grok to OpenAI after Grok quota exhaustion."""
-        if self.provider != "grok":
-            return False
-        if not self._configure_openai():
-            return False
-        logger.warning("Grok credits/quota exhausted; falling back to OpenAI")
-        return True
+    def _fallback_to_next_provider(self) -> bool:
+        """Switch to the next configured provider after credits are exhausted.
 
-    def judge(  # noqa: PLR0911, C901
+        Returns:
+            True when another provider was activated.
+        """
+        exhausted = self.provider
+        for candidate in AI_PROVIDER_FALLBACK_ORDER:
+            if candidate in self.attempted_providers:
+                continue
+            self.attempted_providers.add(candidate)
+            if self._configure_provider(candidate):
+                logger.warning(
+                    "%s credits/quota exhausted; falling back to %s",
+                    exhausted,
+                    candidate,
+                )
+                return True
+        return False
+
+    def judge(  # noqa: C901
         self,
         row: Mapping[str, str],
         heuristics: HeuristicSummary,
@@ -645,53 +793,22 @@ class AIClient:
         """
         if not self.enabled:
             return None
-        if self.provider == "openai" and not self.client:
+        if not self._has_credentials():
             return None
-        if self.provider == "grok" and not self.grok_api_key:
-            return None
-        system_prompt, instructions, search_query, user_payload = _build_ai_prompts(row, heuristics)
-        payload_preview = user_payload[:AI_REQUEST_PREVIEW]
-        payload_suffix = "..." if len(user_payload) > AI_REQUEST_PREVIEW else ""
-        logger.debug(
-            "AI request (%s) query=%r heuristics=%s payload=%s%s",
-            self.model_name,
-            search_query or "n/a",
-            heuristics.suspicion_score,
-            payload_preview,
-            payload_suffix,
-        )
-        tools: Any = [{"type": "web_search"}] if search_query else None
-        message_input = _build_openai_message_input(
-            system_prompt,
-            instructions,
-            search_query,
-            user_payload,
-        )
-        grok_input = _build_grok_message_input(
-            system_prompt,
-            instructions,
-            search_query,
-            user_payload,
-        )
+        search_query = _build_search_query(row)
         response = None
-        fallback_attempted = False
         attempt = 0
         while attempt < AI_MAX_RETRIES:
             attempt += 1
             try:
-                response = self._request_ai_response(
-                    message_input=message_input,
-                    grok_input=grok_input,
-                    tools=tools,
-                )
+                response = self._request_ai_response(row, heuristics)
                 break
             except AICreditsExhaustedError:
-                if not fallback_attempted and self._fallback_to_openai():
-                    fallback_attempted = True
+                if self._fallback_to_next_provider():
                     attempt = 0
                     continue
-                # Fatal: credits/quota exhausted on the selected provider and
-                # its fallback. Abort so CI fails loudly and notifies maintainers.
+                # Fatal: credits/quota exhausted on every configured provider.
+                # Abort so CI fails loudly and notifies maintainers.
                 logger.critical(
                     "AI provider %s credits exhausted; aborting validation run",
                     self.provider,
@@ -735,52 +852,55 @@ class AIClient:
         decision = _parse_ai_decision(content)
         return decision
 
+    def _has_credentials(self) -> bool:
+        """Return True when the active provider has usable credentials."""
+        if self.provider == "deepseek":
+            return bool(self.deepseek_api_key)
+        if self.provider == "grok":
+            return bool(self.grok_api_key)
+        return self.client is not None
+
     def _request_ai_response(
         self,
-        *,
-        message_input: list[dict[str, Any]],
-        grok_input: list[dict[str, str]],
-        tools: list[dict[str, str]] | None,
+        row: Mapping[str, str],
+        heuristics: HeuristicSummary,
     ) -> Any:
-        """Issue a provider-specific AI request.
+        """Issue a request to the active provider.
 
         Args:
-            message_input: OpenAI formatted input.
-            grok_input: Grok formatted input.
-            tools: Optional tool list.
+            row: Asset metadata mapping.
+            heuristics: Heuristic summary for the asset.
 
         Returns:
             Provider response payload.
-
-        Raises:
-            AICreditsExhaustedError: If the Grok API rejects the request
-                because credits or the spending limit are exhausted.
-            _GrokHttpError: If the Grok API request fails.
         """
+        system_prompt, instructions, search_query, user_payload = _build_ai_prompts(
+            row,
+            heuristics,
+            web_search=self.supports_web_search,
+        )
+        payload_preview = user_payload[:AI_REQUEST_PREVIEW]
+        payload_suffix = "..." if len(user_payload) > AI_REQUEST_PREVIEW else ""
+        logger.debug(
+            "AI request (%s/%s) query=%r heuristics=%s payload=%s%s",
+            self.provider,
+            self.model_name,
+            search_query or "n/a",
+            heuristics.suspicion_score,
+            payload_preview,
+            payload_suffix,
+        )
+        tools: Any = [{"type": "web_search"}] if search_query and self.supports_web_search else None
+        if self.provider == "deepseek":
+            return self._request_deepseek(system_prompt, instructions, search_query, user_payload)
         if self.provider == "grok":
-            payload = {
-                "model": self.model_name,
-                "input": grok_input,
-            }
-            if tools:
-                payload["tools"] = tools
-                payload["tool_choice"] = "auto"
-            headers = {
-                "Authorization": f"Bearer {self.grok_api_key}",
-                "Content-Type": "application/json",
-            }
-            response = requests.post(
-                GROK_ENDPOINT,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout_s,
-            )
-            if not response.ok:
-                if response.status_code == HTTP_TOO_MANY_REQUESTS and _is_credits_exhausted_message(response.text):
-                    raise AICreditsExhaustedError("grok", response.text)
-                raise _GrokHttpError(response.status_code, response.text)
-            response_json = response.json()
-            return response_json
+            return self._request_grok(system_prompt, instructions, search_query, user_payload, tools)
+        message_input = _build_openai_message_input(
+            system_prompt,
+            instructions,
+            search_query,
+            user_payload,
+        )
         response = self.client.responses.create(  # type: ignore[call-arg]
             model=self.model_name,
             input=message_input,
@@ -790,6 +910,117 @@ class AIClient:
             include=["web_search_call.action.sources"],
         )
         return response
+
+    def _request_grok(
+        self,
+        system_prompt: str,
+        instructions: str,
+        search_query: str,
+        user_payload: str,
+        tools: Any,
+    ) -> Any:
+        """Call the Grok Responses API.
+
+        Args:
+            system_prompt: System prompt string.
+            instructions: Instruction string.
+            search_query: Search query string.
+            user_payload: JSON payload string.
+            tools: Optional tool list.
+
+        Returns:
+            Parsed response JSON payload.
+
+        Raises:
+            AICreditsExhaustedError: If Grok rejects the request because
+                credits or the spending limit are exhausted.
+            _GrokHttpError: If the Grok API request fails.
+        """
+        grok_input = _build_grok_message_input(
+            system_prompt,
+            instructions,
+            search_query,
+            user_payload,
+        )
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "input": grok_input,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        headers = {
+            "Authorization": f"Bearer {self.grok_api_key}",
+            "Content-Type": "application/json",
+        }
+        response = requests.post(
+            GROK_ENDPOINT,
+            headers=headers,
+            json=payload,
+            timeout=self.timeout_s,
+        )
+        if not response.ok:
+            if response.status_code == HTTP_TOO_MANY_REQUESTS and _is_credits_exhausted_message(response.text):
+                raise AICreditsExhaustedError("grok", response.text)
+            raise _GrokHttpError(response.status_code, response.text)
+        response_json = response.json()
+        return response_json
+
+    def _request_deepseek(
+        self,
+        system_prompt: str,
+        instructions: str,
+        search_query: str,
+        user_payload: str,
+    ) -> Any:
+        """Call the DeepSeek chat completions API.
+
+        Args:
+            system_prompt: System prompt string.
+            instructions: Instruction string.
+            search_query: Search query string.
+            user_payload: JSON payload string.
+
+        Returns:
+            Parsed response JSON payload.
+
+        Raises:
+            AICreditsExhaustedError: If DeepSeek rejects the request because
+                the account balance is exhausted.
+            _DeepSeekHttpError: If the DeepSeek API request fails.
+        """
+        messages = _build_deepseek_message_input(
+            system_prompt,
+            instructions,
+            search_query,
+            user_payload,
+        )
+        payload: dict[str, Any] = {
+            "model": self.model_name,
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+            "max_tokens": DEEPSEEK_MAX_TOKENS,
+            "stream": False,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.deepseek_api_key}",
+            "Content-Type": "application/json",
+        }
+        response = requests.post(
+            DEEPSEEK_ENDPOINT,
+            headers=headers,
+            json=payload,
+            timeout=self.timeout_s,
+        )
+        if not response.ok:
+            credits_gone = response.status_code == HTTP_PAYMENT_REQUIRED or _is_credits_exhausted_message(
+                response.text,
+            )
+            if credits_gone:
+                raise AICreditsExhaustedError("deepseek", response.text)
+            raise _DeepSeekHttpError(response.status_code, response.text)
+        response_json = response.json()
+        return response_json
 
     def _extract_ai_text(self, response: Any) -> str:
         """Extract output text from the provider response.
@@ -802,6 +1033,9 @@ class AIClient:
         """
         if self.log_raw:
             logger.info(pformat(response))
+        if self.provider == "deepseek":
+            content = _extract_deepseek_text(response)
+            return content
         if self.provider == "grok":
             content = _extract_grok_text(response)
             return content
