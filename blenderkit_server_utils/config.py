@@ -15,14 +15,20 @@ OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 GROK_API_KEY: str = os.getenv("XAI_API_KEY", "")
 """API key for Grok (XAI) authentication."""
 
+DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
+"""API key for DeepSeek authentication."""
+
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-5")
 """Default OpenAI model to use for AI interactions."""
 
 GROK_MODEL: str = os.getenv("VALIDATOR_GROK_MODEL", "grok-4-1-fast-reasoning")
 """Default Grok model to use for AI interactions."""
 
-AI_PROVIDER: str = os.getenv("AI_PROVIDER", "grok")
-"""AI provider to use for validation (e.g., 'grok', 'openai')."""
+DEEPSEEK_MODEL: str = os.getenv("VALIDATOR_DEEPSEEK_MODEL", "deepseek-v4-pro")
+"""Default DeepSeek model to use for AI interactions."""
+
+AI_PROVIDER: str = os.getenv("AI_PROVIDER", "deepseek")
+"""AI provider to use for validation (e.g., 'deepseek', 'grok', 'openai')."""
 
 BLENDERKIT_API_VERSION: str = "/api/v1"
 

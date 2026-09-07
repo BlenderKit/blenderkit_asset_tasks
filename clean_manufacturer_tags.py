@@ -28,19 +28,28 @@ from blenderkit_server_utils.asset_validation.field_validation.ai_validation imp
 logger = log.create_logger(__name__)
 
 utils.raise_on_missing_env_vars(
-    ["BLENDERKIT_API_KEY", "OPENAI_API_KEY"],
+    ["BLENDERKIT_API_KEY"],
 )
 # based on api model check if we have keys or fall back
-model_order = ["grok", "openai"]
+model_order = ["deepseek", "grok", "openai"]
 if not any(getattr(config, f"{provider.upper()}_API_KEY") for provider in model_order):
     raise OSError(
         f"Missing API key for all providers: {', '.join(model_order)}. "
-        f"Set one of the following environment variables: {', '.join(f'{provider.upper()}_API_KEY' for provider in model_order)}",  # noqa: E501
+        "Set one of the following environment variables: DEEPSEEK_API_KEY, XAI_API_KEY, OPENAI_API_KEY",
     )
 
 # modify the chosen model in the config for use in the field validation module,
 # which is where the model choice is made for AI validation
-if config.GROK_API_KEY:
+logger.info(
+    "AI provider keys present: deepseek=%s grok=%s openai=%s",
+    bool(config.DEEPSEEK_API_KEY),
+    bool(config.GROK_API_KEY),
+    bool(config.OPENAI_API_KEY),
+)
+if config.DEEPSEEK_API_KEY:
+    config.AI_PROVIDER = "deepseek"
+    logger.info("Using DeepSeek for AI validation.")
+elif config.GROK_API_KEY:
     config.AI_PROVIDER = "grok"
     logger.info("Using Grok for AI validation.")
 elif config.OPENAI_API_KEY:

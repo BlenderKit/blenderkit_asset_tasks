@@ -22,6 +22,7 @@ on:
 env:
   BLENDERKIT_SERVER: "https://www.blenderkit.com"
   BLENDERKIT_API_KEY: ${{ secrets.BLENDERKIT_API_KEY }}
+  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
@@ -82,6 +83,7 @@ jobs:
         asset_id: ${{ fromJSON(needs.prepare.outputs.asset_ids_json) }}
       max-parallel: 6
     env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
       SKIP_UPDATE: ${{ needs.prepare.outputs.skip_update }}
@@ -105,6 +107,7 @@ jobs:
     if: needs.prepare.outputs.asset_ids_json == '[]'
     runs-on: ubuntu-latest
     env:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
       SKIP_UPDATE: ${{ needs.prepare.outputs.skip_update }}
