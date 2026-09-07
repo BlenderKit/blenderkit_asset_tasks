@@ -682,9 +682,25 @@ class AIClient:
 
         if not self.enabled:
             return
+        logger.info(
+            "AI keys detected: deepseek=%s grok=%s openai=%s | requested provider=%s",
+            bool(config.DEEPSEEK_API_KEY),
+            bool(config.GROK_API_KEY),
+            bool(config.OPENAI_API_KEY),
+            self.provider,
+        )
         self.attempted_providers.add(self.provider)
         if not self._configure_provider(self.provider):
             self.enabled = False
+            logger.error("AI validation disabled: provider %s has no usable credentials", self.provider)
+            return
+        logger.info(
+            "AI provider active: %s | model=%s | web_search=%s | timeout=%ss",
+            self.provider,
+            self.model_name,
+            self.supports_web_search,
+            self.timeout_s,
+        )
 
     @property
     def supports_web_search(self) -> bool:
@@ -765,11 +781,18 @@ class AIClient:
             self.attempted_providers.add(candidate)
             if self._configure_provider(candidate):
                 logger.warning(
-                    "%s credits/quota exhausted; falling back to %s",
+                    "%s credits/quota exhausted; falling back to %s (model=%s, web_search=%s)",
                     exhausted,
                     candidate,
+                    self.model_name,
+                    self.supports_web_search,
                 )
                 return True
+        logger.error(
+            "No fallback provider available after %s exhausted (tried: %s)",
+            exhausted,
+            ", ".join(sorted(self.attempted_providers)),
+        )
         return False
 
     def judge(  # noqa: C901

@@ -40,6 +40,12 @@ if not any(getattr(config, f"{provider.upper()}_API_KEY") for provider in model_
 
 # modify the chosen model in the config for use in the field validation module,
 # which is where the model choice is made for AI validation
+logger.info(
+    "AI provider keys present: deepseek=%s grok=%s openai=%s",
+    bool(config.DEEPSEEK_API_KEY),
+    bool(config.GROK_API_KEY),
+    bool(config.OPENAI_API_KEY),
+)
 if config.DEEPSEEK_API_KEY:
     config.AI_PROVIDER = "deepseek"
     logger.info("Using DeepSeek for AI validation.")
