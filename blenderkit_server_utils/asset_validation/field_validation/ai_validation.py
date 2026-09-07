@@ -593,11 +593,15 @@ class AIClient:
                 return
             self.grok_api_key = api_key
             return
+        self._configure_openai()
+
+    def _configure_openai(self) -> bool:
+        """Configure the OpenAI client and return whether it is available."""
         api_key = config.OPENAI_API_KEY
         if not api_key:
             logger.warning("AI validation requested but OPENAI_API_KEY is missing")
             self.enabled = False
-            return
+            return False
         try:
             from openai import OpenAI  # type: ignore
         except ImportError:
@@ -605,8 +609,20 @@ class AIClient:
                 "OpenAI SDK is not installed; run `pip install openai` to enable AI validation",
             )
             self.enabled = False
-            return
+            return False
         self.client = OpenAI(api_key=api_key)  # type: ignore[call-arg]
+        self.provider = "openai"
+        self.model_name = _get_ai_model(self.provider)
+        return True
+
+    def _fallback_to_openai(self) -> bool:
+        """Switch from Grok to OpenAI after Grok quota exhaustion."""
+        if self.provider != "grok":
+            return False
+        if not self._configure_openai():
+            return False
+        logger.warning("Grok credits/quota exhausted; falling back to OpenAI")
+        return True
 
     def judge(  # noqa: PLR0911, C901
         self,
@@ -658,7 +674,10 @@ class AIClient:
             user_payload,
         )
         response = None
-        for attempt in range(1, AI_MAX_RETRIES + 1):
+        fallback_attempted = False
+        attempt = 0
+        while attempt < AI_MAX_RETRIES:
+            attempt += 1
             try:
                 response = self._request_ai_response(
                     message_input=message_input,
@@ -667,8 +686,12 @@ class AIClient:
                 )
                 break
             except AICreditsExhaustedError:
-                # Fatal: credits/quota exhausted. Do not retry; abort the run
-                # so the CI workflow fails loudly and notifies maintainers.
+                if not fallback_attempted and self._fallback_to_openai():
+                    fallback_attempted = True
+                    attempt = 0
+                    continue
+                # Fatal: credits/quota exhausted on the selected provider and
+                # its fallback. Abort so CI fails loudly and notifies maintainers.
                 logger.critical(
                     "AI provider %s credits exhausted; aborting validation run",
                     self.provider,
