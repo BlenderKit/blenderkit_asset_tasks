@@ -16,9 +16,12 @@ Environment variables:
 from __future__ import annotations
 
 import os
+import signal
 import tempfile
 import threading
 from typing import Any
+
+import requests
 
 from blenderkit_server_utils import concurrency, config, datetime_utils, log, search, upload, utils
 from blenderkit_server_utils.asset_validation import field_validation
@@ -92,8 +95,21 @@ CORRECTION_TO_API_PARAM: dict[str, str] = {
 
 ASSET_LOG_PREVIEW: int = 20
 SUMMARY_REASON_LIMIT: int = 180
+AI_CREDIT_TIMEOUT_SECONDS: int = 30
+DEEPSEEK_BALANCE_ENDPOINT: str = "https://api.deepseek.com/user/balance"
+
+_FOUND_ASSET_COUNT: int = 0
+_AI_CREDIT_SUMMARY: str = "not checked yet"
 
 ValidationStat = dict[str, Any]
+
+
+def _raise_keyboard_interrupt(_signum: int, _frame: object) -> None:
+    """Convert termination signals into cleanup-friendly interrupts."""
+    raise KeyboardInterrupt
+
+
+signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
 
 def _summary_cell(value: object, *, limit: int | None = None) -> str:
@@ -151,14 +167,16 @@ def _append_stat(
     stats_lock: threading.Lock | None,
     entry: ValidationStat,
 ) -> None:
-    """Store a per-asset summary in-memory only."""
+    """Store a per-asset summary and refresh the GitHub report card."""
     if stats_sink is None:
         return
     if stats_lock is None:
         stats_sink.append(entry)
+        _write_step_summary(stats_sink, found_count=_FOUND_ASSET_COUNT)
         return
     with stats_lock:
         stats_sink.append(entry)
+        _write_step_summary(stats_sink, found_count=_FOUND_ASSET_COUNT)
 
 
 def _base_params() -> dict[str, Any]:
@@ -484,17 +502,20 @@ def tag_validation_thread(
 def iterate_assets(
     assets: list[dict[str, Any]],
     api_key: str = "",
+    stats: list[ValidationStat] | None = None,
 ) -> list[ValidationStat]:
     """Iterate assets and dispatch tag validation threads.
 
     Args:
         assets: List of asset dictionaries to process.
         api_key: BlenderKit API key forwarded to the thread function.
+        stats: Optional caller-owned list for collecting validation statistics.
 
     Returns:
         Collected per-asset validation statistics.
     """
-    stats: list[ValidationStat] = []
+    if stats is None:
+        stats = []
     stats_lock = threading.Lock()
     concurrency.run_asset_threads(
         assets,
@@ -609,6 +630,7 @@ def _write_step_summary(stats: list[ValidationStat], *, found_count: int) -> Non
         f"&nbsp;|&nbsp; **Errors:** {errors}",
         f"- **Corrected:** {corrected} &nbsp;|&nbsp; **Updated:** {updated} &nbsp;|&nbsp; **Skipped:** {skipped}",
         f"- **Actors:** {actor_summary}",
+        f"- **AI credits:** {_summary_cell(_AI_CREDIT_SUMMARY)}",
         f"- **Max asset count:** {config.MAX_ASSET_COUNT}",
         f"- **SKIP_UPDATE:** {SKIP_UPDATE}",
         "",
@@ -632,18 +654,89 @@ def _write_step_summary(stats: list[ValidationStat], *, found_count: int) -> Non
         logger.exception("Failed to write GitHub step summary to %s", summary_path)
 
 
+def _format_deepseek_balance(balance_payload: dict[str, Any]) -> str:
+    """Format DeepSeek balance payload for logs and summaries.
+
+    Args:
+        balance_payload: JSON payload returned by DeepSeek balance endpoint.
+
+    Returns:
+        Compact balance summary string.
+    """
+    balance_infos = balance_payload.get("balance_infos")
+    if not isinstance(balance_infos, list):
+        return f"deepseek available={balance_payload.get('is_available', 'unknown')}"
+
+    balances: list[str] = []
+    for item in balance_infos:
+        if not isinstance(item, dict):
+            continue
+        currency = item.get("currency", "")
+        total_balance = item.get("total_balance", "unknown")
+        balances.append(f"{currency} {total_balance}".strip())
+    balance_text = ", ".join(balances) or "no balance rows"
+    return f"deepseek available={balance_payload.get('is_available', 'unknown')} balance={balance_text}"
+
+
+def _fetch_deepseek_credit_summary() -> str:
+    """Fetch the remaining DeepSeek balance summary.
+
+    Returns:
+        Human-readable credit summary.
+    """
+    if not config.DEEPSEEK_API_KEY:
+        return "deepseek unavailable: DEEPSEEK_API_KEY not set"
+    headers = {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"}
+    try:
+        response = requests.get(DEEPSEEK_BALANCE_ENDPOINT, headers=headers, timeout=AI_CREDIT_TIMEOUT_SECONDS)
+        if not response.ok:
+            return f"deepseek balance check failed: HTTP {response.status_code}"
+        payload = response.json()
+    except requests.RequestException as exc:
+        logger.warning("DeepSeek balance check failed: %s", exc)
+        return "deepseek balance check failed"
+    except ValueError:
+        logger.warning("DeepSeek balance check returned invalid JSON")
+        return "deepseek balance check failed: invalid JSON"
+    return _format_deepseek_balance(payload)
+
+
+def _log_ai_credit_summary() -> str:
+    """Log the remaining AI credits available through supported provider APIs.
+
+    Returns:
+        Human-readable credit summary.
+    """
+    credit_summary = _fetch_deepseek_credit_summary()
+    unavailable_providers: list[str] = []
+    if config.GROK_API_KEY:
+        unavailable_providers.append("grok remaining credits unavailable via current API")
+    if config.OPENAI_API_KEY:
+        unavailable_providers.append("openai remaining credits unavailable via current API")
+    if unavailable_providers:
+        credit_summary = "; ".join([credit_summary, *unavailable_providers])
+    logger.info("AI credit summary after manufacturer cleanup: %s", credit_summary)
+    return credit_summary
+
+
 def main(_argv: list[str] | None = None) -> None:
     """Fetch assets, validate manufacturer metadata, and patch results."""
-    assets: list[dict[str, Any]] = []
-    assets = _fetch_assets()
+    global _AI_CREDIT_SUMMARY, _FOUND_ASSET_COUNT  # noqa: PLW0603
 
+    assets: list[dict[str, Any]] = []
     stats: list[ValidationStat] = []
-    if assets:
-        stats = iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY)
-    else:
-        logger.info("No assets found for manufacturer cleanup.")
-    _print_stats(stats)
-    _write_step_summary(stats, found_count=len(assets))
+    try:
+        assets = _fetch_assets()
+        _FOUND_ASSET_COUNT = len(assets)
+        _write_step_summary(stats, found_count=_FOUND_ASSET_COUNT)
+        if assets:
+            iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY, stats=stats)
+        else:
+            logger.info("No assets found for manufacturer cleanup.")
+    finally:
+        _print_stats(stats)
+        _AI_CREDIT_SUMMARY = _log_ai_credit_summary()
+        _write_step_summary(stats, found_count=_FOUND_ASSET_COUNT)
 
 
 if __name__ == "__main__":
