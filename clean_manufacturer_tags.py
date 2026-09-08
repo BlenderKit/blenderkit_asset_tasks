@@ -15,6 +15,7 @@ Environment variables:
 
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 from typing import Any
@@ -90,8 +91,59 @@ CORRECTION_TO_API_PARAM: dict[str, str] = {
 }
 
 ASSET_LOG_PREVIEW: int = 20
+SUMMARY_REASON_LIMIT: int = 180
 
 ValidationStat = dict[str, Any]
+
+
+def _summary_cell(value: object, *, limit: int | None = None) -> str:
+    """Format a value for a GitHub Actions Markdown table cell.
+
+    Args:
+        value: Value to format.
+        limit: Optional maximum string length before truncation.
+
+    Returns:
+        Sanitized string safe enough for a Markdown table cell.
+    """
+    if value in (None, ""):
+        return "-"
+    text = str(value).replace("\r", " ").replace("\n", " ").replace("|", "&#124;").strip()
+    if limit is not None and len(text) > limit:
+        return f"{text[: limit - 3].rstrip()}..."
+    return text
+
+
+def _corrections_label(corrections: object) -> str:
+    """Build a short corrections label for summary tables.
+
+    Args:
+        corrections: Corrections value from a validation statistic.
+
+    Returns:
+        Comma-separated correction field names, or ``"none"``.
+    """
+    if not corrections:
+        return "none"
+    if isinstance(corrections, dict):
+        return ", ".join(str(key) for key in corrections) or "none"
+    return _summary_cell(corrections, limit=SUMMARY_REASON_LIMIT)
+
+
+def _status_label(status: object) -> str:
+    """Return a compact status label for a validation result.
+
+    Args:
+        status: Validation status value.
+
+    Returns:
+        Human-readable status label.
+    """
+    if status is True:
+        return "pass"
+    if status is False:
+        return "fail"
+    return "error"
 
 
 def _append_stat(
@@ -522,14 +574,76 @@ def _print_stats(stats: list[ValidationStat]) -> None:
         )
 
 
+def _write_step_summary(stats: list[ValidationStat], *, found_count: int) -> None:
+    """Write a GitHub Actions report card for manufacturer cleanup.
+
+    Args:
+        stats: Per-asset validation statistics collected during the run.
+        found_count: Number of assets fetched for this cleanup run.
+    """
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    passed = sum(1 for item in stats if item.get("status") is True)
+    failed = sum(1 for item in stats if item.get("status") is False)
+    errors = sum(1 for item in stats if item.get("status") is None)
+    corrected = sum(1 for item in stats if item.get("corrections"))
+    updated = sum(1 for item in stats if item.get("updated"))
+    skipped = sum(1 for item in stats if item.get("verdict") in {"no_data", "validation_error"})
+    scope = f"asset `{config.ASSET_BASE_ID}`" if config.ASSET_BASE_ID else "bulk manufacturer cleanup"
+
+    actor_counts: dict[str, int] = {}
+    for item in stats:
+        actor = str(item.get("actor") or "unknown")
+        actor_counts[actor] = actor_counts.get(actor, 0) + 1
+    actor_summary = ", ".join(f"{actor}={count}" for actor, count in sorted(actor_counts.items())) or "-"
+
+    lines = [
+        "## Manufacturer cleanup report card",
+        "",
+        f"- **Server:** `{config.SERVER}`",
+        f"- **Scope:** {scope}",
+        f"- **Found:** {found_count} &nbsp;|&nbsp; **Processed:** {len(stats)} "
+        f"&nbsp;|&nbsp; **Passed:** {passed} &nbsp;|&nbsp; **Failed:** {failed} "
+        f"&nbsp;|&nbsp; **Errors:** {errors}",
+        f"- **Corrected:** {corrected} &nbsp;|&nbsp; **Updated:** {updated} &nbsp;|&nbsp; **Skipped:** {skipped}",
+        f"- **Actors:** {actor_summary}",
+        f"- **Max asset count:** {config.MAX_ASSET_COUNT}",
+        f"- **SKIP_UPDATE:** {SKIP_UPDATE}",
+        "",
+        "| # | Name | Verdict | Status | Actor | Updated | Corrections | Reason | Asset ID |",
+        "| - | ---- | ------- | ------ | ----- | ------- | ----------- | ------ | -------- |",
+    ]
+    for index, item in enumerate(stats, start=1):
+        lines.append(
+            f"| {index} | {_summary_cell(item.get('name'))} | {_summary_cell(item.get('verdict'))} | "
+            f"{_status_label(item.get('status'))} | {_summary_cell(item.get('actor'))} | "
+            f"{item.get('updated') is True} | {_summary_cell(_corrections_label(item.get('corrections')))} | "
+            f"{_summary_cell(item.get('reason'), limit=SUMMARY_REASON_LIMIT)} | "
+            f"`{_summary_cell(item.get('asset_id'))}` |",
+        )
+    lines.append("")
+
+    try:
+        with open(summary_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines))
+    except OSError:
+        logger.exception("Failed to write GitHub step summary to %s", summary_path)
+
+
 def main(_argv: list[str] | None = None) -> None:
     """Fetch assets, validate manufacturer metadata, and patch results."""
     assets: list[dict[str, Any]] = []
     assets = _fetch_assets()
 
+    stats: list[ValidationStat] = []
     if assets:
         stats = iterate_assets(assets, api_key=config.BLENDERKIT_API_KEY)
-        _print_stats(stats)
+    else:
+        logger.info("No assets found for manufacturer cleanup.")
+    _print_stats(stats)
+    _write_step_summary(stats, found_count=len(assets))
 
 
 if __name__ == "__main__":
