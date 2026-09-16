@@ -364,7 +364,7 @@ def _build_ai_prompts(
         "2. Search for just the manufacturer name to verify it exists\n"
         "3. Search for the product variant or collection name alone\n"
         "4. Try alternative spellings or common misspellings of the manufacturer\n"
-        "5. Search for the manufacturer's official website or product catalog\n"
+        "5. Search for the manufacturer's official website, product catalog, or Pinterest presence\n"
         "Do NOT give up after a single failed search. A manufacturer may exist "
         "even if one specific query fails.\n"
     )
