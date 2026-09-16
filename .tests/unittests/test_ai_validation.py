@@ -59,6 +59,14 @@ class ProviderSelectionTests(unittest.TestCase):
         self.assertNotIn("SEARCH STRATEGY", system_prompt)
         self.assertIn("json", instructions)
 
+    def test_prompt_includes_pinterest_as_manufacturer_source(self) -> None:
+        system_prompt, _, _, _ = ai_validation._build_ai_prompts(
+            ROW,
+            HEURISTICS,
+            web_search=True,
+        )
+        self.assertIn("Pinterest", system_prompt)
+
 
 class FallbackTests(unittest.TestCase):
     """Verify provider fallback behavior without network requests."""
