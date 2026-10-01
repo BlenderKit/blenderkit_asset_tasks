@@ -300,7 +300,7 @@ def _run_bg_render(
             template_file_path=str(template_path),
             result_path=result_filepath,
             script=script_name,
-        )
+        ).returncode
     except Exception:
         logger.exception("BG render failed for %s", asset_data.get("name"))
     if ret:

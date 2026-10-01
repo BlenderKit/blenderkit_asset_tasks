@@ -151,7 +151,7 @@ def generate_gltf(  # noqa: C901, PLR0912, PLR0915
     # re-saves (and thus never upgrades) the source .blend. Passing an empty
     # binary_path lets send_to_bg auto-select NEWEST instead of being pinned to
     # the predefined BLENDER_PATH.
-    bg_returncode = send_to_bg.send_to_bg(
+    bg_run = send_to_bg.send_to_bg(
         asset_data,
         asset_file_path=asset_file_path,
         result_path=result_path,
@@ -160,15 +160,9 @@ def generate_gltf(  # noqa: C901, PLR0912, PLR0915
         target_format=target_format,
         timeout_seconds=config.GENERATION_JOB_TIMEOUT_SECONDS or None,
     )
-    if bg_returncode == send_to_bg.TIMEOUT_RETURNCODE:
-        error += f" timed out after {config.GENERATION_JOB_TIMEOUT_SECONDS} s"
-    elif bg_returncode != 0:
-        logger.error(
-            "Background gltf_bg_blender.py exited with non-zero return code %s for asset %s",
-            bg_returncode,
-            asset_data.get("id"),
-        )
-        error += f" bg_returncode={bg_returncode}"
+    if bg_run.failure:
+        logger.error("Background gltf_bg_blender.py failed for asset %s: %s", asset_data.get("id"), bg_run.failure)
+        error += f" {bg_run.failure}"
 
     files: list[dict[str, Any]] | None = None
     try:
@@ -224,6 +218,7 @@ def generate_gltf(  # noqa: C901, PLR0912, PLR0915
         else:
             # Success path
             utils.cleanup_temp(temp_folder)
+            upload.delete_parameter_if_present(asset_data, param_error, api_key=api_key)
 
             return True
 

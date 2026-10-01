@@ -90,7 +90,7 @@ def generate_prxc(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         result_path=result_path,
         script="prxc_bg_blender.py",
         binary_path=binary_path,
-    )
+    ).returncode
     if bg_returncode != 0:
         logger.error(
             "Background prxc_bg_blender.py exited with non-zero return code %s for asset %s",
