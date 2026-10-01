@@ -263,6 +263,9 @@ def upload_resolutions(files: Iterable[dict[str, Any]], asset_data: dict[str, An
         files: Iterable of file descriptors with keys: type, index, file_path.
         asset_data: Asset info dict with name, displayName, id.
         api_key: BlenderKit API key.
+
+    Raises:
+        RuntimeError: If any of the files failed to upload.
     """
     upload_data = {
         "name": asset_data["name"],
@@ -271,11 +274,9 @@ def upload_resolutions(files: Iterable[dict[str, Any]], asset_data: dict[str, An
         "id": asset_data["id"],
     }
 
-    uploaded = upload_files(upload_data, files)
-    if uploaded:
-        logger.info("Upload of resolutions finished successfully")
-    else:
-        logger.error("Upload of resolutions failed")
+    if not upload_files(upload_data, files):
+        raise RuntimeError(f"Upload of resolutions failed for asset {asset_data['id']}")
+    logger.info("Upload of resolutions finished successfully")
 
 
 def reupload_main_blend(asset_data: dict[str, Any], blend_path: str, api_key: str = "") -> bool:
