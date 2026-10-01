@@ -1,8 +1,8 @@
 """Generate lower resolutions for HDR images in Blender background mode.
 
 This script loads an HDR image, generates lower-resolution EXR variants with
-standard suffixes (e.g., _2k, _1k, _512), and outputs a JSON listing of the
-generated files for the main process to upload.
+standard suffixes (e.g., _2k, _1k, _512), and writes its outcome as JSON for
+the main process: the generated files to upload, or why there are none.
 """
 
 import json
@@ -24,31 +24,23 @@ from blenderkit_server_utils import image_utils, paths, log  # isort: skip  # no
 logger = log.create_logger(__name__)
 
 
-def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
+def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
     """Generate lower-resolution EXR files from the provided HDR image path.
 
     Args:
-        data: Input data with keys 'asset_data', 'file_path', and 'result_filepath'.
+        data: Input data with keys 'asset_data' and 'file_path'.
 
     Returns:
-        A list of dictionaries describing the generated files.
+        {"files": [...]} describing the variants that came out smaller than the
+        original, or {"error": paths.RESOLUTIONS_NO_SIZE_GAIN} when none did.
     """
     # Input may contain asset_data metadata; it's not required here.
     fpath = data["file_path"]
-
-    try:
-        hdr = bpy.data.images.load(fpath)
-    except RuntimeError:
-        logger.exception("Failed to load HDR image: %s", fpath)
-        return []
+    hdr = bpy.data.images.load(fpath)
 
     actres = max(hdr.size[0], hdr.size[1])
     p2res = paths.round_to_closest_resolution(actres)
-    try:
-        original_filesize = os.path.getsize(fpath)
-    except OSError:
-        logger.exception("Failed to stat original HDR file: %s", fpath)
-        return []
+    original_filesize = os.path.getsize(fpath)
 
     i = 0
     finished = False
@@ -107,10 +99,9 @@ def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
         i += 1
 
     logger.info("Uploading resolution files: %s", files)
-    with open(data["result_filepath"], "w", encoding="utf-8") as s:
-        json.dump(files, s, ensure_ascii=False, indent=4)
-
-    return files
+    if not files:
+        return {"error": paths.RESOLUTIONS_NO_SIZE_GAIN}
+    return {"files": files}
 
 
 if __name__ == "__main__":
@@ -123,5 +114,7 @@ if __name__ == "__main__":
         logger.exception("Failed to read JSON input: %s", datafile)
         sys.exit(2)
 
-    _ = generate_lower_resolutions(data)
+    outcome = generate_lower_resolutions(data)
+    with open(data["result_filepath"], "w", encoding="utf-8") as s:
+        json.dump(outcome, s, ensure_ascii=False, indent=4)
     sys.exit(0)

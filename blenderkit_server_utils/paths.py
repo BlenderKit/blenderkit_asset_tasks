@@ -58,6 +58,12 @@ resolutions: dict[str, int] = {
 }
 rkeys: list[str] = list(resolutions.keys())
 
+# Why the resolution scripts produce no files. The not-applicable reasons are the
+# server's choices for the resolutionsNotApplicable asset parameter.
+RESOLUTIONS_PROCEDURAL: str = "procedural"
+RESOLUTIONS_SMALLEST: str = "smallest-resolution"
+RESOLUTIONS_NO_SIZE_GAIN: str = "no-size-gain"
+
 
 resolution_suffix: dict[str, str] = {
     "blend": "",
