@@ -4,6 +4,8 @@ Typed utilities to stream files in chunks and push uploads via the BlenderKit AP
 including convenience wrappers for parameters and metadata updates.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import random
