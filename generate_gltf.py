@@ -158,8 +158,11 @@ def generate_gltf(  # noqa: C901, PLR0912, PLR0915
         script="gltf_bg_blender.py",
         binary_type="NEWEST",
         target_format=target_format,
+        timeout_seconds=config.GENERATION_JOB_TIMEOUT_SECONDS or None,
     )
-    if bg_returncode != 0:
+    if bg_returncode == send_to_bg.TIMEOUT_RETURNCODE:
+        error += f" timed out after {config.GENERATION_JOB_TIMEOUT_SECONDS} s"
+    elif bg_returncode != 0:
         logger.error(
             "Background gltf_bg_blender.py exited with non-zero return code %s for asset %s",
             bg_returncode,
