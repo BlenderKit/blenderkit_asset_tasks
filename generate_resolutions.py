@@ -42,6 +42,12 @@ if not config.BLENDER_PATH and config.BLENDERS_PATH:
 
 SKIP_UPDATE: bool = config.SKIP_UPDATE
 
+# Why an asset has no resolutions. A run sets at most one and deletes the other;
+# uploaded resolutions delete both.
+PARAM_ERROR: str = "resolutionsGeneratedError"
+PARAM_NOT_APPLICABLE: str = "resolutionsNotApplicable"
+OUTCOME_PARAMS: tuple[str, ...] = (PARAM_ERROR, PARAM_NOT_APPLICABLE)
+
 # Asset types that can carry textures and therefore benefit from resolution
 # generation. Marking runs for all of them during the unpack step.
 RESOLUTION_ASSET_TYPES: str = "model,material,hdr,scene,printable"
@@ -83,7 +89,7 @@ def _send_to_bg_for_resolutions(
     asset_data: dict[str, Any],
     asset_file_path: str,
     blender_binary_path: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, send_to_bg.BlenderRun]:
     """Dispatch Blender background job to generate resolutions.
 
     Creates a temp folder for results and calls Blender with the right script
@@ -95,14 +101,14 @@ def _send_to_bg_for_resolutions(
         blender_binary_path: Path to Blender binary.
 
     Returns:
-        A tuple of (temp_folder, result_path).
+        A tuple of (temp_folder, result_path, Blender run).
     """
     temp_folder = tempfile.mkdtemp()
     result_path = os.path.join(temp_folder, asset_data["assetBaseId"] + "_resdata.json")
 
     if asset_data.get("assetType") == "hdr":
         current_dir = pathlib.Path(__file__).parent.resolve()
-        send_to_bg.send_to_bg(
+        bg_run = send_to_bg.send_to_bg(
             asset_data,
             asset_file_path=asset_file_path,
             template_file_path=os.path.join(current_dir, "blend_files", "empty.blend"),
@@ -113,7 +119,7 @@ def _send_to_bg_for_resolutions(
         )
     else:
         current_dir = pathlib.Path(__file__).parent.resolve()
-        send_to_bg.send_to_bg(
+        bg_run = send_to_bg.send_to_bg(
             asset_data,
             asset_file_path=asset_file_path,
             template_file_path=os.path.join(current_dir, "blend_files", "empty.blend"),
@@ -122,17 +128,17 @@ def _send_to_bg_for_resolutions(
             binary_path=blender_binary_path,
             timeout_seconds=config.GENERATION_JOB_TIMEOUT_SECONDS or None,
         )
-    return temp_folder, result_path
+    return temp_folder, result_path, bg_run
 
 
-def _read_result_files(result_path: str) -> list[dict[str, Any]] | None:
-    """Read JSON results from Blender background process.
+def _read_outcome(result_path: str) -> dict[str, Any] | None:
+    """Read the outcome the Blender background script wrote.
 
     Args:
-        result_path: Path to the JSON results file.
+        result_path: Path to the JSON outcome file.
 
     Returns:
-        A list of file dicts or None on error.
+        The outcome dict, or None when the script wrote none.
     """
     try:
         with open(result_path, encoding="utf-8") as f:
@@ -142,37 +148,66 @@ def _read_result_files(result_path: str) -> list[dict[str, Any]] | None:
         return None
 
 
-def _determine_result_and_upload(
-    files: list[dict[str, Any]] | None,
+def _record(asset_data: dict[str, Any], param_name: str, value: str, api_key: str) -> None:
+    """Set one outcome parameter on the asset and delete the other.
+
+    Args:
+        asset_data: Asset data dictionary.
+        param_name: The outcome parameter to set.
+        value: Its value.
+        api_key: API key.
+
+    Raises:
+        RuntimeError: If the server refuses the value.
+    """
+    if not upload.patch_individual_parameter(
+        asset_id=asset_data["id"],
+        param_name=param_name,
+        param_value=value,
+        api_key=api_key,
+    ):
+        raise RuntimeError(f"Server refused {param_name}={value!r} for asset {asset_data['id']}")
+    for other in OUTCOME_PARAMS:
+        if other != param_name:
+            upload.delete_parameter_if_present(asset_data, other, api_key=api_key)
+
+
+def _upload_or_record(
+    outcome: dict[str, Any] | None,
+    bg_run: send_to_bg.BlenderRun,
     asset_data: dict[str, Any],
     api_key: str,
 ) -> str:
-    """Upload results when present and return operation state.
+    """Upload the generated resolutions, or record on the asset why there are none.
 
     Args:
-        files: List of generated files, None on error, empty if skipped.
+        outcome: What the Blender script reported, None if it reported nothing.
+        bg_run: The Blender run that produced the outcome.
         asset_data: Asset data dictionary.
         api_key: API key.
 
     Returns:
-        One of "success", "error", or "skipped".
+        One of "success", "not-applicable" or "error".
     """
-    if files is None:
+    if outcome is None:
+        _record(asset_data, PARAM_ERROR, bg_run.failure or "no result file", api_key)
         return "error"
-    if not files:
-        return "skipped"
-
-    if SKIP_UPDATE:
-        logger.info("SKIP_UPDATE is set, not uploading resolutions.")
-        return "skipped"
+    if "not_applicable" in outcome:
+        _record(asset_data, PARAM_NOT_APPLICABLE, outcome["not_applicable"], api_key)
+        return "not-applicable"
+    if "error" in outcome:
+        _record(asset_data, PARAM_ERROR, outcome["error"], api_key)
+        return "error"
 
     try:
-        upload.upload_resolutions(files, asset_data, api_key=api_key)
+        upload.upload_resolutions(outcome["files"], asset_data, api_key=api_key)
     except Exception:
         logger.exception("Upload resolutions failed for asset %s", asset_data.get("id"))
+        _record(asset_data, PARAM_ERROR, "upload failed", api_key)
         return "error"
-    else:
-        return "success"
+    for param_name in OUTCOME_PARAMS:
+        upload.delete_parameter_if_present(asset_data, param_name, api_key=api_key)
+    return "success"
 
 
 def _cleanup(temp_folder: str, asset_file_path: str | None, asset_id: str | None) -> None:
@@ -231,31 +266,31 @@ def generate_resolution_thread(asset_data: dict[str, Any], api_key: str, asset_f
             return
 
     _maybe_unpack_asset(asset_data, asset_file_path, blender_binary_path=_resolve_asset_binary())
-    temp_folder, result_path = _send_to_bg_for_resolutions(
+    temp_folder, result_path, bg_run = _send_to_bg_for_resolutions(
         asset_data,
         asset_file_path,
         blender_binary_path=_resolve_asset_binary(),
     )
-
-    files = _read_result_files(result_path)
-    result_state = _determine_result_and_upload(files, asset_data, api_key)
-    logger.info("Result state for asset %s: %s", asset_data.get("id"), result_state)
+    outcome = _read_outcome(result_path)
 
     # Only this function's own download is cleaned here; a shared file is left
     # for the caller (the orchestrator) to remove.
     cleanup_file = asset_file_path if owns_file else None
 
     if SKIP_UPDATE:
-        logger.warning("SKIP_UPDATE==True -> skipping update")
+        logger.warning("SKIP_UPDATE==True -> not uploading or recording: %s", outcome or bg_run.failure)
         _cleanup(temp_folder, cleanup_file, asset_data.get("id"))
         return
 
-    # last_resolution_upload is set server-side by upload.upload_resolutions, so
-    # no explicit completion patch is needed here. The processingDate re-marking
-    # marker is owned by the orchestrator (process_asset.py).
-    upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
-    _cleanup(temp_folder, cleanup_file, asset_data.get("id"))
-    return
+    try:
+        result_state = _upload_or_record(outcome, bg_run, asset_data, api_key)
+        logger.info("Result state for asset %s: %s", asset_data.get("id"), result_state)
+        # last_resolution_upload is set server-side by upload.upload_resolutions, so
+        # no explicit completion patch is needed here. The processingDate re-marking
+        # marker is owned by the orchestrator (process_asset.py).
+        upload.patch_asset_empty(asset_data["assetBaseId"], api_key=api_key)
+    finally:
+        _cleanup(temp_folder, cleanup_file, asset_data.get("id"))
 
 
 def iterate_assets(

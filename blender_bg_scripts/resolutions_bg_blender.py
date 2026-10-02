@@ -3,7 +3,7 @@
 This script iterates over all images in the current .blend, computes the
 closest standard resolution, creates downscaled copies into a resolution-
 specific textures directory, saves a new .blend copy per resolution level,
-and returns a JSON list of generated files.
+and writes its outcome as JSON: the generated files, or why there are none.
 """
 
 from __future__ import annotations
@@ -228,17 +228,11 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
     return reduced_total
 
 
-def _save_resolution_blend(fpath: str) -> bool:
-    """Save a copy of the current .blend to the given path, safely."""
+def _save_resolution_blend(fpath: str) -> None:
+    """Save a copy of the current .blend to the given path."""
     if bpy.app.version >= MIN_NO_PREVIEW_VERSION:
         bpy.context.preferences.filepaths.file_preview_type = "NONE"
-    try:
-        bpy.ops.wm.save_as_mainfile(filepath=fpath, compress=True, copy=True)
-    except RuntimeError:
-        logger.exception("Failed to save blend file: %s", fpath)
-        return False
-    else:
-        return True
+    bpy.ops.wm.save_as_mainfile(filepath=fpath, compress=True, copy=True)
 
 
 def _open_asset_blend(file_path: str) -> None:
@@ -257,7 +251,7 @@ def _open_asset_blend(file_path: str) -> None:
     _log_ram_usage()
 
 
-def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
+def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
     """Generate lower-resolution .blend copies with downscaled textures.
 
     Steps:
@@ -271,7 +265,9 @@ def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
         data: Input dict with 'asset_data' and 'file_path'.
 
     Returns:
-        List of dicts: [{"type", "index", "file_path"}].
+        {"files": [{"type", "index", "file_path"}, ...]} for the levels whose textures
+        came out smaller, {"not_applicable": reason} for an asset that needs no lower
+        resolutions, or {"error": paths.RESOLUTIONS_NO_SIZE_GAIN} when no level shrank.
     """
     _open_asset_blend(data["file_path"])
 
@@ -283,7 +279,7 @@ def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
     logger.info("Current asset resolution: %d", actual_resolution)
     if actual_resolution <= 0:
         logger.info("resolution<=0, probably procedural asset -> skipping")
-        return []
+        return {"not_applicable": paths.RESOLUTIONS_PROCEDURAL}
 
     p2res = paths.round_to_closest_resolution(actual_resolution)
     orig_res = p2res
@@ -291,7 +287,7 @@ def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
 
     if p2res == paths.rkeys[0]:
         logger.info("Asset is at the lowest possible resolution -> skipping")
-        return []
+        return {"not_applicable": paths.RESOLUTIONS_SMALLEST}
 
     original_textures_filesize = _compute_original_textures_size()
 
@@ -304,11 +300,7 @@ def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
         fn = fn_strip + paths.resolution_suffix[p2res] + ext
         fpath = os.path.join(dirn, fn)
 
-        try:
-            tex_dir_path = _prepare_texture_dir(asset_data, p2res)
-        except OSError:
-            logger.exception("Failed to create texture directory for %s", p2res)
-            return []
+        tex_dir_path = _prepare_texture_dir(asset_data, p2res)
 
         reduced_textures_filessize = _process_images_for_resolution(
             tex_dir_path,
@@ -317,8 +309,7 @@ def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
         logger.info("Saving resolution blend: %s", fpath)
-        if not _save_resolution_blend(fpath):
-            return []
+        _save_resolution_blend(fpath)
 
         if reduced_textures_filessize < original_textures_filesize:
             logger.info(
@@ -342,7 +333,9 @@ def generate_lower_resolutions(data: dict[str, Any]) -> list[dict[str, Any]]:
             p2res = paths.rkeys[paths.rkeys.index(p2res) - 1]
 
     logger.info("Prepared resolution files: %s", files)
-    return files
+    if not files:
+        return {"error": paths.RESOLUTIONS_NO_SIZE_GAIN}
+    return {"files": files}
 
 
 if __name__ == "__main__":
@@ -355,10 +348,10 @@ if __name__ == "__main__":
         logger.exception("Failed to read JSON input: %s", datafile)
         sys.exit(2)
 
-    result_files = generate_lower_resolutions(data)
+    outcome = generate_lower_resolutions(data)
     try:
         with open(data["result_filepath"], "w", encoding="utf-8") as f:
-            json.dump(result_files, f, ensure_ascii=False, indent=4)
+            json.dump(outcome, f, ensure_ascii=False, indent=4)
     except OSError:
         logger.exception(
             "Failed to write result JSON: %s",
