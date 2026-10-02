@@ -409,6 +409,23 @@ def delete_individual_parameter(
     return ok
 
 
+def delete_parameter_if_present(asset_data: dict[str, Any], param_name: str, api_key: str) -> None:
+    """Delete a parameter that the asset carries according to its search data.
+
+    Args:
+        asset_data: Asset metadata from the search API, including 'dictParameters'.
+        param_name: Name of the parameter to delete.
+        api_key: BlenderKit API key.
+
+    Raises:
+        RuntimeError: If the server does not confirm the delete.
+    """
+    if param_name not in asset_data["dictParameters"]:
+        return
+    if not delete_individual_parameter(asset_id=asset_data["id"], param_name=param_name, api_key=api_key):
+        raise RuntimeError(f"Server did not delete {param_name} of asset {asset_data['id']}")
+
+
 def patch_asset_empty(asset_id: str, api_key: str):
     """Patch the asset with an empty payload to trigger reindex.
 

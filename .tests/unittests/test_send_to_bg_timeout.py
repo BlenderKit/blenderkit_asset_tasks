@@ -23,31 +23,32 @@ class RunBlenderTimeoutTests(unittest.TestCase):
         command = [sys.executable, "-c", "import time; time.sleep(30)"]
         started = time.monotonic()
 
-        returncode = send_to_bg._run_blender(command, verbosity_level=0, timeout_seconds=1)
+        run = send_to_bg._run_blender(command, verbosity_level=0, timeout_seconds=1)
 
-        self.assertEqual(returncode, send_to_bg.TIMEOUT_RETURNCODE)
+        self.assertEqual(run.returncode, send_to_bg.TIMEOUT_RETURNCODE)
+        self.assertEqual(run.failure, f"bg_returncode={send_to_bg.TIMEOUT_RETURNCODE}: timed out after 1 s")
         self.assertLess(time.monotonic() - started, 10)
 
     def test_process_within_the_limit_keeps_its_exit_code(self) -> None:
         command = [sys.executable, "-c", "import sys; sys.exit(3)"]
 
-        returncode = send_to_bg._run_blender(command, verbosity_level=0, timeout_seconds=30)
+        run = send_to_bg._run_blender(command, verbosity_level=0, timeout_seconds=30)
 
-        self.assertEqual(returncode, 3)
+        self.assertEqual(run.returncode, 3)
 
     def test_without_a_limit_the_runner_waits_for_the_process(self) -> None:
         command = [sys.executable, "-c", "import time; time.sleep(1.5)"]
 
-        returncode = send_to_bg._run_blender(command, verbosity_level=0)
+        run = send_to_bg._run_blender(command, verbosity_level=0)
 
-        self.assertEqual(returncode, 0)
+        self.assertEqual(run.returncode, 0)
 
 
 class SendToBgTimeoutTests(unittest.TestCase):
     def test_the_limit_reaches_the_runner(self) -> None:
         with (
             mock.patch.object(send_to_bg, "_select_binary_path", return_value="blender"),
-            mock.patch.object(send_to_bg, "_run_blender", return_value=0) as run,
+            mock.patch.object(send_to_bg, "_run_blender", return_value=send_to_bg.BlenderRun(0)) as run,
         ):
             send_to_bg.send_to_bg({}, asset_file_path="asset.blend", script="script.py", timeout_seconds=5)
 
