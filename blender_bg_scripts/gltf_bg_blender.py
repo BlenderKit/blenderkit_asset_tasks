@@ -762,9 +762,10 @@ def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
     """
     mesh = obj.data
 
-    # Store active UV
-    prev_uv = mesh.uv_layers.active
-    prev_idx = mesh.uv_layers.active_index if prev_uv else -1
+    # Remember the active UV map by name, not by reference: adding a layer,
+    # bm.to_mesh() and a mode switch reallocate the mesh's layers, and assigning
+    # a reference kept across them crashes Blender 5.1+ (SIGSEGV).
+    prev_name = mesh.uv_layers.active.name if mesh.uv_layers.active else None
 
     # Ensure mesh UV layer (names exist ONLY here)
     if UV_NAME not in mesh.uv_layers:
@@ -775,12 +776,12 @@ def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
     mesh.uv_layers.active = lighting_layer
 
     # Duplicate currently active UV data into the lighting layer up front
-    if prev_uv and prev_uv != lighting_layer:
+    if prev_name and prev_name != UV_NAME:
         try:
-            for src, dst in zip(prev_uv.data, lighting_layer.data, strict=True):
+            for src, dst in zip(mesh.uv_layers[prev_name].data, lighting_layer.data, strict=True):
                 dst.uv = src.uv.copy()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to duplicate UV layer '%s' onto '%s': %s", prev_uv.name, UV_NAME, exc)
+            logger.warning("Failed to duplicate UV layer '%s' onto '%s': %s", prev_name, UV_NAME, exc)
 
     # --- BMesh
     bm = bmesh.new()
@@ -816,9 +817,8 @@ def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
             logger.info("Using fallback UV layout for '%s'", obj.name)
 
     # Restore active UV
-    if prev_uv:
-        mesh.uv_layers.active_index = prev_idx
-        mesh.uv_layers.active = prev_uv
+    if prev_name:
+        mesh.uv_layers.active = mesh.uv_layers[prev_name]
 
     logger.info("Added 'LightingUV' UV layer to object '%s'", obj.name)
 

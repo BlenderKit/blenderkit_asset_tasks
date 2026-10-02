@@ -1,0 +1,35 @@
+name: Blender scripts
+
+# Each .tests/blender/test_*.py runs inside real Blender builds, where a
+# segfault or an exception fails the job. The unit tests mock bpy and can
+# catch neither.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  BLENDER_SCRIPTS:
+    name: Blender scripts (Blender 4.0+)
+    runs-on: ubuntu-latest
+    container: blenderkit/headless-blender:multi-version
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run each script in every installed Blender 4.0+
+        shell: bash
+        run: |
+          set -euo pipefail
+          ran=0
+          for blender in /home/headless/blenders/*/blender; do
+            version=$(basename "$(dirname "$blender")")
+            major=${version%%.*}
+            [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 4 )) || continue
+            for script in .tests/blender/test_*.py; do
+              echo "::group::Blender $version: $script"
+              "$blender" --background --factory-startup -noaudio --python-exit-code 1 --python "$script"
+              echo "::endgroup::"
+              ran=$((ran + 1))
+            done
+          done
+          (( ran > 0 )) || { echo "No Blender 4.0+ in /home/headless/blenders"; exit 1; }
