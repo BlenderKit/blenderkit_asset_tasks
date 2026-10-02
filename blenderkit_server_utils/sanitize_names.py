@@ -1,5 +1,7 @@
 """Utilities for sanitizing names and paths for BlenderKit server use."""
 
+from __future__ import annotations
+
 import random
 import re
 import string
