@@ -109,6 +109,7 @@ def _send_to_bg_for_resolutions(
             result_path=result_path,
             script="resolutions_bg_blender_hdr.py",
             binary_path=blender_binary_path,
+            timeout_seconds=config.GENERATION_JOB_TIMEOUT_SECONDS or None,
         )
     else:
         current_dir = pathlib.Path(__file__).parent.resolve()
@@ -119,6 +120,7 @@ def _send_to_bg_for_resolutions(
             result_path=result_path,
             script="resolutions_bg_blender.py",
             binary_path=blender_binary_path,
+            timeout_seconds=config.GENERATION_JOB_TIMEOUT_SECONDS or None,
         )
     return temp_folder, result_path
 

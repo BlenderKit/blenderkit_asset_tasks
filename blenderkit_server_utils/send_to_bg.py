@@ -30,6 +30,9 @@ logger = log.create_logger(__name__)
 VERBOSITY_STDERR: int = 1
 VERBOSITY_ALL: int = 2
 STREAM_TAIL_LINE_LIMIT: int = 200
+# Reported instead of Blender's own code when a run is killed for exceeding its
+# time limit; 124 is what GNU timeout reports.
+TIMEOUT_RETURNCODE: int = 124
 
 # Stderr patterns that are harmless warnings rather than real errors.
 # Lines matching any of these are downgraded from ERROR to WARNING.
@@ -401,8 +404,13 @@ def _stdout_callback_info(line: str) -> None:
     logger.info("STDOUT: %s", line)
 
 
-def _run_blender(command: list[str], verbosity_level: int) -> int:
-    """Run Blender with the given command and stream output per verbosity."""
+def _run_blender(command: list[str], verbosity_level: int, timeout_seconds: float | None = None) -> int:
+    """Run Blender with the given command and stream output per verbosity.
+
+    A run longer than ``timeout_seconds`` is killed and reported as TIMEOUT_RETURNCODE,
+    so a single asset cannot hold the caller indefinitely. ``None`` waits for as long
+    as Blender runs.
+    """
     stdout_val, stderr_val = subprocess.PIPE, subprocess.PIPE
     logger.info("Running Blender command: %s", command)
     logger.debug("Raw command: %s", " ".join(command))
@@ -430,9 +438,18 @@ def _run_blender(command: list[str], verbosity_level: int) -> int:
         )
         stdout_thread.start()
         stderr_thread.start()
+        timed_out = False
+        try:
+            returncode = proc.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            proc.kill()
+            proc.wait()
+            returncode = TIMEOUT_RETURNCODE
         stdout_thread.join()
         stderr_thread.join()
-        returncode = proc.wait()
+    if timed_out:
+        logger.error("Blender exceeded its %s s limit and was killed: %s", timeout_seconds, command)
     if returncode != 0:
         _log_stream_tail("STDOUT", stdout_lines)
         _log_stream_tail("STDERR", stderr_lines)
@@ -507,6 +524,7 @@ def send_to_bg(  # noqa: PLR0913
     verbosity_level: int = 2,
     binary_path: str = "",
     target_format: str = "",
+    timeout_seconds: float | None = None,
 ) -> int:
     """Run a Blender background script and wait for it to finish.
 
@@ -524,9 +542,11 @@ def send_to_bg(  # noqa: PLR0913
         verbosity_level: 0=quiet, 1=stderr only, 2=stdout+stderr streaming.
         binary_path: Explicit Blender binary path to use; if empty, autodetect.
         target_format: Optional target format forwarded to script.
+        timeout_seconds: Kill Blender after this many seconds and return TIMEOUT_RETURNCODE;
+            None waits for as long as it runs.
 
     Returns:
-        Process return code from Blender.
+        Process return code from Blender, or TIMEOUT_RETURNCODE if it was killed.
     """
     binary_path = _select_binary_path(binary_path, asset_data, asset_file_path=asset_file_path, binary_type=binary_type)
 
@@ -543,7 +563,7 @@ def send_to_bg(  # noqa: PLR0913
     logger.info("Opening Blender instance to process script: %s", script)
     template_file_path = _resolve_template(template_file_path, asset_file_path)
     command = _build_command(binary_path, template_file_path, script, datafile, addons)
-    returncode = _run_blender(command, verbosity_level)
+    returncode = _run_blender(command, verbosity_level, timeout_seconds=timeout_seconds)
 
     if returncode != 0:
         logger.error("Error while running command: %s", command)
