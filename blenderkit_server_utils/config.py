@@ -73,12 +73,14 @@ MAX_ASSET_COUNT: int = int(os.getenv("MAX_ASSET_COUNT", "1000"))
 MAX_VALIDATION_THREADS: int = int(os.getenv("MAX_VALIDATION_THREADS", "8"))
 """Maximum number of concurrent validation threads."""
 
-GENERATION_JOB_TIMEOUT_SECONDS: int = int(os.getenv("GENERATION_JOB_TIMEOUT_SECONDS", "1800"))
+GENERATION_JOB_TIMEOUT_SECONDS: int = int(os.getenv("GENERATION_JOB_TIMEOUT_SECONDS", "5400"))
 """Time limit for one Blender run of the GLTF and resolution jobs; 0 disables it.
 
 From 2026-09-22 every nightly sweep spent its whole six hours exporting one asset
 (220074, 91 objects baking ~15 min each) and was cancelled before stamping it, so the
 next night picked it first again. Normal runs observed take under 20 minutes.
+At 30 minutes, 30 of the 92 re-run models that had crashed before timed out while
+baking (2026-10-05); one bake now serves both GLTF formats, so it gets 90.
 """
 
 # DEBUGGING OPTIONS AND SPECIAL MODES

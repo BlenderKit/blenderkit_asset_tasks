@@ -46,17 +46,17 @@ class BuildCommandTests(unittest.TestCase):
 
 class ExceptionLineTests(unittest.TestCase):
     def test_the_final_exception_line_of_a_blender_traceback_is_found(self) -> None:
-        cause = send_to_bg._exception_line(deque(BLENDER_STDERR_TAIL))
+        cause = send_to_bg.exception_line(deque(BLENDER_STDERR_TAIL))
 
         self.assertEqual(cause, "RuntimeError: Error: No active UV map found on Bonsai_Leaves")
 
     def test_a_qualified_exception_class_is_recognised(self) -> None:
-        cause = send_to_bg._exception_line(deque(["json.decoder.JSONDecodeError: Expecting value: line 1 column 1"]))
+        cause = send_to_bg.exception_line(deque(["json.decoder.JSONDecodeError: Expecting value: line 1 column 1"]))
 
         self.assertEqual(cause, "json.decoder.JSONDecodeError: Expecting value: line 1 column 1")
 
     def test_output_without_a_traceback_has_no_cause(self) -> None:
-        cause = send_to_bg._exception_line(deque(["Error: Not freed memory blocks: 2, total unfreed memory 0.0004 MB"]))
+        cause = send_to_bg.exception_line(deque(["Error: Not freed memory blocks: 2, total unfreed memory 0.0004 MB"]))
 
         self.assertEqual(cause, "")
 

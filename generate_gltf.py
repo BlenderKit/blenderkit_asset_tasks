@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Sequence
 from typing import Any
 
 from blenderkit_server_utils import (
@@ -96,35 +97,110 @@ def _gltf_param_names(target_format: str) -> tuple[str, str]:
     return "gltfGeneratedDate", "gltfGeneratedError"
 
 
-def generate_gltf(  # noqa: C901, PLR0912, PLR0915
+def _read_outcomes(result_path: str) -> dict[str, dict[str, Any]]:
+    """Return the export outcome the background run reported for each format.
+
+    Args:
+        result_path: The results JSON written by gltf_bg_blender.py.
+
+    Returns:
+        Format -> {"type", "index", "file_path"} or {"type", "error"}; empty when the run wrote none.
+    """
+    if not os.path.exists(result_path):
+        return {}
+    with open(result_path, encoding="utf-8") as f:
+        return {outcome["type"]: outcome for outcome in json.load(f)}
+
+
+def _publish(asset_data: dict[str, Any], exported: dict[str, Any], api_key: str) -> str:
+    """Upload one exported format and mark it generated.
+
+    Args:
+        asset_data: Asset metadata returned from the search API.
+        exported: The format's outcome: {"type", "index", "file_path"}.
+        api_key: API key used for authenticated operations.
+
+    Returns:
+        Why the upload failed, or an empty string when it succeeded.
+    """
+    param_success, param_error = _gltf_param_names(exported["type"])
+    try:
+        upload.upload_resolutions([exported], asset_data, api_key=api_key)
+        today = datetime_utils.today_date_iso()
+        upload.patch_individual_parameter(
+            asset_id=asset_data["id"],
+            param_name=param_success,
+            param_value=today,
+            api_key=api_key,
+        )
+        upload.get_individual_parameter(
+            asset_id=asset_data["id"],
+            param_name=param_success,
+            api_key=api_key,
+        )
+
+        logger.info("Patched %s=%s for asset %s", param_success, today, asset_data.get("id"))
+    except Exception:  # upload module uses requests; narrow errors are internal
+        logger.exception(
+            "Failed to upload resolutions or patch success parameter for asset %s",
+            asset_data.get("id"),
+        )
+        return "upload/patch failed"
+    # Success path
+    upload.delete_parameter_if_present(asset_data, param_error, api_key=api_key)
+    return ""
+
+
+def _record_failure(asset_data: dict[str, Any], target_format: str, error: str, api_key: str) -> None:
+    """Store why a format failed in its error parameter.
+
+    Args:
+        asset_data: Asset metadata returned from the search API.
+        target_format: The format that failed, e.g. 'gltf' or 'gltf_godot'.
+        error: What went wrong.
+        api_key: API key used for authenticated operations.
+    """
+    _param_success, param_error = _gltf_param_names(target_format)
+    logger.error("GLTF format '%s' generation failed for asset %s: %s", target_format, asset_data.get("id"), error)
+    try:
+        upload.patch_individual_parameter(
+            asset_id=asset_data["id"],
+            param_name=param_error,
+            param_value=error,
+            api_key=api_key,
+        )
+        upload.get_individual_parameter(asset_data["id"], param_name=param_error, api_key=api_key)
+        logger.info("Patched %s='%s' for asset %s", param_error, error, asset_data.get("id"))
+    except Exception:
+        logger.exception("Failed to patch error parameter for asset %s", asset_data.get("id"))
+
+
+def generate_gltf(
     asset_data: dict[str, Any],
     api_key: str,
     binary_path: str,
-    target_format: str,
+    target_formats: Sequence[str],
     asset_file_path: str | None = None,
 ) -> bool:
-    """Generate and upload a Godot-optimized GLTF for a single asset.
+    """Generate and upload the GLTF files of a single asset, baking it once for all formats.
 
     Steps:
     1. Download the asset archive (unless a pre-downloaded one is supplied).
     2. Unpack the asset via a background Blender process.
-    3. Run a background Blender export to produce a Godot-optimized GLTF.
-    4. Upload the generated files and patch an asset parameter on success.
+    3. Bake the asset and export every target format in one background Blender run.
+    4. Per format, upload the file and mark it generated, or record why it failed.
 
     Args:
         asset_data: Asset metadata returned from the search API.
         api_key: API key used for authenticated operations.
         binary_path: Absolute path to the Blender binary used for background operations.
-        target_format: The target export format, e.g., '{DEFAULT_TARGET_FORMAT=gltf_godot}'.
+        target_formats: The export formats, e.g. ('gltf', 'gltf_godot').
         asset_file_path: Optional path to an already-downloaded asset .blend. When
             given, the file is reused instead of downloading a fresh copy.
 
     Returns:
-        True when the GLTF was generated and uploaded successfully; False otherwise.
+        True when every format was generated and uploaded; False otherwise.
     """
-    error = ""
-    param_success, param_error = _gltf_param_names(target_format)
-
     # Download asset (unless the caller already provided one)
     if asset_file_path is None:
         destination_directory = tempfile.gettempdir()
@@ -157,98 +233,36 @@ def generate_gltf(  # noqa: C901, PLR0912, PLR0915
         result_path=result_path,
         script="gltf_bg_blender.py",
         binary_type="NEWEST",
-        target_format=target_format,
+        target_formats=target_formats,
         timeout_seconds=config.GENERATION_JOB_TIMEOUT_SECONDS or None,
     )
     if bg_run.failure:
         logger.error("Background gltf_bg_blender.py failed for asset %s: %s", asset_data.get("id"), bg_run.failure)
-        error += f" {bg_run.failure}"
 
-    files: list[dict[str, Any]] | None = None
-    try:
-        with open(result_path, encoding="utf-8") as f:
-            files = json.load(f)
-    except (FileNotFoundError, PermissionError, json.JSONDecodeError, OSError) as exc:
-        logger.exception("Error reading result JSON %s", result_path)
-        error += f" {exc}"
+    outcomes = _read_outcomes(result_path)
+    logger.info("GLTF export outcomes: %s", outcomes)
 
-    logger.info("Cleaning up temporary folder %s", temp_folder)
-    if files:
-        logger.info("Generated files: %s", files)
-
-    if files is None:
-        error += " Files are None"
-    elif len(files) == 0:
-        error += " len(files)=0"
-    else:
-        logger.info("Generated files: %s", files)
-
-        if SKIP_UPDATE:
-            logger.info("SKIP_UPDATE is set, not patching the asset.")
-            logger.debug("Generated files: %s", files)
-            opened = utils.open_folder(os.path.dirname(files[0]["file_path"]))
-            if not opened:
-                logger.error("Failed to open folder %s", os.path.dirname(files[0]["file_path"]))
-                utils.cleanup_temp(temp_folder)
-
-            return False
-
-        try:
-            upload.upload_resolutions(files, asset_data, api_key=api_key)
-            today = datetime_utils.today_date_iso()
-            upload.patch_individual_parameter(
-                asset_id=asset_data["id"],
-                param_name=param_success,
-                param_value=today,
-                api_key=api_key,
-            )
-            upload.get_individual_parameter(
-                asset_id=asset_data["id"],
-                param_name=param_success,
-                api_key=api_key,
-            )
-
-            logger.info("Patched %s=%s for asset %s", param_success, today, asset_data.get("id"))
-        except Exception:  # upload module uses requests; narrow errors are internal
-            logger.exception(
-                "Failed to upload resolutions or patch success parameter for asset %s",
-                asset_data.get("id"),
-            )
-            error += " upload/patch failed"
-        else:
-            # Success path
+    if SKIP_UPDATE:
+        logger.info("SKIP_UPDATE is set, not patching the asset.")
+        exported = [outcome for outcome in outcomes.values() if "file_path" in outcome]
+        if not exported or not utils.open_folder(os.path.dirname(exported[0]["file_path"])):
             utils.cleanup_temp(temp_folder)
-            upload.delete_parameter_if_present(asset_data, param_error, api_key=api_key)
+        return False
 
-            return True
-
-    # Failure path: patch error parameter
-    logger.error(
-        "GLTF format '%s' generation failed for asset %s: %s",
-        target_format,
-        asset_data.get("id"),
-        error.strip(),
-    )
+    succeeded = True
+    for target_format in target_formats:
+        outcome = outcomes.get(target_format, {})
+        if "file_path" in outcome:
+            error = _publish(asset_data, outcome, api_key)
+        else:
+            error = outcome.get("error") or bg_run.failure or "no export outcome reported"
+        if error:
+            # Failure path: patch error parameter
+            _record_failure(asset_data, target_format, error, api_key)
+            succeeded = False
 
     utils.cleanup_temp(temp_folder)
-
-    try:
-        if SKIP_UPDATE:
-            logger.info("SKIP_UPDATE is set, not patching the asset.")
-            return False
-
-        value = error.strip()
-        upload.patch_individual_parameter(
-            asset_id=asset_data["id"],
-            param_name=param_error,
-            param_value=value,
-            api_key=api_key,
-        )
-        upload.get_individual_parameter(asset_data["id"], param_name=param_error, api_key=api_key)
-        logger.info("Patched %s='%s' for asset %s", param_error, value, asset_data.get("id"))
-    except Exception:
-        logger.exception("Failed to patch error parameter for asset %s", asset_data.get("id"))
-    return False
+    return succeeded
 
 
 def iterate_assets(
@@ -257,7 +271,7 @@ def iterate_assets(
     binary_path: str = "",
     target_format: str = "",
 ) -> None:
-    """Iterate over assets and generate Godot GLTF outputs for each.
+    """Iterate over assets and generate GLTF outputs in one format for each.
 
     Args:
         assets: A list of asset dictionaries to process.
@@ -271,7 +285,7 @@ def iterate_assets(
         worker_kwargs={
             "api_key": api_key,
             "binary_path": binary_path,
-            "target_format": target_format,
+            "target_formats": (target_format,),
         },
         asset_arg_position=0,
         max_concurrency=2,
