@@ -66,6 +66,12 @@ class ResolutionsOutcomeTests(unittest.TestCase):
 
         self.assertEqual(outcome, {"not_applicable": "smallest-resolution"})
 
+    def test_images_without_pixel_data_are_an_error_not_procedural(self) -> None:
+        bpy.data.images = [_image(0, 0)]
+
+        with self.assertRaisesRegex(RuntimeError, "no pixel data"):
+            resolutions_bg.generate_lower_resolutions(DATA)
+
     def test_textures_that_never_shrink_are_an_error(self) -> None:
         self.assertEqual(self._generate_with_sizes(original=1000, generated=1000), {"error": "no-size-gain"})
 
