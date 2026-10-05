@@ -5,6 +5,10 @@ and an EDIT-mode round trip, which reallocate the mesh's layers. Assigning
 the stale reference back segfaulted Blender 5.1/5.2: every one of the 50
 GLTF export segfaults in the 795 webhook runs of 28 Sep - 2 Oct 2026.
 
+Four cubes still crash the code before the fix (4 of 4 runs, Blender 5.2).
+More only slow CI: each cube with UVs outside the unit square spends ~20 s
+in uv.pack_islands(rotate=True), so 40 cubes took ~5.5 min per Blender version.
+
 Runs inside Blender, not unittest:
     blender --background --factory-startup --python-exit-code 1 --python .tests/blender/test_lighting_uv.py
 """
@@ -36,7 +40,7 @@ def _cube(index: int, extra_uv_maps: int, *, uvs_outside_unit_square: bool) -> b
 
 def main() -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    for index in range(40):
+    for index in range(4):
         obj = _cube(index, extra_uv_maps=index % 4, uvs_outside_unit_square=index % 2 == 0)
         original = obj.data.uv_layers.active.name
 
