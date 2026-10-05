@@ -317,17 +317,16 @@ def _run_generation_jobs(asset_data: dict[str, Any], api_key: str, binary_path: 
         )
 
     if atype in GLTF_TYPES:
-        for fmt in GLTF_FORMATS:
-            _run_job(
-                f"gltf:{fmt}",
-                asset_data,
-                generate_gltf.generate_gltf,
-                asset_data,
-                api_key,
-                _resolve_gltf_binary(binary_path, asset_data),
-                fmt,
-                asset_file_path=blend_path,
-            )
+        _run_job(
+            "gltf+godot",
+            asset_data,
+            generate_gltf.generate_gltf,
+            asset_data,
+            api_key,
+            _resolve_gltf_binary(binary_path, asset_data),
+            GLTF_FORMATS,
+            asset_file_path=blend_path,
+        )
     return ran_resolutions
 
 

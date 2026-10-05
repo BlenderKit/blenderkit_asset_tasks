@@ -41,7 +41,7 @@ parent_path = os.path.join(dir_path, os.path.pardir)
 if parent_path not in sys.path:
     sys.path.append(parent_path)
 
-from blenderkit_server_utils import log  # noqa: E402, I001
+from blenderkit_server_utils import log, send_to_bg  # noqa: E402, I001
 
 
 logger = log.create_logger(__name__)
@@ -134,6 +134,20 @@ MAXIMAL_GLTF: dict[str, Any] = MINIMAL_GLTF | {
     "export_image_add_webp": True,
     "export_jpeg_quality": 50,
     "export_image_quality": 50,
+}
+
+# Per target format, the export settings to try, from ideal to minimal.
+EXPORT_OPTIONS: dict[str, list[tuple[str, dict[str, Any]]]] = {
+    # Optimize for web presentation - adding draco compression
+    "gltf": [
+        ("maximal", MAXIMAL_GLTF | DRACO_MESH_COMPRESSION),
+        ("minimal", MINIMAL_GLTF | DRACO_MESH_COMPRESSION),
+    ],
+    # Optimize for use in Godot
+    "gltf_godot": [
+        ("maximal", MAXIMAL_GLTF),
+        ("minimal", MINIMAL_GLTF),
+    ],
 }
 
 PROCEDURAL_MATERIALS: list[bpy.types.Material] = []
@@ -2482,22 +2496,78 @@ def gltf_addon_setup() -> None:
         logger.warning("Failed to configure glTF addon preferences")
 
 
-def generate_gltf(json_result_path: str, target_format: str) -> None:  # noqa: C901, PLR0912, PLR0915
-    """Generate a GLB file for an asset and write results metadata.
+def export_format(scene_path: str, target_format: str) -> dict[str, Any]:
+    """Export the prepared scene in one format, going from ideal to minimal export settings.
+
+    Args:
+        scene_path: Path of the open .blend; the GLB keeps its name in a folder named after the format.
+        target_format: A key of EXPORT_OPTIONS.
+
+    Returns:
+        The exported file as {"type", "index", "file_path"}, or {"type", "error"} when every setting failed.
+    """
+    folder = os.path.join(os.path.dirname(scene_path), target_format)
+    os.makedirs(folder, exist_ok=True)
+    filepath = os.path.join(folder, os.path.basename(scene_path).replace(".blend", ".glb"))
+    error = ""
+    # CHOOSE EXPORT OPTIONS - based on target_format (gltf/gltf_godot)
+    # TRY EXPORT - go from ideal to minimal export settings
+    for options_name, gltf_options in EXPORT_OPTIONS[target_format]:
+        try:
+            bpy.ops.export_scene.gltf(filepath=filepath, **gltf_options)
+        except Exception as exc:
+            logger.exception("Error during '%s' %s export", options_name, target_format)
+            lines = str(exc).strip().splitlines() or [type(exc).__name__]
+            # An error inside the glTF add-on carries its traceback, whose closing line names the cause.
+            error = f"export failed: {send_to_bg.exception_line(lines) or lines[0]}"
+        else:
+            return {"type": target_format, "index": 0, "file_path": filepath}  # No need to continue
+    return {"type": target_format, "error": error}
+
+
+def export_formats(json_result_path: str, scene_path: str, target_formats: list[str]) -> None:
+    """Export the baked scene in every target format and record each format's outcome.
 
     Args:
         json_result_path: Path to write the results JSON file.
-        target_format: The target export format, e.g., 'gltf_godot'.
+        scene_path: Path of the open .blend.
+        target_formats: Formats to export, each a key of EXPORT_OPTIONS.
 
     Hint:
-        On success, writes a JSON list with the GLTF file path to ``json_result_path``.
-        On failure, no JSON is written and the caller should detect the missing file.
-
-    Returns:
-        None.
+        The results JSON lists one export_format() outcome per format. It is rewritten
+        after every export, so a crash in a later export keeps the earlier files. Exits
+        101 when no format exported, 102 when the JSON can't be written.
     """
+    outcomes: list[dict[str, Any]] = []
+    for target_format in target_formats:
+        logger.info("Generating GLTF for target format: %s", target_format)
+        outcomes.append(export_format(scene_path, target_format))
+        # Write results data to a JSON file after every export, successful or not
+        try:
+            with open(json_result_path, "w", encoding="utf-8") as f:
+                json.dump(outcomes, f, ensure_ascii=False, indent=4)
+        except (OSError, PermissionError):
+            logger.exception("Failed to write results JSON")
+            sys.exit(102)
+
+    # FAILURE - Exit now, the JSON already records why each format failed
+    if not any("file_path" in outcome for outcome in outcomes):
+        sys.exit(101)
+
+
+def generate_gltf(json_result_path: str, target_formats: list[str]) -> None:
+    """Bake the asset once, then export it in every target format (see export_formats).
+
+    Args:
+        json_result_path: Path to write the results JSON file.
+        target_formats: Formats to export, each a key of EXPORT_OPTIONS.
+    """
+    unknown = [target_format for target_format in target_formats if target_format not in EXPORT_OPTIONS]
+    if unknown:
+        logger.error("Unknown target formats %s, expected some of %s", unknown, list(EXPORT_OPTIONS))
+        sys.exit(10)
+
     scene_path = bpy.data.filepath
-    filepath = scene_path.replace(".blend", ".glb")
 
     # make sure world has pure white ambient color
     ensure_world_shader()
@@ -2556,46 +2626,7 @@ def generate_gltf(json_result_path: str, target_format: str) -> None:  # noqa: C
 
     logger.info("ASSET PRE-PROCESSING finished")
 
-    # CHOOSE EXPORT OPTIONS - based on target_format (gltf/gltf_godot)
-    logger.info("Generating GLTF for target format: %s", target_format)
-    if target_format == "gltf":  # Optimize for web presentation - adding draco compression
-        options = [
-            ["maximal", MAXIMAL_GLTF | DRACO_MESH_COMPRESSION],
-            ["minimal", MINIMAL_GLTF | DRACO_MESH_COMPRESSION],
-        ]
-    elif target_format == "gltf_godot":  # Optimize for use in Godot
-        options = [
-            ["maximal", MAXIMAL_GLTF],
-            ["minimal", MINIMAL_GLTF],
-        ]
-    else:
-        logger.error("target_format needs to be gltf or gltf_godot")
-        sys.exit(10)
-
-    # TRY EXPORT - go from ideal to minimal export settings
-    success = False
-    for option in options:
-        options_name = option[0]
-        gltf_options = option[1]
-        try:
-            bpy.ops.export_scene.gltf(filepath=filepath, **gltf_options)
-            success = True
-            break  # No need to continue
-        except Exception:
-            logger.exception("Error during '%s' GLTF export: \n%s", options_name, traceback.format_exc())
-
-    # FAILURE - Exit now, calling script will detect missing JSON and react properly
-    if not success:
-        sys.exit(101)
-
-    # SUCCESS - Write results data to a JSON file
-    files = [{"type": target_format, "index": 0, "file_path": filepath}]
-    try:
-        with open(json_result_path, "w", encoding="utf-8") as f:
-            json.dump(files, f, ensure_ascii=False, indent=4)
-    except (OSError, PermissionError):
-        logger.exception("Failed to write results JSON")
-        sys.exit(102)
+    export_formats(json_result_path, scene_path, target_formats)
 
 
 if __name__ == "__main__":
@@ -2615,11 +2646,11 @@ if __name__ == "__main__":
         logger.error("Missing result_filepath for GLTF generation")
         sys.exit(10)
 
-    target_format = data.get("target_format")
-    if not target_format:
-        logger.error("Missing target_format (gltf/gltf_godot) for GLTF generation")
+    target_formats = data.get("target_formats")
+    if not target_formats:
+        logger.error("Missing target_formats (gltf/gltf_godot) for GLTF generation")
         sys.exit(10)
 
-    generate_gltf(json_result_path, target_format)
+    generate_gltf(json_result_path, target_formats)
 
 # endregion EXPORT

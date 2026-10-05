@@ -17,7 +17,7 @@ import sys
 import tempfile
 import threading
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import cache
 from typing import Any
@@ -328,7 +328,7 @@ def _write_datafile(
         "asset_data": payload.asset_data,
         "api_key": payload.api_key,
         "temp_folder": temp_folder,
-        "target_format": payload.target_format,
+        "target_formats": list(payload.target_formats),
     }
     datafile = os.path.join(temp_folder, "resdata.json").replace("\\", "\\\\")
     with open(datafile, "w", encoding="utf-8") as stream:
@@ -430,9 +430,9 @@ class BlenderRun:
         return f"bg_returncode={self.returncode}: {self.cause}"
 
 
-def _exception_line(stderr_lines: deque[str]) -> str:
-    """Return the closing line of the last Python traceback in a stream tail, or ''."""
-    return next((line for line in reversed(stderr_lines) if _EXCEPTION_LINE_RE.match(line)), "")
+def exception_line(lines: Sequence[str]) -> str:
+    """Return the closing line of the last Python traceback in these lines, or ''."""
+    return next((line for line in reversed(lines) if _EXCEPTION_LINE_RE.match(line)), "")
 
 
 def _run_blender(command: list[str], verbosity_level: int, timeout_seconds: float | None = None) -> BlenderRun:
@@ -485,7 +485,7 @@ def _run_blender(command: list[str], verbosity_level: int, timeout_seconds: floa
         logger.error("Blender exceeded its %s s limit and was killed: %s", timeout_seconds, command)
         cause = f"timed out after {timeout_seconds} s"
     elif returncode != 0:
-        cause = _exception_line(stderr_lines)
+        cause = exception_line(stderr_lines)
     if returncode != 0:
         _log_stream_tail("STDOUT", stdout_lines)
         _log_stream_tail("STDERR", stderr_lines)
@@ -543,7 +543,7 @@ class DataPayload:
     result_folder: str
     asset_data: dict[str, Any]
     api_key: str
-    target_format: str
+    target_formats: Sequence[str]
 
 
 def send_to_bg(  # noqa: PLR0913
@@ -559,7 +559,7 @@ def send_to_bg(  # noqa: PLR0913
     binary_type: str = "CLOSEST",
     verbosity_level: int = 2,
     binary_path: str = "",
-    target_format: str = "",
+    target_formats: Sequence[str] = (),
     timeout_seconds: float | None = None,
 ) -> BlenderRun:
     """Run a Blender background script and wait for it to finish.
@@ -577,7 +577,7 @@ def send_to_bg(  # noqa: PLR0913
         binary_type: 'CLOSEST' or 'NEWEST' to select Blender.
         verbosity_level: 0=quiet, 1=stderr only, 2=stdout+stderr streaming.
         binary_path: Explicit Blender binary path to use; if empty, autodetect.
-        target_format: Optional target format forwarded to script.
+        target_formats: Optional export formats forwarded to script.
         timeout_seconds: Kill Blender after this many seconds and return TIMEOUT_RETURNCODE;
             None waits for as long as it runs.
 
@@ -593,7 +593,7 @@ def send_to_bg(  # noqa: PLR0913
         result_folder=result_folder,
         asset_data=asset_data,
         api_key=api_key,
-        target_format=target_format,
+        target_formats=target_formats,
     )
     datafile = _write_datafile(temp_folder, payload)
     logger.info("Opening Blender instance to process script: %s", script)
