@@ -24,6 +24,8 @@ from blenderkit_server_utils import image_utils, paths, log  # isort: skip  # no
 
 # Constants
 MIN_NO_PREVIEW_VERSION = (3, 0, 0)
+# Images Blender creates for itself; they are never asset textures.
+NON_TEXTURE_IMAGES = frozenset({"Render Result", "Viewer Node"})
 
 
 logger = log.create_logger(__name__)
@@ -130,7 +132,7 @@ def get_current_resolution() -> int:
     """
     actres = 0
     for img in bpy.data.images:
-        if img.name not in {"Render Result", "Viewer Node"}:
+        if img.name not in NON_TEXTURE_IMAGES:
             actres = max(actres, img.size[0], img.size[1])
     return actres
 
@@ -192,7 +194,7 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
     """
     reduced_total = 0
     for img in bpy.data.images:
-        if img.name in ["Render Result", "Viewer Node"]:
+        if img.name in NON_TEXTURE_IMAGES:
             continue
 
         logger.info("Scaling image %s (%dx%d)", img.name, img.size[0], img.size[1])
@@ -268,6 +270,9 @@ def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
         {"files": [{"type", "index", "file_path"}, ...]} for the levels whose textures
         came out smaller, {"not_applicable": reason} for an asset that needs no lower
         resolutions, or {"error": paths.RESOLUTIONS_NO_SIZE_GAIN} when no level shrank.
+
+    Raises:
+        RuntimeError: When the asset has images but none of them has pixel data.
     """
     _open_asset_blend(data["file_path"])
 
@@ -278,7 +283,13 @@ def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
     actual_resolution = get_current_resolution()
     logger.info("Current asset resolution: %d", actual_resolution)
     if actual_resolution <= 0:
-        logger.info("resolution<=0, probably procedural asset -> skipping")
+        unreadable = [img.name for img in bpy.data.images if img.name not in NON_TEXTURE_IMAGES]
+        if unreadable:
+            raise RuntimeError(
+                f"{len(unreadable)} image(s) have no pixel data, files missing or unreadable: "
+                + ", ".join(unreadable[:5]),
+            )
+        logger.info("No image textures, procedural asset -> skipping")
         return {"not_applicable": paths.RESOLUTIONS_PROCEDURAL}
 
     p2res = paths.round_to_closest_resolution(actual_resolution)

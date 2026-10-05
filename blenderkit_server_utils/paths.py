@@ -24,6 +24,7 @@ helpers, and common local directory paths used by background scripts.
 
 from __future__ import annotations
 
+import ntpath
 import os
 import shutil
 from collections.abc import Callable
@@ -395,10 +396,10 @@ def get_texture_filepath(tex_dir_path: str, image: Any, resolution: str = "blend
     """
     del resolution  # unused
 
-    if len(image.packed_files) > 0:
-        image_file_name = bpy.path.basename(image.packed_files[0].filepath)
-    else:
-        image_file_name = bpy.path.basename(image.filepath)
+    source_path = image.packed_files[0].filepath if len(image.packed_files) > 0 else image.filepath
+    # A path saved on Windows keeps its backslashes, which bpy.path.basename does not
+    # split on Linux; the whole path would land under tex_dir_path and escape it.
+    image_file_name = ntpath.basename(bpy.path.basename(source_path))
 
     if image_file_name == "":
         image_file_name = image.name.split(".")[0]
