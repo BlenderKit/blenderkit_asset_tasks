@@ -55,6 +55,7 @@ MAX_DEPTH = 32
 
 UV_NAME = "LightingUV"
 MARGIN = 0.0003  # UV margin for light-map packing
+UV_MAP_LIMIT = 8  # UV maps per mesh; beyond it uv_layers.new() returns None
 MAX_ISLAND_OVERLAPS = 0
 BLEED = 4  # pixels
 UV_ISLAND_EPSILON = 1e-5
@@ -765,6 +766,52 @@ def check_uv_face_overlap(bm: bmesh.types.BMesh, uv_layer: bpy.types.MeshUVLoopL
     return False
 
 
+def _uv_maps_read_by_materials(obj: bpy.types.Object) -> set[str]:
+    """Return the UV map names the object's materials (and their node groups) read by name.
+
+    Args:
+        obj: Object whose material node trees are inspected.
+
+    Returns:
+        Names set on UV Map, Normal Map, Tangent and Attribute nodes.
+    """
+    trees = [slot.material.node_tree for slot in obj.material_slots if slot.material and slot.material.node_tree]
+    seen: set[int] = set()
+    names: set[str] = set()
+    while trees:
+        tree = trees.pop()
+        if tree.as_pointer() in seen:
+            continue
+        seen.add(tree.as_pointer())
+        for node in tree.nodes:
+            names.update({getattr(node, "uv_map", ""), getattr(node, "attribute_name", "")})
+            if node.type == "GROUP" and node.node_tree:
+                trees.append(node.node_tree)
+    names.discard("")
+    return names
+
+
+def _free_uv_map_slot(obj: bpy.types.Object, keep: str | None) -> None:
+    """Remove a UV map no material reads when the mesh has no room left for the lighting UV map.
+
+    Args:
+        obj: Object whose mesh needs a free UV map slot.
+        keep: The active UV map, which is never removed.
+
+    Raises:
+        RuntimeError: When every UV map is in use, so none can make room.
+    """
+    uv_layers = obj.data.uv_layers
+    if len(uv_layers) < UV_MAP_LIMIT:
+        return
+    used = _uv_maps_read_by_materials(obj) | {keep}
+    spare = [layer.name for layer in uv_layers if layer.name not in used and not layer.active_render]
+    if not spare:
+        raise RuntimeError(f"'{obj.name}' uses all {UV_MAP_LIMIT} UV maps; none is free for '{UV_NAME}'")
+    logger.info("Removing unused UV map '%s' from '%s' to make room for '%s'", spare[-1], obj.name, UV_NAME)
+    uv_layers.remove(uv_layers[spare[-1]])
+
+
 def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
     """Create a UV layer for lighting/baking if not present.
 
@@ -783,6 +830,7 @@ def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
 
     # Ensure mesh UV layer (names exist ONLY here)
     if UV_NAME not in mesh.uv_layers:
+        _free_uv_map_slot(obj, keep=prev_name)
         mesh.uv_layers.new(name=UV_NAME)
         # make sure this uv layer is last
         mesh.uv_layers.active_index = len(mesh.uv_layers) - 1
@@ -2595,9 +2643,12 @@ def generate_gltf(json_result_path: str, target_formats: list[str]) -> None:
     scene.cycles.samples = 16
     scene.cycles.use_denoising = False
 
-    count = len(bpy.data.objects)
+    # Only objects in the view layer can be selected for baking; the others, e.g. rig widget
+    # shapes, are not exported either.
+    objects = list(bpy.context.view_layer.objects)
+    count = len(objects)
     logger.info("Number of objects in the scene: %d", count)
-    for i, obj in enumerate(bpy.data.objects):
+    for i, obj in enumerate(objects):
         logger.info("Preprocess object %d/%d: %s", i + 1, count, obj.name)
         if obj.type != "MESH":
             continue
@@ -2609,7 +2660,7 @@ def generate_gltf(json_result_path: str, target_formats: list[str]) -> None:
         pre_save_path = scene_path.replace(".blend", "_before_reconnect_debug.blend")
         bpy.ops.wm.save_as_mainfile(filepath=pre_save_path)
     logger.info("Connecting baked textures to materials")
-    for i, obj in enumerate(bpy.data.objects):
+    for i, obj in enumerate(objects):
         logger.info("Connecting textures %d/%d: %s", i + 1, count, obj.name)
         if obj.type != "MESH":
             continue
