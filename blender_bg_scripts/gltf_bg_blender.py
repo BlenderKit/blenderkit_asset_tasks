@@ -812,6 +812,18 @@ def _free_uv_map_slot(obj: bpy.types.Object, keep: str | None) -> None:
     uv_layers.remove(uv_layers[spare[-1]])
 
 
+def _remove_attribute_named_like_lighting_uv(mesh: bpy.types.Mesh) -> None:
+    """Remove a non-UV attribute named UV_NAME, which would make Blender name the new UV map 'LightingUV.001'.
+
+    Args:
+        mesh: Mesh about to get the lighting UV map; it lives only in this export session.
+    """
+    attribute = mesh.attributes.get(UV_NAME)
+    if attribute is not None:
+        logger.info("Removing %s attribute '%s' from mesh '%s'", attribute.domain, UV_NAME, mesh.name)
+        mesh.attributes.remove(attribute)
+
+
 def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
     """Create a UV layer for lighting/baking if not present.
 
@@ -830,6 +842,7 @@ def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
 
     # Ensure mesh UV layer (names exist ONLY here)
     if UV_NAME not in mesh.uv_layers:
+        _remove_attribute_named_like_lighting_uv(mesh)
         _free_uv_map_slot(obj, keep=prev_name)
         mesh.uv_layers.new(name=UV_NAME)
         # make sure this uv layer is last
