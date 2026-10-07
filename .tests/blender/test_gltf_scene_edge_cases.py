@@ -4,7 +4,9 @@ Both failed whole GLTF exports in the October 2026 re-run:
 - rig widget shapes ('cs_wire_eyebrow') that are in the file but not in the view
   layer: "Object ... cannot be selected because it is not in View Layer";
 - meshes that already use all 8 UV maps, so no LightingUV map could be added:
-  "KeyError: 'bpy_prop_collection[key]: key "LightingUV" not found'".
+  "KeyError: 'bpy_prop_collection[key]: key "LightingUV" not found'";
+- the same KeyError on a mesh that also has a non-UV attribute named LightingUV:
+  Blender named the new UV map "LightingUV.001" ('Hair.001', 6 Oct 2026).
 
 Runs inside Blender, not unittest:
     blender --background --factory-startup --python-exit-code 1 --python .tests/blender/test_gltf_scene_edge_cases.py
@@ -50,6 +52,7 @@ def main() -> None:
     while len(full.data.uv_layers) < UV_MAP_LIMIT:
         full.data.uv_layers.new(name=f"Spare {len(full.data.uv_layers)}")
     full.data.uv_layers.active = full.data.uv_layers[0]
+    full.data.attributes.new(name=gltf_bg_blender.UV_NAME, type="FLOAT", domain="POINT")
     tree = full.data.materials[0].node_tree
     uv_map_node = tree.nodes.new("ShaderNodeUVMap")
     uv_map_node.uv_map = "Spare 7"
