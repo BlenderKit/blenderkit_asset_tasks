@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import time
 from typing import Any
 
@@ -29,6 +30,11 @@ MAX_THUMBNAIL_SIZE = 2048
 NORMAL_MEAN_LOW = 0.45
 NORMAL_MEAN_HIGH = 0.55
 MIN_DOWNSCALE_SIZE = 128
+# Formats the reductions write, with the color depths each accepts (first = fallback).
+# Anything else Blender can only read (DDS, PSD, ...) or that a smaller PNG replaces (BMP, TGA, TIFF).
+WRITABLE_FORMAT_DEPTHS: dict[str, tuple[str, ...]] = {"PNG": ("8", "16"), "JPEG": ("8",), "OPEN_EXR": ("16", "32")}
+# Lossless; Blender otherwise writes EXR uncompressed.
+EXR_CODEC = "ZIP"
 
 
 try:  # Blender is not available in unit tests or CI
@@ -610,7 +616,7 @@ def check_nmap_ogl_vs_dx(
 
 def _restore_image_settings(
     ims: Any,
-    settings: tuple[Any, Any, Any, Any, Any],
+    settings: tuple[Any, Any, Any, Any, Any, Any],
 ) -> None:
     """Restore image settings helper to reduce function statement count."""
     (
@@ -619,12 +625,102 @@ def _restore_image_settings(
         color_mode,
         compression,
         color_depth,
+        exr_codec,
     ) = settings
     ims.file_format = file_format
     ims.quality = quality
     ims.color_mode = color_mode
     ims.compression = compression
     ims.color_depth = color_depth
+    ims.exr_codec = exr_codec
+
+
+def image_file_size(img: Any) -> int:
+    """Return the byte size of an image's source: its file(s) on disk, else its packed data.
+
+    Tiled images address their tiles through a single ``<UDIM>`` path template,
+    so the literal template never exists on disk; each tile file is summed
+    instead. An image whose file is not on disk (the .blend was never
+    unpacked) is measured by its packed data.
+
+    Args:
+        img: Blender image object.
+
+    Returns:
+        Size in bytes, 0 when the image has neither a file nor packed data.
+    """
+    abspath = bpy.path.abspath(img.filepath)  # type: ignore[attr-defined]
+    if getattr(img, "source", "") == "TILED" and "<UDIM>" in abspath:
+        total = 0
+        for tile in img.tiles:
+            tile_path = abspath.replace("<UDIM>", str(tile.number))
+            if os.path.exists(tile_path):
+                total += os.path.getsize(tile_path)
+        return total
+    if os.path.exists(abspath):
+        return os.path.getsize(abspath)
+    return sum(packed.packed_file.size for packed in img.packed_files)
+
+
+def _writable_format(file_format: str, filepath: str) -> tuple[str, str]:
+    """Return the format to write an image in and the path with a matching extension.
+
+    Args:
+        file_format: The image's own file format; empty for formats Blender cannot name.
+        filepath: Target path.
+
+    Returns:
+        The format itself when the reductions write it, else PNG with a ``.png`` path.
+    """
+    if file_format in WRITABLE_FORMAT_DEPTHS:
+        return file_format, filepath
+    return "PNG", os.path.splitext(filepath)[0] + ".png"
+
+
+def _apply_format_settings(ims: Any, image_depth: str) -> None:
+    """Set the depth, compression and quality the scene image settings write with.
+
+    Args:
+        ims: Scene image settings, their file format already chosen.
+        image_depth: Color depth wanted; a depth the format does not accept falls back to its first.
+    """
+    allowed_depths = WRITABLE_FORMAT_DEPTHS[ims.file_format]
+    ims.color_depth = image_depth if image_depth in allowed_depths else allowed_depths[0]
+    if ims.file_format == "PNG":
+        ims.compression = PNG_MAX_COMPRESSION
+    if ims.file_format == "OPEN_EXR":
+        ims.exr_codec = EXR_CODEC
+    if ims.file_format in {"JPG", "JPEG"}:
+        ims.quality = JPEG_QUALITY_DEFAULT
+
+
+def _jpeg_is_smaller(teximage: Any, ims: Any, source_size: int) -> bool:
+    """Encode the image as JPEG to a scratch file and compare it with the source size.
+
+    A small, sharp-edged PNG (a pattern, a UI texture) often grows several times as JPEG.
+
+    Args:
+        teximage: Blender image object.
+        ims: Scene image settings, restored afterwards.
+        source_size: Byte size of the image's source PNG.
+
+    Returns:
+        True when the JPEG is smaller than the source.
+    """
+    previous = (ims.file_format, ims.quality, ims.color_mode, ims.color_depth)
+    ims.file_format = "JPEG"
+    ims.quality = JPEG_QUALITY_DEFAULT
+    ims.color_mode = _set_color_mode_safe(ims, "RGB")
+    with tempfile.TemporaryDirectory() as folder:
+        probe = os.path.join(folder, "probe.jpg")
+        teximage.save_render(filepath=probe, scene=bpy.context.scene)  # type: ignore[attr-defined]
+        jpeg_size = os.path.getsize(probe)
+    ims.file_format = previous[0]
+    ims.quality = previous[1]
+    ims.color_mode = previous[2]
+    ims.color_depth = previous[3]
+    logger.info("JPEG would be %d bytes, source %d bytes", jpeg_size, source_size)
+    return jpeg_size < source_size
 
 
 def _finalize_image_paths(teximage: Any, filepath: str) -> None:
@@ -715,6 +811,7 @@ def _reduce_tiled_image(
     dst_template = _apply_udim_marker_if_needed(teximage, input_filepath)
     if "<UDIM>" not in dst_template:
         dst_template = re.sub(r"1\d{3}(?=\.[^.]+$)", "<UDIM>", dst_template)
+    _format, dst_template = _writable_format(teximage.file_format, dst_template)
     colorspace = teximage.colorspace_settings.name
 
     for tile in list(teximage.tiles):
@@ -743,7 +840,7 @@ def _reduce_tiled_image(
     teximage.reload()
 
 
-def make_possible_reductions_on_image(  # noqa: PLR0915
+def make_possible_reductions_on_image(
     teximage: Any,
     input_filepath: str,
     *,
@@ -793,6 +890,7 @@ def make_possible_reductions_on_image(  # noqa: PLR0915
         ims.color_mode,
         ims.compression,
         ims.color_depth,
+        ims.exr_codec,
     )
     orig_view_transform = vs.view_transform
     # Force Raw view transform so save_render writes the buffer 1:1 without
@@ -814,16 +912,23 @@ def make_possible_reductions_on_image(  # noqa: PLR0915
     # IMPORTANT: file_format must be set BEFORE color_mode, because Blender
     # restricts the color_mode enum based on the current file_format (e.g.
     # JPEG only allows BW/RGB and would raise TypeError for "RGBA").
-    ims.file_format = teximage.file_format
+    output_format, fp = _writable_format(teximage.file_format, _apply_udim_marker_if_needed(teximage, input_filepath))
+    if output_format != teximage.file_format:
+        logger.info("Writing %s as %s instead of %r", teximage.name, output_format, teximage.file_format)
+    ims.file_format = output_format
     desired_color_mode = find_color_mode(teximage)
     ims.color_mode = _set_color_mode_safe(ims, desired_color_mode)
     logger.debug("Color mode (desired=%s, applied=%s)", desired_color_mode, ims.color_mode)
 
-    fp = _apply_udim_marker_if_needed(teximage, input_filepath)
     if do_reductions:
         na = image_to_numpy_flat(teximage)
 
-        if allow_format_conversion and can_erase_alpha(na) and teximage.file_format == "PNG":
+        if (
+            allow_format_conversion
+            and can_erase_alpha(na)
+            and teximage.file_format == "PNG"
+            and _jpeg_is_smaller(teximage, ims, image_file_size(teximage))
+        ):
             logger.info("Converting PNG to JPEG due to opaque alpha")
             _base, ext = os.path.splitext(fp)
             teximage["original_extension"] = ext
@@ -842,12 +947,7 @@ def make_possible_reductions_on_image(  # noqa: PLR0915
             # Only collapse to BW when there is no alpha channel to preserve.
             ims.color_mode = _set_color_mode_safe(ims, "BW")
 
-    ims.color_depth = image_depth
-
-    if ims.file_format == "PNG":
-        ims.compression = PNG_MAX_COMPRESSION
-    if ims.file_format in {"JPG", "JPEG"}:
-        ims.quality = JPEG_QUALITY_DEFAULT
+    _apply_format_settings(ims, image_depth)
 
     if do_downscale:
         downscale(teximage)

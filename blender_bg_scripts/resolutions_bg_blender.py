@@ -24,8 +24,11 @@ from blenderkit_server_utils import image_utils, paths, log  # isort: skip  # no
 
 # Constants
 MIN_NO_PREVIEW_VERSION = (3, 0, 0)
-# Images Blender creates for itself; they are never asset textures.
-NON_TEXTURE_IMAGES = frozenset({"Render Result", "Viewer Node"})
+# Images Blender creates for itself; they are never asset textures. By type, not name:
+# a second compositor viewer is called "Viewer Node.002".
+NON_TEXTURE_IMAGE_TYPES = frozenset({"RENDER_RESULT", "COMPOSITING"})
+# Image sources backed by a texture file; a GENERATED color grid has nothing to downscale.
+TEXTURE_SOURCES = frozenset({"FILE", "TILED"})
 
 
 logger = log.create_logger(__name__)
@@ -124,51 +127,37 @@ def _log_ram_linux() -> None:
     )
 
 
+def _is_texture(img: Any) -> bool:
+    return img.type not in NON_TEXTURE_IMAGE_TYPES and img.source in TEXTURE_SOURCES
+
+
+def _local_textures() -> list[Any]:
+    """Return the texture images this file owns.
+
+    Images linked from another .blend (often a packed library) are read-only:
+    Blender refuses to rename, scale or unpack them, so they are left as they are.
+
+    Returns:
+        The images to downscale.
+    """
+    return [img for img in bpy.data.images if _is_texture(img) and img.library is None]
+
+
 def get_current_resolution() -> int:
     """Find the maximum image resolution in the .blend file.
 
     Returns:
-        The maximum of width/height across all images excluding render/viewer.
+        The maximum of width/height across the file's own texture images.
     """
     actres = 0
-    for img in bpy.data.images:
-        if img.name not in NON_TEXTURE_IMAGES:
-            actres = max(actres, img.size[0], img.size[1])
+    for img in _local_textures():
+        actres = max(actres, img.size[0], img.size[1])
     return actres
 
 
-def _image_disk_size(img: Any) -> int:
-    """Return the on-disk byte size of an image, summing all UDIM tiles.
-
-    Tiled images address their tiles through a single ``<UDIM>`` path template,
-    so the literal template never exists on disk; each tile file is summed
-    instead.
-    """
-    abspath = bpy.path.abspath(img.filepath)
-    if getattr(img, "source", "") == "TILED" and "<UDIM>" in abspath:
-        total = 0
-        for tile in img.tiles:
-            tile_path = abspath.replace("<UDIM>", str(tile.number))
-            if os.path.exists(tile_path):
-                try:
-                    total += os.path.getsize(tile_path)
-                except OSError:
-                    logger.exception("Failed to stat tile file: %s", tile_path)
-        return total
-    if os.path.exists(abspath):
-        try:
-            return os.path.getsize(abspath)
-        except OSError:
-            logger.exception("Failed to stat image file: %s", abspath)
-    return 0
-
-
 def _compute_original_textures_size() -> int:
-    """Compute the total size of all existing image files in the scene."""
-    total = 0
-    for img in bpy.data.images:
-        total += _image_disk_size(img)
-    return total
+    """Compute the total source size of the file's own texture images."""
+    return sum(image_utils.image_file_size(img) for img in _local_textures())
 
 
 def _prepare_texture_dir(asset_data: dict[str, Any], resolution: str) -> str:
@@ -193,10 +182,7 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
     pixel data is loaded in RAM at a time.
     """
     reduced_total = 0
-    for img in bpy.data.images:
-        if img.name in NON_TEXTURE_IMAGES:
-            continue
-
+    for img in _local_textures():
         logger.info("Scaling image %s (%dx%d)", img.name, img.size[0], img.size[1])
         if img.size[0] == 0 or img.size[1] == 0:
             logger.warning("Image %s is empty", img.name)
@@ -221,7 +207,7 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
                 do_downscale=True,
             )
 
-        reduced_total += _image_disk_size(img)
+        reduced_total += image_utils.image_file_size(img)
 
         img.pack()
         img.buffers_free()
@@ -272,7 +258,8 @@ def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
         resolutions, or {"error": paths.RESOLUTIONS_NO_SIZE_GAIN} when no level shrank.
 
     Raises:
-        RuntimeError: When the asset has images but none of them has pixel data.
+        RuntimeError: When the asset has images but none of them has pixel data, or
+            all its textures are linked from other .blend files.
     """
     _open_asset_blend(data["file_path"])
 
@@ -283,11 +270,17 @@ def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
     actual_resolution = get_current_resolution()
     logger.info("Current asset resolution: %d", actual_resolution)
     if actual_resolution <= 0:
-        unreadable = [img.name for img in bpy.data.images if img.name not in NON_TEXTURE_IMAGES]
+        unreadable = [img.name for img in _local_textures()]
         if unreadable:
             raise RuntimeError(
                 f"{len(unreadable)} image(s) have no pixel data, files missing or unreadable: "
                 + ", ".join(unreadable[:5]),
+            )
+        linked = [img.name for img in bpy.data.images if _is_texture(img) and img.library is not None]
+        if linked:
+            raise RuntimeError(
+                f"{len(linked)} texture image(s) are linked from other .blend files and cannot be downscaled: "
+                + ", ".join(linked[:5]),
             )
         logger.info("No image textures, procedural asset -> skipping")
         return {"not_applicable": paths.RESOLUTIONS_PROCEDURAL}
