@@ -26,7 +26,8 @@ import math
 import os
 import sys
 import traceback
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import addon_utils  # type: ignore
@@ -78,6 +79,7 @@ BAKE_PASSES: list[dict[str, Any]] = [
         "pass_filter": {"COLOR"},
         "colorspace": "sRGB",
         "usage": "color",
+        "inputs": "albedo",
     },
     {
         "key": "normal",
@@ -105,11 +107,12 @@ BAKE_PASSES: list[dict[str, Any]] = [
     },
     {
         "key": "metallic",
-        "type": "GLOSSY",
+        "type": "DIFFUSE",
         "suffix": "metal",
-        "pass_filter": None,
+        "pass_filter": {"COLOR"},
         "colorspace": "Non-Color",
         "usage": "metallic",
+        "inputs": "metallic",
     },
 ]
 
@@ -669,6 +672,43 @@ def _pack_uv_islands_with_operator(obj: bpy.types.Object) -> bool:
         bpy.ops.object.mode_set(mode="OBJECT")
 
 
+def uv_layer_area(bm: bmesh.types.BMesh, uv_layer: bpy.types.MeshUVLoopLayer) -> float:
+    """Return the total UV-space area of all faces (shoelace formula), 0 when every UV sits on one point.
+
+    Args:
+        bm: BMesh whose faces are measured.
+        uv_layer: UV layer to measure.
+
+    Returns:
+        The summed absolute area of the faces in UV space.
+    """
+    total = 0.0
+    for face in bm.faces:
+        uvs = [loop[uv_layer].uv for loop in face.loops]
+        total += abs(sum(a.x * b.y - b.x * a.y for a, b in zip(uvs, uvs[1:] + uvs[:1], strict=True))) / 2
+    return total
+
+
+def needs_lighting_layout(obj: bpy.types.Object, bm: bmesh.types.BMesh, uv_layer: bpy.types.MeshUVLoopLayer) -> bool:
+    """Return whether the copied UVs can't serve for baking: they cover no area or overlap.
+
+    Args:
+        obj: Object being prepared, for logging.
+        bm: BMesh of the object's mesh.
+        uv_layer: The lighting UV layer, holding a copy of the active UVs.
+
+    Returns:
+        True when a procedural layout is needed.
+    """
+    if uv_layer_area(bm, uv_layer) <= UV_SPACE_EPSILON:
+        logger.info("Using procedural UV layout for '%s': its UVs cover no area", obj.name)
+        return True
+    if check_uv_face_overlap(bm, uv_layer):
+        logger.info("Using procedural UV layout for '%s' due to overlapping UVs", obj.name)
+        return True
+    return False
+
+
 def check_uv_face_overlap(bm: bmesh.types.BMesh, uv_layer: bpy.types.MeshUVLoopLayer) -> bool:  # noqa: C901, PLR0911
     """Check for overlapping UV faces in the given BMesh.
 
@@ -867,8 +907,7 @@ def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
         uv_layer = bm.loops.layers.uv.new(UV_NAME)
 
     unwrapped = False
-    if check_uv_face_overlap(bm, uv_layer):
-        logger.info("Using procedural UV layout for '%s' due to overlapping UVs", obj.name)
+    if needs_lighting_layout(obj, bm, uv_layer):
         # --- FAST FACE-BASED UNWRAP (lighting-safe)
         for face in bm.faces:
             n = face.normal
@@ -2258,6 +2297,152 @@ def _combine_roughness_transmission(
     return combined_image
 
 
+# Cycles' diffuse color is base color x (1 - metallic), less transmission and subsurface.
+_DIFFUSE_COLOR_DIMMING_INPUTS = ("Metallic", "Transmission Weight", "Transmission", "Subsurface Weight", "Subsurface")
+_COLORED_BSDFS = frozenset({"BSDF_DIFFUSE", "BSDF_TOON", "BSDF_SHEEN", "BSDF_TRANSLUCENT", "SUBSURFACE_SCATTERING"})
+# These leave Cycles' diffuse color empty; a pre-Principled metal is usually a Glossy BSDF alone.
+_SPECULAR_BSDFS = {"BSDF_GLOSSY": 1.0, "BSDF_ANISOTROPIC": 1.0, "BSDF_GLASS": 0.0, "BSDF_REFRACTION": 0.0}
+
+
+def _node_trees(materials: Iterable[bpy.types.Material]) -> Iterator[bpy.types.NodeTree]:
+    """Yield each material's node tree and every node group they use, once each.
+
+    Args:
+        materials: Materials whose shader trees are walked.
+
+    Yields:
+        bpy.types.NodeTree: each tree once, material trees first.
+    """
+    pending = [mat.node_tree for mat in materials if mat.node_tree]
+    seen: set[int] = set()
+    while pending:
+        tree = pending.pop()
+        if tree.as_pointer() in seen:
+            continue
+        seen.add(tree.as_pointer())
+        yield tree
+        pending.extend(node.node_tree for node in tree.nodes if node.type == "GROUP" and node.node_tree)
+
+
+def _set_input(
+    tree: bpy.types.NodeTree,
+    socket: bpy.types.NodeSocket | None,
+    value: Any,
+    undo: list[Callable[[], None]],
+) -> None:
+    """Unlink a socket and set its value, recording how to put both back.
+
+    Args:
+        tree: Node tree owning the socket.
+        socket: Input socket to override; None (an input this Blender lacks) is skipped.
+        value: New default value.
+        undo: Restore callables, appended to.
+    """
+    if socket is None:
+        return
+    sources = [link.from_socket for link in socket.links]
+    previous = tuple(socket.default_value) if hasattr(socket.default_value, "__len__") else socket.default_value
+    for link in list(socket.links):
+        tree.links.remove(link)
+    socket.default_value = value
+
+    def restore() -> None:
+        socket.default_value = previous
+        for source in sources:
+            tree.links.new(source, socket)
+
+    undo.append(restore)
+
+
+def _route_metallic_to_base_color(
+    tree: bpy.types.NodeTree,
+    bsdf: bpy.types.Node,
+    undo: list[Callable[[], None]],
+) -> None:
+    """Feed a Principled BSDF's Metallic value into its Base Color, recording how to undo it.
+
+    Args:
+        tree: Node tree owning the BSDF.
+        bsdf: Principled BSDF node.
+        undo: Restore callables, appended to.
+    """
+    metallic, base_color = bsdf.inputs["Metallic"], bsdf.inputs["Base Color"]
+    source = metallic.links[0].from_socket if metallic.links else None
+    value = metallic.default_value
+    _set_input(tree, base_color, (value, value, value, 1.0), undo)
+    if source is not None:
+        tree.links.new(source, base_color)
+        # Runs before the restore above: re-linking the old source would replace this link.
+        undo.append(lambda: [tree.links.remove(link) for link in base_color.links if link.from_socket == source])
+
+
+def _stand_in_diffuse(
+    tree: bpy.types.NodeTree,
+    bsdf: bpy.types.Node,
+    gray: float | None,
+    undo: list[Callable[[], None]],
+) -> None:
+    """Route a specular BSDF's outputs through a Diffuse BSDF so the diffuse color bake sees it.
+
+    Args:
+        tree: Node tree owning the BSDF.
+        bsdf: Glossy, anisotropic, glass or refraction BSDF node.
+        gray: Diffuse color value to use; None takes the BSDF's own Color input.
+        undo: Restore callables, appended to.
+    """
+    targets = [link.to_socket for output in bsdf.outputs for link in output.links]
+    if not targets:
+        return
+    diffuse = tree.nodes.new("ShaderNodeBsdfDiffuse")
+    color = bsdf.inputs["Color"]
+    if gray is not None:
+        diffuse.inputs["Color"].default_value = (gray, gray, gray, 1.0)
+    elif color.links:
+        tree.links.new(color.links[0].from_socket, diffuse.inputs["Color"])
+    else:
+        diffuse.inputs["Color"].default_value = color.default_value
+    for target in targets:
+        tree.links.new(diffuse.outputs["BSDF"], target)
+
+    def restore() -> None:
+        tree.nodes.remove(diffuse)
+        for target in targets:
+            tree.links.new(bsdf.outputs[0], target)
+
+    undo.append(restore)
+
+
+@contextmanager
+def baked_inputs(materials: Iterable[bpy.types.Material], kind: str | None) -> Iterator[None]:
+    """Rewire shader inputs so a diffuse color bake records what the pass needs, then restore them.
+
+    Args:
+        materials: Materials being baked.
+        kind: "albedo" bakes the base color itself, "metallic" the Metallic input; None changes nothing.
+
+    Yields:
+        None: control returns to the caller while the inputs are rewired.
+    """
+    undo: list[Callable[[], None]] = []
+    if kind is not None:
+        for tree in _node_trees(materials):
+            for node in list(tree.nodes):  # stand-in diffuse nodes join tree.nodes as we go
+                if node.type == "BSDF_PRINCIPLED":
+                    if kind == "metallic":
+                        _route_metallic_to_base_color(tree, node, undo)
+                    for name in _DIFFUSE_COLOR_DIMMING_INPUTS:
+                        _set_input(tree, node.inputs.get(name), 0.0, undo)
+                elif node.type in _SPECULAR_BSDFS:
+                    _stand_in_diffuse(tree, node, _SPECULAR_BSDFS[node.type] if kind == "metallic" else None, undo)
+                elif kind == "metallic" and node.type in _COLORED_BSDFS:
+                    _set_input(tree, node.inputs.get("Color"), (0.0, 0.0, 0.0, 1.0), undo)
+    try:
+        yield
+    finally:
+        for restore in reversed(undo):
+            restore()
+
+
 def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901, PLR0912, PLR0915
     """Bake four texture passes (color, normal, roughness, transmission) for procedural materials.
 
@@ -2395,7 +2580,8 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901, 
             bake_kwargs["pass_filter"] = bake_pass["pass_filter"]
 
         try:
-            bpy.ops.object.bake(**bake_kwargs)
+            with baked_inputs(procedural_materials, bake_pass.get("inputs")):
+                bpy.ops.object.bake(**bake_kwargs)
         except Exception:
             logger.exception("Error while baking %s pass", bake_pass["key"])
             logger.error("Trace \n %s", traceback.format_exc())  # noqa: TRY400
