@@ -137,6 +137,9 @@ MAXIMAL_GLTF: dict[str, Any] = MINIMAL_GLTF | {
     "export_image_quality": 50,
 }
 
+# WEBP encodes at most 16383 px a side; larger textures left their GLB without an image.
+MAX_EXPORT_TEXTURE_PX = 8192
+
 # Per target format, the export settings to try, from ideal to minimal.
 EXPORT_OPTIONS: dict[str, list[tuple[str, dict[str, Any]]]] = {
     # Optimize for web presentation - adding draco compression
@@ -2557,6 +2560,20 @@ def gltf_addon_setup() -> None:
         logger.warning("Failed to configure glTF addon preferences")
 
 
+def limit_texture_sizes() -> None:
+    """Scale every texture larger than MAX_EXPORT_TEXTURE_PX down to it, keeping the aspect ratio."""
+    for image in bpy.data.images:
+        if image.type in {"RENDER_RESULT", "COMPOSITING"}:
+            continue
+        width, height = image.size
+        longest = max(width, height)
+        if longest <= MAX_EXPORT_TEXTURE_PX:
+            continue
+        factor = MAX_EXPORT_TEXTURE_PX / longest
+        image.scale(max(1, round(width * factor)), max(1, round(height * factor)))
+        logger.info("Scaled texture '%s' from %dx%d to %dx%d for export", image.name, width, height, *image.size)
+
+
 def export_format(scene_path: str, target_format: str) -> dict[str, Any]:
     """Export the prepared scene in one format, going from ideal to minimal export settings.
 
@@ -2690,6 +2707,7 @@ def generate_gltf(json_result_path: str, target_formats: list[str]) -> None:
 
     logger.info("ASSET PRE-PROCESSING finished")
 
+    limit_texture_sizes()
     export_formats(json_result_path, scene_path, target_formats)
 
 
