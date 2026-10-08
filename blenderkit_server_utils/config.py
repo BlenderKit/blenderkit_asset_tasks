@@ -83,6 +83,13 @@ At 30 minutes, 30 of the 92 re-run models that had crashed before timed out whil
 baking (2026-10-05); one bake now serves both GLTF formats, so it gets 90.
 """
 
+UNPACK_JOB_TIMEOUT_SECONDS: int = int(os.getenv("UNPACK_JOB_TIMEOUT_SECONDS", "900"))
+"""Time limit for one Blender run of unpack_asset_bg.py (unpacking or marking); 0 disables it.
+
+On 2026-10-07 two such runs (Blender 3.5, "Failed to save marked blend file") never exited
+and each held its job until GitHub's six-hour cap. Normal runs take seconds.
+"""
+
 # DEBUGGING OPTIONS AND SPECIAL MODES
 DEBUG: bool = bool(os.getenv("DEBUG", "False") in ["1", "true", "True"])
 """Modifies behavior for debugging purposes, e.g., shows images when generating captions."""

@@ -274,12 +274,17 @@ def _mark_and_reupload(asset_data: dict[str, Any], api_key: str, binary_path: st
         # Flag a copy of the metadata so the bg script marks without unpacking.
         mark_payload = dict(asset_data)
         mark_payload["_mark_only"] = True
-        send_to_bg.send_to_bg(
+        bg_run = send_to_bg.send_to_bg(
             mark_payload,
             asset_file_path=blend_path,
             script="unpack_asset_bg.py",
             binary_path=binary_path,
+            timeout_seconds=config.UNPACK_JOB_TIMEOUT_SECONDS or None,
         )
+        if bg_run.failure:
+            # A run killed while saving leaves a half-written file; never upload it as the original.
+            logger.error("Marking run failed for asset %s: %s", asset_data.get("id"), bg_run.failure)
+            return False
 
         if SKIP_UPDATE:
             logger.warning("SKIP_UPDATE==True -> skipping marked blend re-upload for %s", asset_data.get("id"))
