@@ -24,6 +24,7 @@ logger = log.create_logger(__name__)
 UPLOAD_SUCCESS_STATUS_CODES = {200, 201, 202} # (success, created, accepted)
 
 REQUEST_TIMEOUT_SECONDS = 30
+UPLOAD_ATTEMPTS = 5
 SUCCESS_STATUS_CODES = {200, 201}
 SUCCESS_STATUS_CODES_WITH_NO_CONTENT = {200, 201, 204}
 RATE_LIMIT_STATUS_CODE = 429
@@ -169,19 +170,22 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
     logger.debug("Upload init payload: %s", upload_info)
 
     upload_create_url = paths.get_api_url() + "/uploads/"
-    response = requests.post(
-        upload_create_url,
-        json=upload_info,
-        headers=headers,
-        verify=True,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    upload = response.json()
+    upload = None
 
     chunk_size = 1024 * 1024 * 2
     # s3 upload is now the only option
-    for _ in range(5):
+    for attempt in range(UPLOAD_ATTEMPTS):
         try:
+            if upload is None:
+                response = requests.post(
+                    upload_create_url,
+                    json=upload_info,
+                    headers=headers,
+                    verify=True,
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
+                response.raise_for_status()
+                upload = response.json()
             session = requests.Session()
             session.trust_env = True
             upload_response = session.put(
@@ -210,6 +214,7 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
                     verify=True,
                     timeout=REQUEST_TIMEOUT_SECONDS,
                 )
+                upload_response.raise_for_status()
                 logger.info(
                     "Finished file upload: %s, status code: %s",
                     os.path.basename(f["file_path"]),
@@ -227,9 +232,9 @@ def upload_file(upload_data: dict[str, Any], f: dict[str, Any]) -> bool:
             )
             message = f"Upload failed, retry. File : {f['type']} {os.path.basename(f['file_path'])}"
             logger.warning(message)
-            time.sleep(1)
+        time.sleep(2**attempt)
 
-            # confirm single file upload to bkit server
+        # confirm single file upload to bkit server
     return False
 
 
