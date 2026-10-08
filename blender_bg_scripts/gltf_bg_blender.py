@@ -1404,6 +1404,31 @@ def _trace_socket_to_image(socket: bpy.types.NodeSocket | None) -> bpy.types.Nod
     return None
 
 
+def _mixes_two_surfaces_by_input(mix: bpy.types.Node) -> bool:
+    """Return whether a Mix Shader blends two visible shaders by a linked factor.
+
+    A label or decal is often an image mask choosing between two Principled
+    shaders; keeping one branch would drop the label, so only a bake keeps it.
+    A Transparent branch is the alpha-cutout idiom and does not count.
+
+    Args:
+        mix: A ``MIX_SHADER`` node.
+
+    Returns:
+        True when the factor is linked and both shader inputs carry a non-transparent shader.
+    """
+    if not mix.inputs[0].is_linked:
+        return False
+    surfaces = [
+        link.from_node
+        for socket in mix.inputs
+        if socket.type == "SHADER"
+        for link in socket.links
+        if link.from_node.type != "BSDF_TRANSPARENT"
+    ]
+    return len(surfaces) > 1
+
+
 def _find_principled_via_mix(
     node: bpy.types.Node,
     depth: int = 0,
@@ -1424,6 +1449,8 @@ def _find_principled_via_mix(
     if node.type == "BSDF_PRINCIPLED":
         return node
     if node.type not in {"MIX_SHADER", "ADD_SHADER"}:
+        return None
+    if node.type == "MIX_SHADER" and _mixes_two_surfaces_by_input(node):
         return None
 
     candidates = [s for s in node.inputs if s.type == "SHADER" and s.is_linked]
