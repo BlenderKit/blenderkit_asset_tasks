@@ -38,7 +38,14 @@ DATA = {"file_path": "asset.blend", "result_filepath": "result.json", "asset_dat
 
 
 def _image(width: int, height: int) -> Any:
-    return types.SimpleNamespace(name="texture", size=(width, height), buffers_free=mock.Mock())
+    return types.SimpleNamespace(
+        name="texture",
+        size=(width, height),
+        type="IMAGE",
+        source="FILE",
+        library=None,
+        buffers_free=mock.Mock(),
+    )
 
 
 class ResolutionsOutcomeTests(unittest.TestCase):
