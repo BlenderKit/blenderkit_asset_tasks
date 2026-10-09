@@ -476,7 +476,10 @@ def image_to_numpy(i: Any) -> Any:
 
 
 def downscale(i: Any) -> None:
-    """Downscale an image by half while keeping minimum dimension >= MIN_DOWNSCALE_SIZE.
+    """Downscale an image by half while its longer side stays above MIN_DOWNSCALE_SIZE.
+
+    The longer side decides: a strip or decal (3629x115) halves like any other
+    texture, its short side down to 1 px.
 
     Args:
         i: Blender image object (`bpy.types.Image`).
@@ -484,8 +487,8 @@ def downscale(i: Any) -> None:
     sx, sy = i.size[:]
     sx = round(sx / 2)
     sy = round(sy / 2)
-    if sx > MIN_DOWNSCALE_SIZE and sy > MIN_DOWNSCALE_SIZE:
-        i.scale(sx, sy)
+    if max(sx, sy) > MIN_DOWNSCALE_SIZE:
+        i.scale(max(sx, 1), max(sy, 1))
 
 
 def get_rgb_mean(i: Any) -> tuple[float, float, float]:
