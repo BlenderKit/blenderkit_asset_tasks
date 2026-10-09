@@ -13,7 +13,7 @@ jobs:
   BLENDER_SCRIPTS:
     name: Blender scripts (Blender 4.0+)
     runs-on: ubuntu-latest
-    container: blenderkit/headless-blender:multi-version
+    container: ghcr.io/blenderkit/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v4
       - name: Run each script in every installed Blender 4.0+
