@@ -8,6 +8,7 @@ In the October 2026 re-run, 147 assets recorded "no-size-gain" and 74 crashed:
 - BMP, DDS and PSD textures crashed the save ("enum not found"), Blender cannot write
   the last two at all;
 - a generated color grid counted as a texture;
+- (after the fix above) a Radiance .hdr texture was written as PNG, clipping values above 1;
 - images linked from another .blend crashed the rename or unpack ("Image is not editable").
 
 Runs inside Blender, not unittest:
@@ -30,6 +31,8 @@ import resolutions_bg_blender  # noqa: E402
 SIZE = 1024
 SQUARE = 128
 HALF_FLOAT_BYTES = 2
+# Comfortably above 1, the ceiling of a clipped LDR write.
+HDR_ABOVE_LDR = 2.0
 RNG = np.random.default_rng(7)
 
 
@@ -45,6 +48,18 @@ def _packed_image(folder: str, name: str, file_format: str, pixels: np.ndarray, 
     image.pack()
     image.use_fake_user = True
     os.remove(os.path.join(folder, name))
+
+
+def _bright() -> np.ndarray:
+    ramp = np.linspace(0.0, 8.0, SIZE)
+    return _rgba(np.repeat(np.repeat(ramp[None, :, None], SIZE, axis=0), 3, axis=2))
+
+
+def _max_value(path: str) -> float:
+    image = bpy.data.images.load(path)
+    pixels = np.empty(len(image.pixels), dtype=np.float32)
+    image.pixels.foreach_get(pixels)
+    return float(pixels.reshape(-1, 4)[:, :3].max())
 
 
 def _rgba(rgb: np.ndarray) -> np.ndarray:
@@ -100,6 +115,7 @@ def test_packed_textures_in_formats_blender_struggles_with(folder: str) -> None:
     _packed_image(folder, "pattern.png", "PNG", _checker())
     _packed_image(folder, "legacy.bmp", "BMP", _noise())
     _packed_image(folder, "height.exr", "OPEN_EXR", _gradient(), float_buffer=True)
+    _packed_image(folder, "sky.hdr", "HDR", _bright(), float_buffer=True)
     grid = bpy.data.images.new("grid", SIZE, SIZE)
     grid.generated_type = "COLOR_GRID"
     grid.use_fake_user = True
@@ -110,7 +126,10 @@ def test_packed_textures_in_formats_blender_struggles_with(folder: str) -> None:
 
     assert [f["type"] for f in outcome.get("files", [])] == ["resolution_1K", "resolution_0_5K"], outcome
     half = _texture_files(folder, "_05k")
-    assert sorted(half) == ["height.exr", "legacy.png", "noise.jpg", "pattern.png"], half
+    assert sorted(half) == ["height.exr", "legacy.png", "noise.jpg", "pattern.png", "sky.hdr"], half
+    assert _max_value(os.path.join(folder, "textures_05k", "sky.hdr")) > HDR_ABOVE_LDR, (
+        "HDR values above 1 were clipped"
+    )
     uncompressed_exr = (SIZE // 2) ** 2 * 4 * HALF_FLOAT_BYTES
     assert half["height.exr"] < uncompressed_exr / 2, half
 
