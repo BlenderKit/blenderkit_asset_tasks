@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     # Multi-version image so resolutions open each asset with its matching
     # (never newer) Blender instead of always the latest.
-    container: blenderkit/headless-blender:multi-version
+    container: ghcr.io/blenderkit/headless-blender:multi-version
     steps:
       - uses: actions/checkout@v4
       - name: Install lsb-release
