@@ -33,6 +33,10 @@ from blenderkit_server_utils import paths, log, utils  # isort: skip  # noqa: E4
 
 logger = log.create_logger(__name__)
 
+# Blender 3.x renders the preview, then aborts the whole run ("Unable to open a
+# display", exit -6) before the marked .blend is saved.
+MIN_BACKGROUND_PREVIEW_VERSION = (4, 0, 0)
+
 
 WAIT_TIME = 2.0  # seconds
 
@@ -462,6 +466,9 @@ def _apply_asset_preview(data_block: Any, asset_data: dict[str, Any]) -> None:
             logger.info("Thumbnail preview applied successfully")
             return
 
+    if bpy.app.background and bpy.app.version < MIN_BACKGROUND_PREVIEW_VERSION:
+        logger.warning("No thumbnail, and Blender %s cannot render a preview in background: none set", bpy.app.version)
+        return
     try:
         if _op_poll(bpy.ops.ed.lib_id_generate_preview, data_block):
             _op_call(bpy.ops.ed.lib_id_generate_preview, data_block)
