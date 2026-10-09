@@ -5,6 +5,9 @@ transmission and subsurface, and nothing at all for a Glossy BSDF: procedural me
 glass and skin came out black or empty (112 of 176 baked base-color images in an October
 2026 sample of re-processed models). The metallic pass baked glossy lighting instead of
 the Metallic input. A mesh whose UVs all sit on one point baked nothing.
+A label printed by an image mask that mixes two Principled shaders lost the label:
+the material passed as image-only and exported the first shader's flat color
+('Beauty Cream Bottle Tube', October 2026).
 
 Runs inside Blender, not unittest:
     blender --background --factory-startup --python-exit-code 1 --python .tests/blender/test_gltf_bake_values.py
@@ -28,6 +31,7 @@ TOLERANCE = 0.08
 DOMINANT = 0.6
 OTHERS = 0.35
 COVERED = 0.02
+MASK_SIZE = 64
 
 
 def _constant_ramp(tree: bpy.types.NodeTree, color: tuple[float, float, float]) -> bpy.types.NodeSocket:
@@ -69,6 +73,33 @@ def _glossy_cube(name: str, location: float, color: tuple[float, float, float]) 
     glossy = tree.nodes.new("ShaderNodeBsdfGlossy")
     tree.links.new(_constant_ramp(tree, color), glossy.inputs["Color"])
     tree.links.new(glossy.outputs["BSDF"], tree.nodes["Material Output"].inputs["Surface"])
+    obj.data.materials.append(material)
+
+
+def _label_cube(name: str, location: float) -> None:
+    """Red and blue Principled shaders mixed by an image's alpha, left half opaque."""
+    bpy.ops.mesh.primitive_cube_add(location=(location, 0.0, 0.0))
+    obj = bpy.context.active_object
+    obj.name = name
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    tree = material.node_tree
+    red = tree.nodes["Principled BSDF"]
+    red.inputs["Base Color"].default_value = (0.8, 0.05, 0.05, 1.0)
+    blue = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    blue.inputs["Base Color"].default_value = (0.05, 0.05, 0.8, 1.0)
+    mask = bpy.data.images.new("label mask", MASK_SIZE, MASK_SIZE, alpha=True)
+    alpha = np.zeros((MASK_SIZE, MASK_SIZE, 4), dtype=np.float32)
+    alpha[:, : MASK_SIZE // 2] = 1.0
+    mask.pixels.foreach_set(alpha.ravel())
+    mask.pack()
+    texture = tree.nodes.new("ShaderNodeTexImage")
+    texture.image = mask
+    mix = tree.nodes.new("ShaderNodeMixShader")
+    tree.links.new(texture.outputs["Alpha"], mix.inputs["Fac"])
+    tree.links.new(red.outputs["BSDF"], mix.inputs[1])
+    tree.links.new(blue.outputs["BSDF"], mix.inputs[2])
+    tree.links.new(mix.outputs["Shader"], tree.nodes["Material Output"].inputs["Surface"])
     obj.data.materials.append(material)
 
 
@@ -121,6 +152,7 @@ def main() -> None:
     _cube("Blue plastic", 6.0, (0.05, 0.05, 0.8), linked_metallic=0.75)
     _glossy_cube("Yellow glossy", 9.0, (0.8, 0.8, 0.05))
     _cube("Flat UV", 12.0, (0.05, 0.8, 0.8))
+    _label_cube("Label", 15.0)
     for loop_uv in bpy.data.objects["Flat UV"].data.uv_layers[0].data:
         loop_uv.uv = (0.0, 0.0)
     folder = tempfile.mkdtemp()
@@ -132,9 +164,12 @@ def main() -> None:
     with open(result_path, encoding="utf-8") as f:
         glb_path = json.load(f)[0]["file_path"]
     textures = _textures(glb_path)
-    red, green, blue, yellow, flat = (
-        _named(textures, name) for name in ("Red metal", "Green glass", "Blue plastic", "Yellow glossy", "Flat UV")
+    red, green, blue, yellow, flat, label = (
+        _named(textures, name)
+        for name in ("Red metal", "Green glass", "Blue plastic", "Yellow glossy", "Flat UV", "Label")
     )
+    assert "color" in label, ("label exported without a base color texture", label)
+    assert min(label["color"][0], label["color"][2]) > OTHERS, ("label color mixes red and blue", label["color"])
     assert flat["color"][1:].min() > DOMINANT and flat["color"][0] < OTHERS, ("flat UV color", flat["color"])
     # Base colors come back in sRGB, so compare the dominant channel instead of exact values.
     assert red["color"][0] > DOMINANT and red["color"][1:].max() < OTHERS, ("red metal base color", red["color"])
