@@ -2442,11 +2442,17 @@ def _stand_in_diffuse(
     undo.append(restore)
 
 
+# A coat is a reflection layered over a colored base; Glass, Transparent and Emission carry no base color.
+_COAT_BSDFS = frozenset({"BSDF_GLOSSY", "BSDF_ANISOTROPIC"})
+_NOT_A_BASE = _COAT_BSDFS | {"BSDF_GLASS", "BSDF_REFRACTION", "BSDF_TRANSPARENT", "EMISSION", "HOLDOUT"}
+
+
 def _drop_specular_coat(tree: bpy.types.NodeTree, node: bpy.types.Node, undo: list[Callable[[], None]]) -> None:
-    """Keep only the non-specular side of a Mix or Add shader that layers a specular BSDF over another shader.
+    """Keep only the base side of a Mix or Add shader that layers a Glossy coat over a colored shader.
 
     A Glossy over a Diffuse (the pre-Principled plastic) is a dielectric coat: the
     color and metallic bakes must see the Diffuse alone, not a blend toward the coat.
+    Glass faded into Transparent is not a coat; it keeps the stand-in diffuse.
 
     Args:
         tree: Node tree owning the node.
@@ -2455,8 +2461,10 @@ def _drop_specular_coat(tree: bpy.types.NodeTree, node: bpy.types.Node, undo: li
     """
     shader_inputs = [socket for socket in node.inputs if socket.type == "SHADER"]
     sources = [socket.links[0].from_node if socket.links else None for socket in shader_inputs]
-    specular = [source is not None and source.type in _SPECULAR_BSDFS for source in sources]
-    if specular.count(True) != 1 or None in sources:
+    if None in sources:
+        return
+    specular = [source.type in _COAT_BSDFS for source in sources]
+    if specular.count(True) != 1 or sources[specular.index(False)].type in _NOT_A_BASE:
         return
     coat = shader_inputs[specular.index(True)]
     if node.type == "MIX_SHADER":
