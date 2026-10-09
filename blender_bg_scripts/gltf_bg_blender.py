@@ -1619,6 +1619,24 @@ def _collect_native_image_sources(info: dict[str, Any]) -> dict[str, tuple[bpy.t
     return sources
 
 
+def _unlinked_input_values(bsdf: bpy.types.Node) -> dict[str, Any]:
+    """Return the values of a node's unlinked inputs by socket identifier.
+
+    Args:
+        bsdf: Node whose constant inputs are copied.
+
+    Returns:
+        Mapping of input identifier to its default value.
+    """
+    return {
+        socket.identifier: (
+            tuple(socket.default_value) if hasattr(socket.default_value, "__len__") else socket.default_value
+        )
+        for socket in bsdf.inputs
+        if not socket.is_linked and hasattr(socket, "default_value")
+    }
+
+
 def simplify_material_to_principled(mat: bpy.types.Material, info: dict[str, Any]) -> None:  # noqa: C901, PLR0915
     """Rewrite a material's tree to a flat Principled + image textures graph.
 
@@ -1639,6 +1657,7 @@ def simplify_material_to_principled(mat: bpy.types.Material, info: dict[str, Any
         return
 
     sources = _collect_native_image_sources(info)
+    constants = _unlinked_input_values(info["principled"])
 
     nodes = mat.node_tree.nodes
     links = mat.node_tree.links
@@ -1650,6 +1669,10 @@ def simplify_material_to_principled(mat: bpy.types.Material, info: dict[str, Any
     bsdf = nodes.new(type="ShaderNodeBsdfPrincipled")
     bsdf.location = (300, 0)
     links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    for socket in bsdf.inputs:
+        # Alpha stays opaque unless a dedicated alpha image is wired below.
+        if socket.identifier in constants and socket.identifier != "Alpha":
+            socket.default_value = constants[socket.identifier]
 
     # Single UV node feeding all texture nodes — keeps the exporter happy and
     # preserves the original UV map (default = first/active one on the mesh).
