@@ -2552,6 +2552,11 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901, 
 
     PROCEDURAL_MATERIALS.extend(procedural_materials)
 
+    if obj.hide_render:
+        # Cycles bakes nothing for an object hidden from rendering; this file is never saved.
+        logger.info("Making '%s' renderable for baking", obj.name)
+        obj.hide_render = False
+
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(state=True)
     bpy.context.view_layer.objects.active = obj

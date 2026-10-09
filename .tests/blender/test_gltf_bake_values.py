@@ -10,6 +10,7 @@ the material passed as image-only and exported the first shader's flat color
 ('Beauty Cream Bottle Tube', October 2026).
 A diffuse color under a Glossy coat (the classic pre-Principled plastic) baked
 washed out toward the coat's white and partly metallic.
+An object hidden for rendering baked nothing: its GLB came out black ('Pink Eraser').
 
 Runs inside Blender, not unittest:
     blender --background --factory-startup --python-exit-code 1 --python .tests/blender/test_gltf_bake_values.py
@@ -177,6 +178,8 @@ def main() -> None:
     _cube("Flat UV", 12.0, (0.05, 0.8, 0.8))
     _label_cube("Label", 15.0)
     _coated_cube("Coated plastic", 18.0)
+    _cube("Render hidden", 21.0, (0.8, 0.05, 0.8))
+    bpy.data.objects["Render hidden"].hide_render = True
     for loop_uv in bpy.data.objects["Flat UV"].data.uv_layers[0].data:
         loop_uv.uv = (0.0, 0.0)
     folder = tempfile.mkdtemp()
@@ -188,13 +191,23 @@ def main() -> None:
     with open(result_path, encoding="utf-8") as f:
         glb_path = json.load(f)[0]["file_path"]
     textures = _textures(glb_path)
-    red, green, blue, yellow, flat, label, coated = (
+    red, green, blue, yellow, flat, label, coated, hidden = (
         _named(textures, name)
-        for name in ("Red metal", "Green glass", "Blue plastic", "Yellow glossy", "Flat UV", "Label", "Coated plastic")
+        for name in (
+            "Red metal",
+            "Green glass",
+            "Blue plastic",
+            "Yellow glossy",
+            "Flat UV",
+            "Label",
+            "Coated plastic",
+            "Render hidden",
+        )
     )
     assert coated["color"][0] > DOMINANT, ("coated plastic color", coated["color"])
     assert coated["color"][1:].max() < OTHERS, ("coated plastic color", coated["color"])
     assert abs(coated["orm"][2]) < TOLERANCE, ("coated plastic metallic", coated["orm"])
+    assert hidden["color"][[0, 2]].min() > DOMINANT, ("render-hidden object color", hidden["color"])
     assert "color" in label, ("label exported without a base color texture", label)
     assert min(label["color"][0], label["color"][2]) > OTHERS, ("label color mixes red and blue", label["color"])
     assert flat["color"][1:].min() > DOMINANT and flat["color"][0] < OTHERS, ("flat UV color", flat["color"])
