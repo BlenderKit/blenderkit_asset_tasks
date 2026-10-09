@@ -9,7 +9,8 @@ A label printed by an image mask that mixes two Principled shaders lost the labe
 the material passed as image-only and exported the first shader's flat color
 ('Beauty Cream Bottle Tube', October 2026).
 A diffuse color under a Glossy coat (the classic pre-Principled plastic) baked
-washed out toward the coat's white and partly metallic.
+washed out toward the coat's white and partly metallic. Glass faded into a
+Transparent BSDF is not such a coat: treating it as one baked a green serum bottle black.
 An object hidden for rendering baked nothing: its GLB came out black ('Pink Eraser').
 
 Runs inside Blender, not unittest:
@@ -100,6 +101,27 @@ def _coated_cube(name: str, location: float) -> None:
     obj.data.materials.append(material)
 
 
+def _glass_cube(name: str, location: float) -> None:
+    """Green Glass faded into Transparent by a Fresnel factor, as glass bottles are often built."""
+    bpy.ops.mesh.primitive_cube_add(location=(location, 0.0, 0.0))
+    obj = bpy.context.active_object
+    obj.name = name
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.remove(tree.nodes["Principled BSDF"])
+    glass = tree.nodes.new("ShaderNodeBsdfGlass")
+    tree.links.new(_constant_ramp(tree, (0.05, 0.8, 0.05)), glass.inputs["Color"])
+    transparent = tree.nodes.new("ShaderNodeBsdfTransparent")
+    fresnel = tree.nodes.new("ShaderNodeLayerWeight")
+    mix = tree.nodes.new("ShaderNodeMixShader")
+    tree.links.new(fresnel.outputs["Fresnel"], mix.inputs["Fac"])
+    tree.links.new(glass.outputs["BSDF"], mix.inputs[1])
+    tree.links.new(transparent.outputs["BSDF"], mix.inputs[2])
+    tree.links.new(mix.outputs["Shader"], tree.nodes["Material Output"].inputs["Surface"])
+    obj.data.materials.append(material)
+
+
 def _label_cube(name: str, location: float) -> None:
     """Red and blue Principled shaders mixed by an image's alpha, left half opaque."""
     bpy.ops.mesh.primitive_cube_add(location=(location, 0.0, 0.0))
@@ -180,6 +202,7 @@ def main() -> None:
     _coated_cube("Coated plastic", 18.0)
     _cube("Render hidden", 21.0, (0.8, 0.05, 0.8))
     bpy.data.objects["Render hidden"].hide_render = True
+    _glass_cube("Glass bottle", 24.0)
     for loop_uv in bpy.data.objects["Flat UV"].data.uv_layers[0].data:
         loop_uv.uv = (0.0, 0.0)
     folder = tempfile.mkdtemp()
@@ -191,7 +214,7 @@ def main() -> None:
     with open(result_path, encoding="utf-8") as f:
         glb_path = json.load(f)[0]["file_path"]
     textures = _textures(glb_path)
-    red, green, blue, yellow, flat, label, coated, hidden = (
+    red, green, blue, yellow, flat, label, coated, hidden, bottle = (
         _named(textures, name)
         for name in (
             "Red metal",
@@ -202,8 +225,10 @@ def main() -> None:
             "Label",
             "Coated plastic",
             "Render hidden",
+            "Glass bottle",
         )
     )
+    assert bottle["color"][1] > DOMINANT, ("glass bottle color", bottle["color"])
     assert coated["color"][0] > DOMINANT, ("coated plastic color", coated["color"])
     assert coated["color"][1:].max() < OTHERS, ("coated plastic color", coated["color"])
     assert abs(coated["orm"][2]) < TOLERANCE, ("coated plastic metallic", coated["orm"])
