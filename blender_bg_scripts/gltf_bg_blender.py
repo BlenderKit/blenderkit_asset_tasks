@@ -2442,6 +2442,56 @@ def _stand_in_diffuse(
     undo.append(restore)
 
 
+def _drop_specular_coat(tree: bpy.types.NodeTree, node: bpy.types.Node, undo: list[Callable[[], None]]) -> None:
+    """Keep only the non-specular side of a Mix or Add shader that layers a specular BSDF over another shader.
+
+    A Glossy over a Diffuse (the pre-Principled plastic) is a dielectric coat: the
+    color and metallic bakes must see the Diffuse alone, not a blend toward the coat.
+
+    Args:
+        tree: Node tree owning the node.
+        node: A ``MIX_SHADER`` or ``ADD_SHADER`` node.
+        undo: Restore callables, appended to.
+    """
+    shader_inputs = [socket for socket in node.inputs if socket.type == "SHADER"]
+    sources = [socket.links[0].from_node if socket.links else None for socket in shader_inputs]
+    specular = [source is not None and source.type in _SPECULAR_BSDFS for source in sources]
+    if specular.count(True) != 1 or None in sources:
+        return
+    coat = shader_inputs[specular.index(True)]
+    if node.type == "MIX_SHADER":
+        # Fac 0 takes the first shader, 1 the second.
+        _set_input(tree, node.inputs["Fac"], 0.0 if specular[1] else 1.0, undo)
+        return
+    source = coat.links[0].from_socket
+    tree.links.remove(coat.links[0])
+    undo.append(lambda: tree.links.new(source, coat))
+
+
+def _rewire_tree(tree: bpy.types.NodeTree, kind: str, undo: list[Callable[[], None]]) -> None:
+    """Rewire one node tree for a diffuse color bake of ``kind``.
+
+    Args:
+        tree: Material or node group tree.
+        kind: "albedo" or "metallic".
+        undo: Restore callables, appended to.
+    """
+    # Before the stand-ins below, which would hide that a coat is specular.
+    for node in list(tree.nodes):
+        if node.type in {"MIX_SHADER", "ADD_SHADER"}:
+            _drop_specular_coat(tree, node, undo)
+    for node in list(tree.nodes):  # stand-in diffuse nodes join tree.nodes as we go
+        if node.type == "BSDF_PRINCIPLED":
+            if kind == "metallic":
+                _route_metallic_to_base_color(tree, node, undo)
+            for name in _DIFFUSE_COLOR_DIMMING_INPUTS:
+                _set_input(tree, node.inputs.get(name), 0.0, undo)
+        elif node.type in _SPECULAR_BSDFS:
+            _stand_in_diffuse(tree, node, _SPECULAR_BSDFS[node.type] if kind == "metallic" else None, undo)
+        elif kind == "metallic" and node.type in _COLORED_BSDFS:
+            _set_input(tree, node.inputs.get("Color"), (0.0, 0.0, 0.0, 1.0), undo)
+
+
 @contextmanager
 def baked_inputs(materials: Iterable[bpy.types.Material], kind: str | None) -> Iterator[None]:
     """Rewire shader inputs so a diffuse color bake records what the pass needs, then restore them.
@@ -2456,16 +2506,7 @@ def baked_inputs(materials: Iterable[bpy.types.Material], kind: str | None) -> I
     undo: list[Callable[[], None]] = []
     if kind is not None:
         for tree in _node_trees(materials):
-            for node in list(tree.nodes):  # stand-in diffuse nodes join tree.nodes as we go
-                if node.type == "BSDF_PRINCIPLED":
-                    if kind == "metallic":
-                        _route_metallic_to_base_color(tree, node, undo)
-                    for name in _DIFFUSE_COLOR_DIMMING_INPUTS:
-                        _set_input(tree, node.inputs.get(name), 0.0, undo)
-                elif node.type in _SPECULAR_BSDFS:
-                    _stand_in_diffuse(tree, node, _SPECULAR_BSDFS[node.type] if kind == "metallic" else None, undo)
-                elif kind == "metallic" and node.type in _COLORED_BSDFS:
-                    _set_input(tree, node.inputs.get("Color"), (0.0, 0.0, 0.0, 1.0), undo)
+            _rewire_tree(tree, kind, undo)
     try:
         yield
     finally:
