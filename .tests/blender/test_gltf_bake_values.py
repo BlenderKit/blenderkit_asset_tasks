@@ -8,6 +8,8 @@ the Metallic input. A mesh whose UVs all sit on one point baked nothing.
 A label printed by an image mask that mixes two Principled shaders lost the label:
 the material passed as image-only and exported the first shader's flat color
 ('Beauty Cream Bottle Tube', October 2026).
+A diffuse color under a Glossy coat (the classic pre-Principled plastic) baked
+washed out toward the coat's white and partly metallic.
 
 Runs inside Blender, not unittest:
     blender --background --factory-startup --python-exit-code 1 --python .tests/blender/test_gltf_bake_values.py
@@ -73,6 +75,27 @@ def _glossy_cube(name: str, location: float, color: tuple[float, float, float]) 
     glossy = tree.nodes.new("ShaderNodeBsdfGlossy")
     tree.links.new(_constant_ramp(tree, color), glossy.inputs["Color"])
     tree.links.new(glossy.outputs["BSDF"], tree.nodes["Material Output"].inputs["Surface"])
+    obj.data.materials.append(material)
+
+
+def _coated_cube(name: str, location: float) -> None:
+    """Red Diffuse and white Glossy mixed half and half: a plastic, not a metal."""
+    bpy.ops.mesh.primitive_cube_add(location=(location, 0.0, 0.0))
+    obj = bpy.context.active_object
+    obj.name = name
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    tree = material.node_tree
+    tree.nodes.remove(tree.nodes["Principled BSDF"])
+    diffuse = tree.nodes.new("ShaderNodeBsdfDiffuse")
+    tree.links.new(_constant_ramp(tree, (0.8, 0.05, 0.05)), diffuse.inputs["Color"])
+    glossy = tree.nodes.new("ShaderNodeBsdfGlossy")
+    glossy.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)
+    mix = tree.nodes.new("ShaderNodeMixShader")
+    mix.inputs["Fac"].default_value = 0.5
+    tree.links.new(diffuse.outputs["BSDF"], mix.inputs[1])
+    tree.links.new(glossy.outputs["BSDF"], mix.inputs[2])
+    tree.links.new(mix.outputs["Shader"], tree.nodes["Material Output"].inputs["Surface"])
     obj.data.materials.append(material)
 
 
@@ -153,6 +176,7 @@ def main() -> None:
     _glossy_cube("Yellow glossy", 9.0, (0.8, 0.8, 0.05))
     _cube("Flat UV", 12.0, (0.05, 0.8, 0.8))
     _label_cube("Label", 15.0)
+    _coated_cube("Coated plastic", 18.0)
     for loop_uv in bpy.data.objects["Flat UV"].data.uv_layers[0].data:
         loop_uv.uv = (0.0, 0.0)
     folder = tempfile.mkdtemp()
@@ -164,10 +188,13 @@ def main() -> None:
     with open(result_path, encoding="utf-8") as f:
         glb_path = json.load(f)[0]["file_path"]
     textures = _textures(glb_path)
-    red, green, blue, yellow, flat, label = (
+    red, green, blue, yellow, flat, label, coated = (
         _named(textures, name)
-        for name in ("Red metal", "Green glass", "Blue plastic", "Yellow glossy", "Flat UV", "Label")
+        for name in ("Red metal", "Green glass", "Blue plastic", "Yellow glossy", "Flat UV", "Label", "Coated plastic")
     )
+    assert coated["color"][0] > DOMINANT, ("coated plastic color", coated["color"])
+    assert coated["color"][1:].max() < OTHERS, ("coated plastic color", coated["color"])
+    assert abs(coated["orm"][2]) < TOLERANCE, ("coated plastic metallic", coated["orm"])
     assert "color" in label, ("label exported without a base color texture", label)
     assert min(label["color"][0], label["color"][2]) > OTHERS, ("label color mixes red and blue", label["color"])
     assert flat["color"][1:].min() > DOMINANT and flat["color"][0] < OTHERS, ("flat UV color", flat["color"])
