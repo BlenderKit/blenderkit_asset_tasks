@@ -31,8 +31,18 @@ NORMAL_MEAN_LOW = 0.45
 NORMAL_MEAN_HIGH = 0.55
 MIN_DOWNSCALE_SIZE = 128
 # Formats the reductions write, with the color depths each accepts (first = fallback).
-# Anything else Blender can only read (DDS, PSD, ...) or that a smaller PNG replaces (BMP, TGA, TIFF).
-WRITABLE_FORMAT_DEPTHS: dict[str, tuple[str, ...]] = {"PNG": ("8", "16"), "JPEG": ("8",), "OPEN_EXR": ("16", "32")}
+# Anything else Blender can only read (DDS, PSD, ...) or that a smaller PNG replaces (BMP, TGA).
+WRITABLE_FORMAT_DEPTHS: dict[str, tuple[str, ...]] = {
+    "PNG": ("8", "16"),
+    "JPEG": ("8",),
+    "OPEN_EXR": ("16", "32"),
+    "HDR": ("32",),
+    "TIFF": ("8", "16"),
+    "WEBP": ("8",),
+}
+# Formats that keep values above 1; a 32-bit float source in any other format is written as EXR.
+FLOAT_FORMATS = frozenset({"OPEN_EXR", "HDR"})
+FLOAT_DEPTH_MIN = 96
 # Lossless; Blender otherwise writes EXR uncompressed.
 EXR_CODEC = "ZIP"
 
@@ -665,18 +675,24 @@ def image_file_size(img: Any) -> int:
     return sum(packed.packed_file.size for packed in img.packed_files)
 
 
-def _writable_format(file_format: str, filepath: str) -> tuple[str, str]:
+def _writable_format(image: Any, filepath: str) -> tuple[str, str]:
     """Return the format to write an image in and the path with a matching extension.
 
     Args:
-        file_format: The image's own file format; empty for formats Blender cannot name.
+        image: Blender image; its file format is empty for formats Blender cannot name.
         filepath: Target path.
 
     Returns:
-        The format itself when the reductions write it, else PNG with a ``.png`` path.
+        The image's own format when the reductions write it and it keeps the image's
+        range, else EXR for a 32-bit float image and PNG for the rest, with the path's
+        extension changed to match.
     """
-    if file_format in WRITABLE_FORMAT_DEPTHS:
+    file_format = image.file_format
+    is_float = image.depth >= FLOAT_DEPTH_MIN
+    if file_format in WRITABLE_FORMAT_DEPTHS and (file_format in FLOAT_FORMATS or not is_float):
         return file_format, filepath
+    if is_float:
+        return "OPEN_EXR", os.path.splitext(filepath)[0] + ".exr"
     return "PNG", os.path.splitext(filepath)[0] + ".png"
 
 
@@ -814,7 +830,7 @@ def _reduce_tiled_image(
     dst_template = _apply_udim_marker_if_needed(teximage, input_filepath)
     if "<UDIM>" not in dst_template:
         dst_template = re.sub(r"1\d{3}(?=\.[^.]+$)", "<UDIM>", dst_template)
-    _format, dst_template = _writable_format(teximage.file_format, dst_template)
+    _format, dst_template = _writable_format(teximage, dst_template)
     colorspace = teximage.colorspace_settings.name
 
     for tile in list(teximage.tiles):
@@ -915,7 +931,7 @@ def make_possible_reductions_on_image(
     # IMPORTANT: file_format must be set BEFORE color_mode, because Blender
     # restricts the color_mode enum based on the current file_format (e.g.
     # JPEG only allows BW/RGB and would raise TypeError for "RGBA").
-    output_format, fp = _writable_format(teximage.file_format, _apply_udim_marker_if_needed(teximage, input_filepath))
+    output_format, fp = _writable_format(teximage, _apply_udim_marker_if_needed(teximage, input_filepath))
     if output_format != teximage.file_format:
         logger.info("Writing %s as %s instead of %r", teximage.name, output_format, teximage.file_format)
     ims.file_format = output_format
