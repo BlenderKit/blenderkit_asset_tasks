@@ -65,6 +65,9 @@ UV_SPACE_EPSILON = 1e-5
 # island counts (e.g., foliage assets with hundreds of thousands of leaves).
 # When exceeded we assume overlap exists and trigger the procedural relayout.
 MAX_ISLANDS_FOR_OVERLAP_CHECK = 4096
+# Face pairs of two islands compared at once: a 16 MiB boolean matrix. Two islands of
+# 556,320 faces each once asked numpy for 288 GiB.
+MAX_FACE_PAIRS_FOR_OVERLAP_CHECK = 2**24
 
 # In Blender 6.0+ Material.use_nodes is removed (materials always use nodes).
 BLENDER_6_PLUS: bool = bpy.app.version >= (6, 0, 0)
@@ -785,6 +788,15 @@ def check_uv_face_overlap(bm: bmesh.types.BMesh, uv_layer: bpy.types.MeshUVLoopL
         return False
 
     def _check_island_pair(island_a: dict[str, Any], island_b: dict[str, Any]) -> bool:
+        pairs = len(island_a["faces"]) * len(island_b["faces"])
+        if pairs > MAX_FACE_PAIRS_FOR_OVERLAP_CHECK:
+            logger.warning(
+                "%d face pairs exceed MAX_FACE_PAIRS_FOR_OVERLAP_CHECK=%d; "
+                "treating the islands as overlapping to avoid OOM.",
+                pairs,
+                MAX_FACE_PAIRS_FOR_OVERLAP_CHECK,
+            )
+            return True
         candidate_mask = _bounds_overlap_numpy(island_a["face_bounds"], island_b["face_bounds"])
         if not candidate_mask.any():
             return False
