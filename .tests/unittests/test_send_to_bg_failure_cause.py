@@ -84,5 +84,57 @@ class RunBlenderFailureCauseTests(unittest.TestCase):
         self.assertEqual(run.failure, "bg_returncode=101")
 
 
+# When Blender itself refuses a file, the reason is a report line on stdout, not a
+# traceback: 11 materials recorded only "bg_returncode=70" in October 2026.
+UNREADABLE_BLEND_5X = (
+    "00:00.153  reports          | ERROR Failed to read blend file '/tmp/a/x.blend': Missing DNA block"
+)
+UNREADABLE_BLEND_3X = "Error: Failed to read blend file '/tmp/a/x.blend': Missing DNA block"
+NOISE = (
+    "Error: script failed, file: '/app/blender_bg_scripts/resolutions_bg_blender.py', exiting.",
+    "Error: Not freed memory blocks: 2, total unfreed memory 0.0004 MB",
+    "Error: Python: Traceback (most recent call last):",
+)
+
+
+class BlenderErrorLineTests(unittest.TestCase):
+    def test_a_blender_5_report_is_found(self) -> None:
+        cause = send_to_bg.blender_error_line(deque([UNREADABLE_BLEND_5X, *NOISE]))
+
+        self.assertEqual(cause, "Failed to read blend file '/tmp/a/x.blend': Missing DNA block")
+
+    def test_a_blender_3_report_is_found(self) -> None:
+        cause = send_to_bg.blender_error_line(deque([UNREADABLE_BLEND_3X, *NOISE]))
+
+        self.assertEqual(cause, "Failed to read blend file '/tmp/a/x.blend': Missing DNA block")
+
+    def test_the_last_report_wins(self) -> None:
+        lines = ["Error: Image 'a.png' has no data", "Error: Unable to pack file, source path '/d/x.jpg' not found"]
+
+        self.assertEqual(
+            send_to_bg.blender_error_line(deque(lines)),
+            "Unable to pack file, source path '/d/x.jpg' not found",
+        )
+
+    def test_blender_notices_are_not_a_cause(self) -> None:
+        self.assertEqual(send_to_bg.blender_error_line(deque(NOISE)), "")
+
+
+class RunBlenderReportedErrorTests(unittest.TestCase):
+    def test_a_blender_report_on_stdout_is_the_cause_without_a_traceback(self) -> None:
+        script = f"import sys; print({UNREADABLE_BLEND_5X!r}); sys.exit(1)"
+
+        run = send_to_bg._run_blender([sys.executable, "-c", script], verbosity_level=0)
+
+        self.assertEqual(run.failure, "bg_returncode=1: Failed to read blend file '/tmp/a/x.blend': Missing DNA block")
+
+    def test_a_traceback_still_wins_over_a_report(self) -> None:
+        script = f"print({UNREADABLE_BLEND_3X!r}); raise RuntimeError('Error: Cannot bake')"
+
+        run = send_to_bg._run_blender([sys.executable, "-c", script], verbosity_level=0)
+
+        self.assertEqual(run.failure, "bg_returncode=1: RuntimeError: Error: Cannot bake")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,6 +40,10 @@ TIMEOUT_RETURNCODE: int = 124
 SCRIPT_EXCEPTION_RETURNCODE: int = 70
 # The closing line of a Python traceback, e.g. "RuntimeError: Error: Cannot bake".
 _EXCEPTION_LINE_RE = re.compile(r"^(?:\w+\.)*(?:\w+Error|\w*Exception)(?::\s.*)?$")
+# Blender's own error report: "Error: <message>" (3.x/4.x) or "<time>  reports  | ERROR <message>" (5.x).
+_BLENDER_ERROR_RE = re.compile(r"^(?:Error:|[\d:.]+\s+reports\s+\|\s+ERROR)\s+(?P<message>.+)$")
+# Error reports Blender prints after any failure; they never say why.
+_BLENDER_ERROR_NOTICES = ("script failed, file:", "Not freed memory blocks", "Python: Traceback")
 
 # Stderr patterns that are harmless warnings rather than real errors.
 # Lines matching any of these are downgraded from ERROR to WARNING.
@@ -435,6 +439,25 @@ def exception_line(lines: Sequence[str]) -> str:
     return next((line for line in reversed(lines) if _EXCEPTION_LINE_RE.match(line)), "")
 
 
+def blender_error_line(lines: Sequence[str]) -> str:
+    """Return the message of Blender's last error report in these lines, or ''.
+
+    Blender refusing a file ("Failed to read blend file ...") reports on stdout and
+    leaves no traceback.
+
+    Args:
+        lines: Output lines of a Blender run.
+
+    Returns:
+        The report's message without Blender's prefix.
+    """
+    for line in reversed(lines):
+        match = _BLENDER_ERROR_RE.match(line)
+        if match and not match["message"].startswith(_BLENDER_ERROR_NOTICES):
+            return match["message"]
+    return ""
+
+
 def _run_blender(command: list[str], verbosity_level: int, timeout_seconds: float | None = None) -> BlenderRun:
     """Run Blender with the given command and stream output per verbosity.
 
@@ -485,7 +508,12 @@ def _run_blender(command: list[str], verbosity_level: int, timeout_seconds: floa
         logger.error("Blender exceeded its %s s limit and was killed: %s", timeout_seconds, command)
         cause = f"timed out after {timeout_seconds} s"
     elif returncode != 0:
-        cause = exception_line(stderr_lines)
+        cause = (
+            exception_line(stderr_lines)
+            or exception_line(stdout_lines)
+            or blender_error_line(stdout_lines)
+            or blender_error_line(stderr_lines)
+        )
     if returncode != 0:
         _log_stream_tail("STDOUT", stdout_lines)
         _log_stream_tail("STDERR", stderr_lines)
