@@ -76,6 +76,7 @@ def generate_prxc(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
         asset_data=asset_data,
         asset_file_path=asset_file_path,
         script="unpack_asset_bg.py",
+        preload_script=send_to_bg.LIGHT_LOAD_SCRIPT,
         binary_path=binary_path,
     )
 

@@ -81,6 +81,7 @@ def _maybe_unpack_asset(asset_data: dict[str, Any], asset_file_path: str, blende
             asset_data,
             asset_file_path=asset_file_path,
             script="unpack_asset_bg.py",
+            preload_script=send_to_bg.LIGHT_LOAD_SCRIPT,
             binary_path=blender_binary_path,
             timeout_seconds=config.UNPACK_JOB_TIMEOUT_SECONDS or None,
         )
@@ -126,6 +127,7 @@ def _send_to_bg_for_resolutions(
             template_file_path=os.path.join(current_dir, "blend_files", "empty.blend"),
             result_path=result_path,
             script="resolutions_bg_blender.py",
+            preload_script=send_to_bg.LIGHT_LOAD_SCRIPT,
             binary_path=blender_binary_path,
             timeout_seconds=config.GENERATION_JOB_TIMEOUT_SECONDS or None,
         )

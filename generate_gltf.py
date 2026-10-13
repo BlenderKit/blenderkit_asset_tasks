@@ -215,6 +215,7 @@ def generate_gltf(
         asset_data=asset_data,
         asset_file_path=asset_file_path,
         script="unpack_asset_bg.py",
+        preload_script=send_to_bg.LIGHT_LOAD_SCRIPT,
         binary_path=binary_path,
         timeout_seconds=config.UNPACK_JOB_TIMEOUT_SECONDS or None,
     )
