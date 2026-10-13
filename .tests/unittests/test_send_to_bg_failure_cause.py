@@ -43,6 +43,22 @@ class BuildCommandTests(unittest.TestCase):
             ["--python-exit-code", str(send_to_bg.SCRIPT_EXCEPTION_RETURNCODE)],
         )
 
+    def test_a_preload_script_runs_before_the_blend_is_opened(self) -> None:
+        command = send_to_bg._insert_preload(
+            send_to_bg._build_command("blender", "asset.blend", "script.py", "data.json", addons=""),
+            "asset.blend",
+            "light_load_bg.py",
+        )
+
+        preload_at = next(i for i, arg in enumerate(command) if arg.endswith("light_load_bg.py"))
+        self.assertEqual(command[preload_at - 1], "--python")
+        self.assertLess(preload_at, command.index("asset.blend"))
+
+    def test_without_a_preload_only_the_job_script_runs(self) -> None:
+        built = send_to_bg._build_command("blender", "asset.blend", "script.py", "data.json", addons="")
+
+        self.assertEqual(send_to_bg._insert_preload(built, "asset.blend", ""), built)
+
 
 class ExceptionLineTests(unittest.TestCase):
     def test_the_final_exception_line_of_a_blender_traceback_is_found(self) -> None:

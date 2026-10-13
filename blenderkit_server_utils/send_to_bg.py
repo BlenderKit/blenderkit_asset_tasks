@@ -38,6 +38,8 @@ TIMEOUT_RETURNCODE: int = 124
 # sysexits' EX_SOFTWARE, distinct from Blender's own 1 for a .blend it cannot
 # load and from the codes the scripts exit with deliberately.
 SCRIPT_EXCEPTION_RETURNCODE: int = 70
+# Preload for jobs that only touch images and asset metadata: opens files with subdivision capped.
+LIGHT_LOAD_SCRIPT: str = "light_load_bg.py"
 # The closing line of a Python traceback, e.g. "RuntimeError: Error: Cannot bake".
 _EXCEPTION_LINE_RE = re.compile(r"^(?:\w+\.)*(?:\w+Error|\w*Exception)(?::\s.*)?$")
 # Blender's own error report: "Error: <message>" (3.x/4.x) or "<time>  reports  | ERROR <message>" (5.x).
@@ -374,6 +376,23 @@ def _build_command(
     return command
 
 
+def _insert_preload(command: list[str], template_file_path: str, preload_script: str) -> list[str]:
+    """Run ``preload_script`` before Blender opens ``template_file_path``; without one, return the command as is.
+
+    Args:
+        command: Command from `_build_command`.
+        template_file_path: The .blend the command opens.
+        preload_script: Background script name, or "" for none.
+
+    Returns:
+        The command with ``--python <preload>`` ahead of the .blend.
+    """
+    if not preload_script:
+        return command
+    at = command.index(template_file_path)
+    return [*command[:at], "--python", os.path.join(paths.BG_SCRIPTS_PATH, preload_script), *command[at:]]
+
+
 class _StderrCallback:
     """Stateful stderr callback that downgrades known multi-line warnings.
 
@@ -589,6 +608,7 @@ def send_to_bg(  # noqa: PLR0913
     binary_path: str = "",
     target_formats: Sequence[str] = (),
     timeout_seconds: float | None = None,
+    preload_script: str = "",
 ) -> BlenderRun:
     """Run a Blender background script and wait for it to finish.
 
@@ -608,6 +628,8 @@ def send_to_bg(  # noqa: PLR0913
         target_formats: Optional export formats forwarded to script.
         timeout_seconds: Kill Blender after this many seconds and return TIMEOUT_RETURNCODE;
             None waits for as long as it runs.
+        preload_script: Background script run before the .blend is opened, e.g.
+            LIGHT_LOAD_SCRIPT for jobs that never need evaluated geometry.
 
     Returns:
         The run's exit code (TIMEOUT_RETURNCODE if it was killed) and its failure cause.
@@ -626,7 +648,11 @@ def send_to_bg(  # noqa: PLR0913
     datafile = _write_datafile(temp_folder, payload)
     logger.info("Opening Blender instance to process script: %s", script)
     template_file_path = _resolve_template(template_file_path, asset_file_path)
-    command = _build_command(binary_path, template_file_path, script, datafile, addons)
+    command = _insert_preload(
+        _build_command(binary_path, template_file_path, script, datafile, addons),
+        template_file_path,
+        preload_script,
+    )
     run = _run_blender(command, verbosity_level, timeout_seconds=timeout_seconds)
 
     if run.returncode != 0:

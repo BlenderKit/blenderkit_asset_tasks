@@ -144,7 +144,12 @@ def _download_and_unpack(asset_data: dict[str, Any], api_key: str) -> str | None
         return None
 
     try:
-        send_to_bg.send_to_bg(asset_data, asset_file_path=asset_file_path, script="unpack_asset_bg.py")
+        send_to_bg.send_to_bg(
+            asset_data,
+            asset_file_path=asset_file_path,
+            script="unpack_asset_bg.py",
+            preload_script=send_to_bg.LIGHT_LOAD_SCRIPT,
+        )
     except Exception:
         logger.exception("Unpack (BG) failed for asset %s", asset_data.get("name"))
         return None
