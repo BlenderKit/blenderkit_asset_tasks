@@ -9,7 +9,9 @@ In the October 2026 re-run, 147 assets recorded "no-size-gain" and 74 crashed:
   the last two at all;
 - a generated color grid counted as a texture;
 - (after the fix above) a Radiance .hdr texture was written as PNG, clipping values above 1;
-- images linked from another .blend crashed the rename or unpack ("Image is not editable").
+- images linked from another .blend crashed the rename or unpack ("Image is not editable");
+- a 67,638 px wide strip could not be re-encoded: JPEG holds at most 65,535 px a side and
+  Blender 4.1-4.4 cannot write a PNG that wide either.
 
 Runs inside Blender, not unittest:
     blender --background --factory-startup --python-exit-code 1 --python .tests/blender/test_resolutions_images.py
@@ -17,8 +19,10 @@ Runs inside Blender, not unittest:
 
 import glob
 import os
+import struct
 import sys
 import tempfile
+import zlib
 
 import bpy
 import numpy as np
@@ -163,9 +167,50 @@ def test_textures_linked_from_another_file_are_left_alone(folder: str) -> None:
         raise AssertionError("an asset whose textures are all linked must not pass as procedural")
 
 
+def _wide_png(path: str, width: int, height: int) -> bytes:
+    """Write an opaque grey PNG without Blender: Blender 4.1-4.4 cannot write one this wide."""
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    rows = (b"\x00" + b"\x80" * width * 3) * height
+    data = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows))
+        + chunk(b"IEND", b"")
+    )
+    with open(path, "wb") as file:
+        file.write(data)
+    return data
+
+
+def test_a_texture_wider_than_any_format_allows_keeps_its_file(folder: str) -> None:
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    source = os.path.join(folder, "strip.png")
+    original = _wide_png(source, 66000, 64)
+    image = bpy.data.images.load(source)
+    if image.size[0] == 0:
+        sys.stderr.write(f"SKIP: Blender {bpy.app.version_string} cannot read a PNG this wide\n")
+        return
+    image.pack()
+    image.use_fake_user = True
+    os.remove(source)
+    blend_path = os.path.join(folder, "asset.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=blend_path)
+
+    outcome = _generate(blend_path)
+
+    assert "files" in outcome, outcome
+    with open(os.path.join(folder, "textures_8k", "strip.png"), "rb") as file:
+        assert file.read() == original, "the original-resolution texture was re-encoded"
+    assert sorted(_texture_files(folder, "_4k")) == ["strip.png"], _texture_files(folder, "_4k")
+
+
 def main() -> None:
     test_packed_textures_in_formats_blender_struggles_with(tempfile.mkdtemp())
     test_textures_linked_from_another_file_are_left_alone(tempfile.mkdtemp())
+    test_a_texture_wider_than_any_format_allows_keeps_its_file(tempfile.mkdtemp())
 
 
 main()
