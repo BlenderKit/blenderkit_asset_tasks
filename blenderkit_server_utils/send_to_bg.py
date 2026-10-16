@@ -38,6 +38,8 @@ TIMEOUT_RETURNCODE: int = 124
 # sysexits' EX_SOFTWARE, distinct from Blender's own 1 for a .blend it cannot
 # load and from the codes the scripts exit with deliberately.
 SCRIPT_EXCEPTION_RETURNCODE: int = 70
+# Blender's own words when it cannot open a .blend at all; no retry changes them.
+UNREADABLE_BLEND_MESSAGES: tuple[str, ...] = ("Failed to read blend file", "the blend file is likely corrupted")
 # Preload for jobs that only touch images and asset metadata: opens files with subdivision capped.
 LIGHT_LOAD_SCRIPT: str = "light_load_bg.py"
 # The closing line of a Python traceback, e.g. "RuntimeError: Error: Cannot bake".
@@ -451,6 +453,11 @@ class BlenderRun:
         if not self.cause:
             return f"bg_returncode={self.returncode}"
         return f"bg_returncode={self.returncode}: {self.cause}"
+
+    @property
+    def unreadable_blend(self) -> bool:
+        """Tell whether the run failed because Blender could not open the .blend itself."""
+        return self.returncode != 0 and any(message in self.cause for message in UNREADABLE_BLEND_MESSAGES)
 
 
 def exception_line(lines: Sequence[str]) -> str:

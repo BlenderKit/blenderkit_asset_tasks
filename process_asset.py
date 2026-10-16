@@ -18,6 +18,7 @@ The individual ``generate_*`` scripts remain runnable by hand for targeted rerun
 
 from __future__ import annotations
 
+import enum
 import os
 import shutil
 import tempfile
@@ -245,7 +246,16 @@ def _patch_processing_date(asset_data: dict[str, Any], api_key: str) -> None:
         logger.info("Patched %s=%s for asset %s", PARAM_PROCESSING_DATE, processing_date, asset_data.get("id"))
 
 
-def _mark_and_reupload(asset_data: dict[str, Any], api_key: str, binary_path: str, blend_path: str) -> bool:
+class Mark(enum.Enum):
+    """How re-marking an asset's .blend ended."""
+
+    OK = "ok"
+    FAILED = "FAILED"
+    # Blender cannot open the file: only the creator can fix it, so the sweep must not retry it.
+    UNREADABLE = "unreadable"
+
+
+def _mark_and_reupload(asset_data: dict[str, Any], api_key: str, binary_path: str, blend_path: str) -> Mark:
     """Re-mark the asset's canonical .blend and re-upload it to the server.
 
     Marks exactly the right data block while keeping textures packed, saves the
@@ -262,13 +272,13 @@ def _mark_and_reupload(asset_data: dict[str, Any], api_key: str, binary_path: st
             later resolution/GLTF jobs).
 
     Returns:
-        True if marking succeeded (or the type is not markable), False if the
-        marking or re-upload failed.
+        Mark.OK if marking succeeded (or the type is not markable), Mark.UNREADABLE if
+        Blender could not open the file, Mark.FAILED if the marking or re-upload failed.
     """
     atype = asset_data.get("assetType")
     if atype not in MARKABLE_TYPES:
         logger.info("Asset type %s is not markable, skipping re-mark for %s", atype, asset_data.get("id"))
-        return True
+        return Mark.OK
 
     try:
         # Flag a copy of the metadata so the bg script marks without unpacking.
@@ -285,16 +295,16 @@ def _mark_and_reupload(asset_data: dict[str, Any], api_key: str, binary_path: st
         if bg_run.failure:
             # A run killed while saving leaves a half-written file; never upload it as the original.
             logger.error("Marking run failed for asset %s: %s", asset_data.get("id"), bg_run.failure)
-            return False
+            return Mark.UNREADABLE if bg_run.unreadable_blend else Mark.FAILED
 
         if SKIP_UPDATE:
             logger.warning("SKIP_UPDATE==True -> skipping marked blend re-upload for %s", asset_data.get("id"))
-            return True
+            return Mark.OK
 
-        return upload.reupload_main_blend(asset_data, blend_path, api_key=api_key)
+        return Mark.OK if upload.reupload_main_blend(asset_data, blend_path, api_key=api_key) else Mark.FAILED
     except Exception:
         logger.exception("Mark-and-reupload failed for asset %s", asset_data.get("id"))
-        return False
+        return Mark.FAILED
 
 
 def _run_generation_jobs(asset_data: dict[str, Any], api_key: str, binary_path: str, blend_path: str) -> bool:
@@ -363,23 +373,18 @@ def _record_result(record: dict[str, str]) -> None:
     )
 
 
-def _summarize(atype: str | None, *, mark_ok: bool, ran_resolutions: bool) -> tuple[str, str, str]:
+def _summarize(atype: str | None, *, mark: Mark, ran_resolutions: bool) -> tuple[str, str, str]:
     """Compute the mark, jobs, and status columns for an asset's summary row.
 
     Args:
         atype: The asset type.
-        mark_ok: Whether marking succeeded (or the type is not markable).
+        mark: How marking ended (OK for a type that is not markable).
         ran_resolutions: Whether a resolutions job ran.
 
     Returns:
         A tuple of (mark_label, jobs_label, status_label).
     """
-    if atype not in MARKABLE_TYPES:
-        mark = "n/a"
-    elif mark_ok:
-        mark = "ok"
-    else:
-        mark = "FAILED"
+    mark_label = "n/a" if atype not in MARKABLE_TYPES else mark.value
 
     jobs: list[str] = []
     if ran_resolutions:
@@ -387,8 +392,8 @@ def _summarize(atype: str | None, *, mark_ok: bool, ran_resolutions: bool) -> tu
     if atype in GLTF_TYPES:
         jobs.append("gltf+godot")
 
-    status = "ok" if mark_ok else "marking failed"
-    return mark, ", ".join(jobs) or "-", status
+    status = {Mark.OK: "ok", Mark.FAILED: "marking failed", Mark.UNREADABLE: "blend unreadable"}[mark]
+    return mark_label, ", ".join(jobs) or "-", status
 
 
 def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) -> None:
@@ -474,7 +479,7 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
 
         # Mark and re-upload the canonical .blend first (textures packed) so the
         # online library is corrected even if the jobs below produce nothing.
-        mark_ok = _mark_and_reupload(asset_data, api_key, _resolve_asset_binary(binary_path), blend_path)
+        mark = _mark_and_reupload(asset_data, api_key, _resolve_asset_binary(binary_path), blend_path)
 
         # Unpack + generate resolutions/GLTFs, reusing the same downloaded file.
         ran_resolutions = _run_generation_jobs(asset_data, api_key, binary_path, blend_path)
@@ -486,14 +491,16 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
 
         # Stamp the asset as fully reprocessed only when marking succeeded, so a
         # failed re-mark is retried on the next sweep instead of being skipped.
-        if mark_ok:
-            _patch_processing_date(asset_data, api_key)
-        else:
+        # A file Blender cannot open is stamped too: retrying never changes it, and its
+        # jobs have recorded why ('Flame folded Napkin', October 2026).
+        if mark is Mark.FAILED:
             logger.warning("Marking failed for %s -> not stamping processingDate (will retry)", asset_data.get("id"))
+        else:
+            _patch_processing_date(asset_data, api_key)
 
         mark_label, jobs_label, status_label = _summarize(
             atype,
-            mark_ok=mark_ok,
+            mark=mark,
             ran_resolutions=ran_resolutions,
         )
         _record_result(

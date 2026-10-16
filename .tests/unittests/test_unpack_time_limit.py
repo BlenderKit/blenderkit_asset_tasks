@@ -57,14 +57,14 @@ class MarkRunTests(unittest.TestCase):
         with mock.patch.object(send_to_bg, "send_to_bg", return_value=send_to_bg.BlenderRun(0)) as send:
             marked = process_asset._mark_and_reupload(MODEL, "test-key", "/opt/blender/blender", "asset.blend")
 
-        self.assertTrue(marked)
+        self.assertIs(marked, process_asset.Mark.OK)
         self.assertEqual([c["timeout_seconds"] for c in _unpack_calls(send)], [config.UNPACK_JOB_TIMEOUT_SECONDS])
 
     def test_a_failed_mark_run_is_not_uploaded(self) -> None:
         with mock.patch.object(send_to_bg, "send_to_bg", return_value=TIMED_OUT):
             marked = process_asset._mark_and_reupload(MODEL, "test-key", "/opt/blender/blender", "asset.blend")
 
-        self.assertFalse(marked)
+        self.assertIs(marked, process_asset.Mark.FAILED)
         self.reupload.assert_not_called()
 
 
