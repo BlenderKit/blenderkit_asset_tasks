@@ -206,7 +206,10 @@ def _process_images_for_resolution(tex_dir_path: str, *, p2res: str, orig_res: s
         _free_all_image_buffers()
 
         fp = paths.get_texture_filepath(tex_dir_path, img, resolution=p2res)
-        if p2res == orig_res:
+        if p2res == orig_res and max(img.size) > image_utils.WIDEST_WRITABLE_SIDE:
+            img["blenderkit_original_path"] = img.filepath
+            image_utils.keep_source_file(img, fp)
+        elif p2res == orig_res:
             img["blenderkit_original_path"] = img.filepath
             image_utils.make_possible_reductions_on_image(
                 img,

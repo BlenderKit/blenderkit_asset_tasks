@@ -26,6 +26,8 @@ CHANNELS_RGBA = 4
 CHANNELS_RGB = 3
 PNG_MAX_COMPRESSION = 100
 JPEG_QUALITY_DEFAULT = 90
+# JPEG holds at most 65,535 px a side, and Blender 4.1-4.4 cannot write a wider PNG either.
+WIDEST_WRITABLE_SIDE = 65535
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_TEXT_CHUNKS = frozenset({b"tEXt", b"zTXt", b"iTXt"})
 MAX_THUMBNAIL_SIZE = 2048
@@ -773,6 +775,29 @@ def _jpeg_is_smaller(teximage: Any, ims: Any, source_size: int) -> bool:
     ims.color_depth = previous[3]
     logger.info("JPEG would be %d bytes, source %d bytes", jpeg_size, source_size)
     return jpeg_size < source_size
+
+
+def keep_source_file(teximage: Any, filepath: str) -> None:
+    """Write the image's source file unchanged to filepath and point the image at it.
+
+    For a texture wider than WIDEST_WRITABLE_SIDE, which no format is safe to re-encode into:
+    'Procedural Rug Fabric' (67,638 px) failed as JPEG everywhere and as PNG in Blender 4.3.
+
+    Args:
+        teximage: Blender image object.
+        filepath: Target file path, Blender-relative or absolute.
+    """
+    _require_bpy()
+    if teximage.packed_file is not None:
+        data = teximage.packed_file.data
+    else:
+        with open(bpy.path.abspath(teximage.filepath), "rb") as source:
+            data = source.read()
+    with open(bpy.path.abspath(filepath), "wb") as target:
+        target.write(data)
+    if len(teximage.packed_files) > 0:
+        teximage.unpack(method="REMOVE")
+    _finalize_image_paths(teximage, filepath)
 
 
 def _finalize_image_paths(teximage: Any, filepath: str) -> None:
