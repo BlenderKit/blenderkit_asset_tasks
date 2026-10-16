@@ -44,6 +44,7 @@ def _image(width: int, height: int) -> Any:
         type="IMAGE",
         source="FILE",
         library=None,
+        packed_file=mock.sentinel.packed,
         buffers_free=mock.Mock(),
     )
 

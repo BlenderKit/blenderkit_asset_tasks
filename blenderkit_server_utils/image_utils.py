@@ -26,6 +26,8 @@ CHANNELS_RGBA = 4
 CHANNELS_RGB = 3
 PNG_MAX_COMPRESSION = 100
 JPEG_QUALITY_DEFAULT = 90
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+PNG_TEXT_CHUNKS = frozenset({b"tEXt", b"zTXt", b"iTXt"})
 MAX_THUMBNAIL_SIZE = 2048
 NORMAL_MEAN_LOW = 0.45
 NORMAL_MEAN_HIGH = 0.55
@@ -646,6 +648,37 @@ def _restore_image_settings(
     ims.compression = compression
     ims.color_depth = color_depth
     ims.exr_codec = exr_codec
+
+
+def strip_png_text(path: str) -> int:
+    """Remove the text chunks (EXIF and XMP profiles, comments) from a PNG file in place.
+
+    Blender 2.93 crashes writing a JPEG from a PNG whose text it carries over
+    (Marble Polished Slab 001a, October 2026). The pixel data is left as it is.
+
+    Args:
+        path: The PNG file.
+
+    Returns:
+        The number of bytes removed; 0 for a file that is not a PNG or has no text.
+    """
+    with open(path, "rb") as file:
+        data = file.read()
+    if not data.startswith(PNG_SIGNATURE):
+        return 0
+    kept = [PNG_SIGNATURE]
+    position = len(PNG_SIGNATURE)
+    while position < len(data):
+        end = position + 12 + int.from_bytes(data[position : position + 4], "big")
+        if data[position + 4 : position + 8] not in PNG_TEXT_CHUNKS:
+            kept.append(data[position:end])
+        position = end
+    stripped = b"".join(kept)
+    if len(stripped) == len(data):
+        return 0
+    with open(path, "wb") as file:
+        file.write(stripped)
+    return len(data) - len(stripped)
 
 
 def image_file_size(img: Any) -> int:

@@ -143,6 +143,21 @@ def _local_textures() -> list[Any]:
     return [img for img in bpy.data.images if _is_texture(img) and img.library is None]
 
 
+def _strip_png_text_from_textures() -> None:
+    """Drop the text metadata from the texture files before Blender reads their pixels.
+
+    Blender 2.93 crashes writing a JPEG from a PNG carrying EXIF or XMP text
+    (Marble Polished Slab 001a, Ivy Plant in Glass Flask; October 2026). The files
+    are the job's own unpacked copies; packed images are left alone.
+    """
+    for img in _local_textures():
+        if img.packed_file is not None:
+            continue
+        path = bpy.path.abspath(img.filepath)
+        if os.path.isfile(path) and (removed := image_utils.strip_png_text(path)):
+            logger.info("Removed %d bytes of PNG text from %s", removed, img.name)
+
+
 def get_current_resolution() -> int:
     """Find the maximum image resolution in the .blend file.
 
@@ -262,6 +277,7 @@ def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
             all its textures are linked from other .blend files.
     """
     _open_asset_blend(data["file_path"])
+    _strip_png_text_from_textures()
 
     files: list[dict[str, Any]] = []
     asset_data = data["asset_data"]
