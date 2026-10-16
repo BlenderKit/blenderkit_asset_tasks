@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 import tempfile
 import time
 from typing import Any
@@ -30,6 +31,10 @@ JPEG_QUALITY_DEFAULT = 90
 WIDEST_WRITABLE_SIDE = 65535
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_TEXT_CHUNKS = frozenset({b"tEXt", b"zTXt", b"iTXt"})
+EXR_MAGIC = b"\x76\x2f\x31\x01"
+# Scanlines per chunk of each OpenEXR compression, by its code in the header.
+EXR_LINES_PER_CHUNK = {0: 1, 1: 1, 2: 1, 3: 16, 4: 32, 5: 16, 6: 32, 7: 32, 8: 32, 9: 256}
+EXR_TILED_OR_MULTIPART = 0x1200
 # Blender counts the values pixels.foreach_get() copies with a C int.
 MAX_PYTHON_PIXEL_VALUES = 2**31 - 1
 MAX_THUMBNAIL_SIZE = 2048
@@ -683,6 +688,71 @@ def strip_png_text(path: str) -> int:
     with open(path, "wb") as file:
         file.write(stripped)
     return len(data) - len(stripped)
+
+
+def _exr_attributes(file: Any) -> tuple[dict[str, bytes], int] | None:
+    """Read an OpenEXR header: its attributes and where the chunk offset table starts.
+
+    Args:
+        file: The EXR file, opened for binary reading at its start.
+
+    Returns:
+        The attributes by name and the table's position; None for a file that is not
+        a single-part scanline EXR.
+    """
+    head = file.read(8)
+    if head[:4] != EXR_MAGIC or int.from_bytes(head[4:8], "little") & EXR_TILED_OR_MULTIPART:
+        return None
+    attributes: dict[str, bytes] = {}
+    while True:
+        name = _read_c_string(file)
+        if not name:
+            return attributes, file.tell()
+        _read_c_string(file)
+        size = int.from_bytes(file.read(4), "little")
+        attributes[name.decode("latin-1")] = file.read(size)
+
+
+def _read_c_string(file: Any) -> bytes:
+    """Read a NUL-terminated string from a binary file.
+
+    Args:
+        file: The file, opened for binary reading.
+
+    Returns:
+        The bytes before the NUL; empty at a NUL or at the end of the file.
+    """
+    chars = bytearray()
+    while (char := file.read(1)) not in (b"", b"\0"):
+        chars += char
+    return bytes(chars)
+
+
+def exr_is_truncated(path: str) -> bool:
+    """Tell whether a scanline EXR file ends before the pixel data its header promises.
+
+    Blender 5.0 crashes inside OpenEXR reading such a file; Poly Haven materials had
+    16K textures cut at a round size ('Grass Ground', 'Checkered Pavement Tiles',
+    October 2026). Tiled and multi-part files are not checked.
+
+    Args:
+        path: The texture file.
+
+    Returns:
+        True when a chunk the header lists starts at or past the end of the file.
+    """
+    size = os.path.getsize(path)
+    with open(path, "rb") as file:
+        header = _exr_attributes(file)
+        if header is None:
+            return False
+        attributes, table_start = header
+        _x_min, y_min, _x_max, y_max = struct.unpack("<4i", attributes["dataWindow"])
+        lines_per_chunk = EXR_LINES_PER_CHUNK[attributes["compression"][0]]
+        chunks = (y_max - y_min + lines_per_chunk) // lines_per_chunk
+        file.seek(table_start)
+        offsets = struct.unpack(f"<{chunks}Q", file.read(8 * chunks).ljust(8 * chunks, b"\0"))
+    return any(offset == 0 or offset >= size for offset in offsets)
 
 
 def image_file_size(img: Any) -> int:
