@@ -131,16 +131,34 @@ def _is_texture(img: Any) -> bool:
     return img.type not in NON_TEXTURE_IMAGE_TYPES and img.source in TEXTURE_SOURCES
 
 
-def _local_textures() -> list[Any]:
+def _owned_textures() -> list[Any]:
     """Return the texture images this file owns.
 
     Images linked from another .blend (often a packed library) are read-only:
     Blender refuses to rename, scale or unpack them, so they are left as they are.
 
     Returns:
-        The images to downscale.
+        The texture images that are not linked.
     """
     return [img for img in bpy.data.images if _is_texture(img) and img.library is None]
+
+
+def _file_missing(img: Any) -> bool:
+    """Tell whether an image's file is neither packed nor on disk."""
+    return img.packed_file is None and img.source == "FILE" and not os.path.isfile(bpy.path.abspath(img.filepath))
+
+
+def _local_textures() -> list[Any]:
+    """Return the owned texture images that have a file to read.
+
+    An image whose file is gone (often a world HDR the asset never used) is never
+    touched: Blender 5.0 crashes freeing the buffers of an image that failed to
+    load ('Rubber Tiles', October 2026).
+
+    Returns:
+        The images to downscale.
+    """
+    return [img for img in _owned_textures() if not _file_missing(img)]
 
 
 def _strip_png_text_from_textures() -> None:
@@ -289,7 +307,7 @@ def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
     actual_resolution = get_current_resolution()
     logger.info("Current asset resolution: %d", actual_resolution)
     if actual_resolution <= 0:
-        unreadable = [img.name for img in _local_textures()]
+        unreadable = [img.name for img in _owned_textures()]
         if unreadable:
             raise RuntimeError(
                 f"{len(unreadable)} image(s) have no pixel data, files missing or unreadable: "
