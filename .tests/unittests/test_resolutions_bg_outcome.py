@@ -49,6 +49,22 @@ def _image(width: int, height: int) -> Any:
     )
 
 
+class _ImageWithoutFile:
+    """An image whose file is gone; reading its size would make Blender try to load it."""
+
+    name = "graffiti_shelter_1k.hdr"
+    type = "IMAGE"
+    source = "FILE"
+    library = None
+    packed_file = None
+    filepath = "//textures/graffiti_shelter_1k.hdr"
+    buffers_free = mock.Mock()
+
+    @property
+    def size(self) -> tuple[int, int]:
+        raise AssertionError("the size of an image without a file was read")
+
+
 class ResolutionsOutcomeTests(unittest.TestCase):
     def setUp(self) -> None:
         bpy.ops.wm.open_mainfile = mock.Mock()
@@ -78,6 +94,22 @@ class ResolutionsOutcomeTests(unittest.TestCase):
         bpy.data.images = [_image(0, 0)]
 
         with self.assertRaisesRegex(RuntimeError, "no pixel data"):
+            resolutions_bg.generate_lower_resolutions(DATA)
+
+    def test_an_image_whose_file_is_gone_is_never_loaded(self) -> None:
+        bpy.data.images = [_ImageWithoutFile(), _image(512, 512)]
+        with mock.patch.object(bpy.path, "abspath", side_effect=lambda path: path):
+            outcome = resolutions_bg.generate_lower_resolutions(DATA)
+
+        self.assertEqual(outcome, {"not_applicable": "smallest-resolution"})
+
+    def test_textures_whose_files_are_all_gone_are_an_error_not_procedural(self) -> None:
+        bpy.data.images = [_ImageWithoutFile()]
+
+        with (
+            mock.patch.object(bpy.path, "abspath", side_effect=lambda path: path),
+            self.assertRaisesRegex(RuntimeError, "files missing or unreadable: graffiti_shelter_1k.hdr"),
+        ):
             resolutions_bg.generate_lower_resolutions(DATA)
 
     def test_textures_that_never_shrink_are_an_error(self) -> None:
