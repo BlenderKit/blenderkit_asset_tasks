@@ -28,6 +28,8 @@ PNG_MAX_COMPRESSION = 100
 JPEG_QUALITY_DEFAULT = 90
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_TEXT_CHUNKS = frozenset({b"tEXt", b"zTXt", b"iTXt"})
+# Blender counts the values pixels.foreach_get() copies with a C int.
+MAX_PYTHON_PIXEL_VALUES = 2**31 - 1
 MAX_THUMBNAIL_SIZE = 2048
 NORMAL_MEAN_LOW = 0.45
 NORMAL_MEAN_HIGH = 0.55
@@ -892,6 +894,22 @@ def _reduce_tiled_image(
     teximage.reload()
 
 
+def python_can_read_pixels(teximage: Any) -> bool:
+    """Tell whether Blender can copy all of an image's pixel values into Python.
+
+    A 25,600 px square RGBA texture has 2.6 billion values; foreach_get() then fails
+    with "expected sequence size -1673527296" ('Acoustic Guitar Taylor', October 2026).
+
+    Args:
+        teximage: Blender image object.
+
+    Returns:
+        True when the pixel count times the channels fits Blender's limit.
+    """
+    width, height = teximage.size
+    return width * height * teximage.channels <= MAX_PYTHON_PIXEL_VALUES
+
+
 def make_possible_reductions_on_image(
     teximage: Any,
     input_filepath: str,
@@ -972,7 +990,7 @@ def make_possible_reductions_on_image(
     ims.color_mode = _set_color_mode_safe(ims, desired_color_mode)
     logger.debug("Color mode (desired=%s, applied=%s)", desired_color_mode, ims.color_mode)
 
-    if do_reductions:
+    if do_reductions and python_can_read_pixels(teximage):
         na = image_to_numpy_flat(teximage)
 
         if (
