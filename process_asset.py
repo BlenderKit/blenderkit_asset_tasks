@@ -23,6 +23,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 from typing import Any
 
 import generate_gltf
@@ -521,14 +522,25 @@ def process_asset(asset_data: dict[str, Any], api_key: str, binary_path: str) ->
 def iterate_assets(assets: list[dict[str, Any]], api_key: str, binary_path: str) -> None:
     """Process assets, running each asset's jobs sequentially and assets in parallel.
 
+    No asset is started once config.PROCESS_TIME_BUDGET_SECONDS have passed.
+
     Args:
         assets: List of asset dictionaries to process.
         api_key: API key for authentication.
         binary_path: Absolute path to the Blender binary for background jobs.
     """
+    budget = config.PROCESS_TIME_BUDGET_SECONDS
+    deadline = time.monotonic() + budget
+
+    def process_within_budget(asset_data: dict[str, Any], api_key: str, binary_path: str) -> None:
+        if budget and time.monotonic() > deadline:
+            logger.info("Time budget of %d s used up; %s waits for the next run", budget, asset_data.get("id"))
+            return
+        process_asset(asset_data, api_key, binary_path)
+
     concurrency.run_asset_threads(
         assets,
-        worker=process_asset,
+        worker=process_within_budget,
         worker_kwargs={
             "api_key": api_key,
             "binary_path": binary_path,

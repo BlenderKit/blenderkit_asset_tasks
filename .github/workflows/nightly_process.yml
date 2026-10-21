@@ -18,6 +18,8 @@ env:
   BLENDER_PATH: '/home/headless/blender/blender'
   BLENDERS_PATH: '/home/headless/blenders'
   MAX_ASSET_COUNT: 500
+  # Stop starting assets after 4 h so the job ends before GitHub's 6 h cap.
+  PROCESS_TIME_BUDGET_SECONDS: 14400
 
 jobs:
   PROCESS:
