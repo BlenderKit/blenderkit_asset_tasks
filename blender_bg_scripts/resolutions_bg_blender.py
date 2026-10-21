@@ -198,12 +198,17 @@ def _raise_on_truncated_textures() -> None:
 def get_current_resolution() -> int:
     """Find the maximum image resolution in the .blend file.
 
+    Reading an image's size makes Blender load all its pixels, so each image is freed
+    again right away: 'Space Launch System (SLS) Rocket' (80 textures) ran out of 16 GB
+    here before the first texture was scaled (October 2026).
+
     Returns:
         The maximum of width/height across the file's own texture images.
     """
     actres = 0
     for img in _local_textures():
         actres = max(actres, img.size[0], img.size[1])
+        img.buffers_free()
     return actres
 
 
