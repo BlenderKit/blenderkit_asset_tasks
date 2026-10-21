@@ -70,6 +70,15 @@ if os.getenv("CUSTOM_SEARCH_PARAMS"):
 MAX_ASSET_COUNT: int = int(os.getenv("MAX_ASSET_COUNT", "1000"))
 """Maximum number of assets to process in one run."""
 
+PROCESS_TIME_BUDGET_SECONDS: int = int(os.getenv("PROCESS_TIME_BUDGET_SECONDS", "0"))
+"""Seconds into a bulk process run after which no further asset is started; 0 disables it.
+
+Every nightly PROCESS from 2026-10-09 to 10-19 hit GitHub's six-hour job cap with 18 to 206 of
+its 500 assets done: the run was cancelled, shown red, and the asset in progress lost its work.
+An asset took at most 91 minutes in those runs (median 30 s), so the nightly stops starting
+new ones after four hours and the rest wait for the next night.
+"""
+
 MAX_VALIDATION_THREADS: int = int(os.getenv("MAX_VALIDATION_THREADS", "8"))
 """Maximum number of concurrent validation threads."""
 
