@@ -176,6 +176,25 @@ def _strip_png_text_from_textures() -> None:
             logger.info("Removed %d bytes of PNG text from %s", removed, img.name)
 
 
+def _raise_on_truncated_textures() -> None:
+    """Fail the asset before Blender reads a texture file that is cut short.
+
+    Raises:
+        RuntimeError: When a texture file ends before its own pixel data.
+    """
+    truncated = [
+        img.name
+        for img in _local_textures()
+        if img.source == "FILE"
+        and img.packed_file is None
+        and image_utils.exr_is_truncated(bpy.path.abspath(img.filepath))
+    ]
+    if truncated:
+        raise RuntimeError(
+            f"{len(truncated)} image(s) have no pixel data, files truncated: " + ", ".join(truncated[:5]),
+        )
+
+
 def get_current_resolution() -> int:
     """Find the maximum image resolution in the .blend file.
 
@@ -299,6 +318,7 @@ def generate_lower_resolutions(data: dict[str, Any]) -> dict[str, Any]:
     """
     _open_asset_blend(data["file_path"])
     _strip_png_text_from_textures()
+    _raise_on_truncated_textures()
 
     files: list[dict[str, Any]] = []
     asset_data = data["asset_data"]
