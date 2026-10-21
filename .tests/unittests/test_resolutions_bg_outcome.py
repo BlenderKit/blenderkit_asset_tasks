@@ -112,6 +112,14 @@ class ResolutionsOutcomeTests(unittest.TestCase):
         ):
             resolutions_bg.generate_lower_resolutions(DATA)
 
+    def test_reading_the_sizes_frees_every_image_again(self) -> None:
+        images = [_image(4096, 4096), _image(8192, 8192)]
+        bpy.data.images = images
+
+        self.assertEqual(resolutions_bg.get_current_resolution(), 8192)
+        for image in images:
+            image.buffers_free.assert_called_once_with()
+
     def test_textures_that_never_shrink_are_an_error(self) -> None:
         self.assertEqual(self._generate_with_sizes(original=1000, generated=1000), {"error": "no-size-gain"})
 
