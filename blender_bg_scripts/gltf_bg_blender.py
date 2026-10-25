@@ -847,24 +847,31 @@ def _uv_maps_read_by_materials(obj: bpy.types.Object) -> set[str]:
 
 
 def _free_uv_map_slot(obj: bpy.types.Object, keep: str | None) -> None:
-    """Remove a UV map no material reads when the mesh has no room left for the lighting UV map.
+    """Remove UV maps no material reads until the mesh has room for the lighting UV map.
+
+    A mesh can hold more maps than the limit when they came in as corner attributes
+    ('Woman hero character rigged': 13), so one removal is not always enough.
 
     Args:
         obj: Object whose mesh needs a free UV map slot.
         keep: The active UV map, which is never removed.
 
     Raises:
-        RuntimeError: When every UV map is in use, so none can make room.
+        RuntimeError: When too few UV maps are unused to make room.
     """
     uv_layers = obj.data.uv_layers
-    if len(uv_layers) < UV_MAP_LIMIT:
+    excess = len(uv_layers) - UV_MAP_LIMIT + 1
+    if excess <= 0:
         return
     used = _uv_maps_read_by_materials(obj) | {keep}
     spare = [layer.name for layer in uv_layers if layer.name not in used and not layer.active_render]
-    if not spare:
-        raise RuntimeError(f"'{obj.name}' uses all {UV_MAP_LIMIT} UV maps; none is free for '{UV_NAME}'")
-    logger.info("Removing unused UV map '%s' from '%s' to make room for '%s'", spare[-1], obj.name, UV_NAME)
-    uv_layers.remove(uv_layers[spare[-1]])
+    if len(spare) < excess:
+        raise RuntimeError(
+            f"'{obj.name}' has {len(uv_layers)} UV maps and only {len(spare)} unused; none is free for '{UV_NAME}'",
+        )
+    for name in spare[-excess:]:
+        logger.info("Removing unused UV map '%s' from '%s' to make room for '%s'", name, obj.name, UV_NAME)
+        uv_layers.remove(uv_layers[name])
 
 
 def _remove_attribute_named_like_lighting_uv(mesh: bpy.types.Mesh) -> None:
