@@ -71,6 +71,16 @@ MAX_FACE_PAIRS_FOR_OVERLAP_CHECK = 2**24
 
 # In Blender 6.0+ Material.use_nodes is removed (materials always use nodes).
 BLENDER_6_PLUS: bool = bpy.app.version >= (6, 0, 0)
+# Blender 3.3 replaced Separate RGB with Separate Color; an upload from an older version is
+# exported by that version in the webhook job ('Digital Safe', Blender 3.0, October 2026).
+if bpy.app.version >= (3, 3, 0):
+    SEPARATE_COLOR_NODE, SEPARATE_COLOR_TYPE = "ShaderNodeSeparateColor", "SEPARATE_COLOR"
+    SEPARATE_COLOR_INPUT = "Color"
+    SEPARATE_COLOR_CHANNELS = ("Red", "Green", "Blue")
+else:
+    SEPARATE_COLOR_NODE, SEPARATE_COLOR_TYPE = "ShaderNodeSeparateRGB", "SEPRGB"
+    SEPARATE_COLOR_INPUT = "Image"
+    SEPARATE_COLOR_CHANNELS = ("R", "G", "B")
 TEX_SIZE = int(float(os.environ.get("GLTF_TEXTURE_SIZE", "1024")))  # size for baked textures
 # Number of channels in an RGBA image; used when flattening baked alpha.
 RGBA_CHANNELS: int = 4
@@ -691,7 +701,10 @@ def uv_layer_area(bm: bmesh.types.BMesh, uv_layer: bpy.types.MeshUVLoopLayer) ->
     total = 0.0
     for face in bm.faces:
         uvs = [loop[uv_layer].uv for loop in face.loops]
-        total += abs(sum(a.x * b.y - b.x * a.y for a, b in zip(uvs, uvs[1:] + uvs[:1], strict=True))) / 2
+        # Indices, not zip(strict=True): Blender 2.93 and 3.0 run Python 3.9.
+        count = len(uvs)
+        nexts = [uvs[(i + 1) % count] for i in range(count)]
+        total += abs(sum(uvs[i].x * nexts[i].y - nexts[i].x * uvs[i].y for i in range(count))) / 2
     return total
 
 
@@ -908,8 +921,9 @@ def ensure_lighting_uv(obj: bpy.types.Object) -> None:  # noqa: C901
     # Duplicate currently active UV data into the lighting layer up front
     if prev_name and prev_name != UV_NAME:
         try:
-            for src, dst in zip(mesh.uv_layers[prev_name].data, lighting_layer.data, strict=True):
-                dst.uv = src.uv.copy()
+            coords = [0.0] * (2 * len(lighting_layer.data))
+            mesh.uv_layers[prev_name].data.foreach_get("uv", coords)
+            lighting_layer.data.foreach_set("uv", coords)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to duplicate UV layer '%s' onto '%s': %s", prev_name, UV_NAME, exc)
 
@@ -1889,15 +1903,15 @@ def _create_single_baked_material(  # noqa: PLR0915
         orm_node.location = (-700, 0)
         orm_node.image = combined_image
         links.new(uv_node.outputs["UV"], orm_node.inputs["Vector"])
-        split_node = nodes.new(type="ShaderNodeSeparateColor")
+        split_node = nodes.new(type=SEPARATE_COLOR_NODE)
         split_node.location = (-450, 0)
         split_node.label = "Baked RT Split"
-        links.new(orm_node.outputs["Color"], split_node.inputs["Color"])
-        rough_socket = split_node.outputs.get("Green")
+        links.new(orm_node.outputs["Color"], split_node.inputs[SEPARATE_COLOR_INPUT])
+        rough_socket = split_node.outputs.get(SEPARATE_COLOR_CHANNELS[1])
         if rough_socket and "Roughness" in bsdf.inputs:
             links.new(rough_socket, bsdf.inputs["Roughness"])
 
-        metallic_socket = split_node.outputs.get("Blue")
+        metallic_socket = split_node.outputs.get(SEPARATE_COLOR_CHANNELS[2])
         if metallic_socket and "Metallic" in bsdf.inputs:
             links.new(metallic_socket, bsdf.inputs["Metallic"])
 
@@ -2058,30 +2072,30 @@ def connect_baked_textures(obj: bpy.types.Object) -> None:  # noqa: C901, PLR091
         combined_node = image_nodes.get("orm")
         if combined_node:
             split_node = next(
-                (node for node in nodes if node.type == "SEPRGB" and node.label == "Baked ORM Split"),
+                (node for node in nodes if node.type == SEPARATE_COLOR_TYPE and node.label == "Baked ORM Split"),
                 None,
             )
             if split_node is None:
-                split_node = nodes.new(type="ShaderNodeSeparateColor")
+                split_node = nodes.new(type=SEPARATE_COLOR_NODE)
                 split_node.label = "Baked ORM Split"
                 split_node.location = (-350, -200)
-            for link in list(split_node.inputs["Color"].links):
+            for link in list(split_node.inputs[SEPARATE_COLOR_INPUT].links):
                 links.remove(link)
-            links.new(combined_node.outputs["Color"], split_node.inputs["Color"])
+            links.new(combined_node.outputs["Color"], split_node.inputs[SEPARATE_COLOR_INPUT])
 
-            occlusion_output = split_node.outputs.get("Red")
+            occlusion_output = split_node.outputs.get(SEPARATE_COLOR_CHANNELS[0])
             if occlusion_output and "Occlusion" in bsdf.inputs:
                 for link in list(bsdf.inputs["Occlusion"].links):
                     links.remove(link)
                 links.new(occlusion_output, bsdf.inputs["Occlusion"])
 
-            rough_output = split_node.outputs.get("Green")
+            rough_output = split_node.outputs.get(SEPARATE_COLOR_CHANNELS[1])
             if rough_output and "Roughness" in bsdf.inputs:
                 for link in list(bsdf.inputs["Roughness"].links):
                     links.remove(link)
                 links.new(rough_output, bsdf.inputs["Roughness"])
 
-            metallic_output = split_node.outputs.get("Blue")
+            metallic_output = split_node.outputs.get(SEPARATE_COLOR_CHANNELS[2])
             if metallic_output and "Metallic" in bsdf.inputs:
                 for link in list(bsdf.inputs["Metallic"].links):
                     links.remove(link)
