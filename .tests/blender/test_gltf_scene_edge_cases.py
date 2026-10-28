@@ -6,7 +6,9 @@ Both failed whole GLTF exports in the October 2026 re-run:
 - meshes that already use all 8 UV maps, so no LightingUV map could be added:
   "KeyError: 'bpy_prop_collection[key]: key "LightingUV" not found'";
 - the same KeyError on a mesh that also has a non-UV attribute named LightingUV:
-  Blender named the new UV map "LightingUV.001" ('Hair.001', 6 Oct 2026).
+  Blender named the new UV map "LightingUV.001" ('Hair.001', 6 Oct 2026);
+- the same KeyError on meshes with 13 UV maps stored as corner attributes: removing one
+  spare map still left no room ('Woman hero character rigged', 25 Oct 2026).
 
 Runs inside Blender, not unittest:
     blender --background --factory-startup --python-exit-code 1 --python .tests/blender/test_gltf_scene_edge_cases.py
@@ -25,6 +27,7 @@ sys.path[:0] = [REPO_ROOT, os.path.join(REPO_ROOT, "blender_bg_scripts")]
 import gltf_bg_blender  # noqa: E402
 
 UV_MAP_LIMIT = 8
+OVERFULL_EXTRA_MAPS = 12
 
 
 def _procedural_material(name: str) -> bpy.types.Material:
@@ -58,6 +61,12 @@ def main() -> None:
     uv_map_node.uv_map = "Spare 7"
     tree.links.new(uv_map_node.outputs["UV"], tree.nodes["Noise Texture"].inputs["Vector"])
 
+    overfull = _procedural_cube("Overfull UV maps", (6.0, 0.0, 0.0))
+    for index in range(OVERFULL_EXTRA_MAPS):
+        overfull.data.attributes.new(name=f"Extra {index}", type="FLOAT2", domain="CORNER")
+    overfull.data.uv_layers.active = overfull.data.uv_layers["UVMap"]
+    assert len(overfull.data.uv_layers) == OVERFULL_EXTRA_MAPS + 1, [layer.name for layer in overfull.data.uv_layers]
+
     unlinked = bpy.data.objects.new("cs_wire_unlinked", bpy.data.meshes.new_from_object(full))
     unlinked.data.materials.append(_procedural_material("Unlinked material"))
     widgets = bpy.data.collections.new("Widgets")
@@ -80,6 +89,10 @@ def main() -> None:
     assert len(uv_names) == UV_MAP_LIMIT, uv_names
     assert "UVMap" in uv_names, uv_names
     assert "Spare 7" in uv_names, uv_names
+    overfull_names = [layer.name for layer in overfull.data.uv_layers]
+    assert gltf_bg_blender.UV_NAME in overfull_names, overfull_names
+    assert len(overfull_names) <= UV_MAP_LIMIT, overfull_names
+    assert "UVMap" in overfull_names, overfull_names
 
 
 main()
