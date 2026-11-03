@@ -23,7 +23,8 @@ env:
 
 jobs:
   PROCESS:
-    runs-on: ubuntu-latest
+    # The multi-version image does not fit the disk of ubuntu-26.04 runners ("no space left on device" while pulling, 3 Nov 2026).
+    runs-on: ubuntu-24.04
     # Multi-version image: a bulk run mixes assets from many source Blender
     # versions, so processing picks the matching (never newer) Blender per asset.
     container: ghcr.io/blenderkit/headless-blender:multi-version
