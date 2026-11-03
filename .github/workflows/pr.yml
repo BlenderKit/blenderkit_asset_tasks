@@ -13,7 +13,8 @@ env:
 jobs:
   RESOLUTIONS:
     name: Generate RES (${{ matrix.asset_name }})
-    runs-on: ubuntu-latest
+    # The multi-version image does not fit the disk of ubuntu-26.04 runners ("no space left on device" while pulling, 3 Nov 2026).
+    runs-on: ubuntu-24.04
     # Fork PRs don't receive repository secrets, so BLENDERKIT_API_KEY would be empty.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     container: ghcr.io/blenderkit/headless-blender:multi-version

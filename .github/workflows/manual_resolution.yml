@@ -28,7 +28,8 @@ env:
 
 jobs:
   RESOLUTIONS:
-    runs-on: ubuntu-latest
+    # The multi-version image does not fit the disk of ubuntu-26.04 runners ("no space left on device" while pulling, 3 Nov 2026).
+    runs-on: ubuntu-24.04
     # Multi-version image so resolutions open each asset with its matching
     # (never newer) Blender instead of always the latest.
     container: ghcr.io/blenderkit/headless-blender:multi-version
