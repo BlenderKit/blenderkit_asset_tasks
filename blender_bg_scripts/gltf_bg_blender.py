@@ -660,6 +660,11 @@ def _pack_uv_islands_with_operator(obj: bpy.types.Object) -> bool:
     if UV_NAME not in mesh.uv_layers:
         logger.warning("Cannot pack UVs on '%s': missing '%s' layer", obj.name, UV_NAME)
         return False
+    # Edit mode refuses a hidden object, and leaving the failed attempt raised again
+    # ('Carpet', 'Foxy': "Cannot edit hidden object"); the fallback packer needs no mode.
+    if not obj.visible_get():
+        logger.info("'%s' is hidden; packing its UVs without the operator", obj.name)
+        return False
 
     view_layer = bpy.context.view_layer
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -1129,23 +1134,27 @@ def _node_tree_has_transparent_shader(node_tree: bpy.types.NodeTree | None, visi
 def _check_if_node_connected_to_output(node: bpy.types.Node) -> bool:
     """Check if a node is connected to the material output node.
 
+    Links can form a loop, which Blender only flags as invalid ('Aquila Live Edge table'
+    recursed until RecursionError), so every node is followed once.
+
     Args:
         node: Node to check for connection to output.
 
     Returns:
         True if the node is connected to output, otherwise False.
     """
-    if not node.outputs:
-        return False
-
-    for output in node.outputs:
-        for link in output.links:
-            to_node = link.to_node
-            if to_node.type == "OUTPUT_MATERIAL":
-                return True
-            if _check_if_node_connected_to_output(to_node):
-                return True
-
+    pending = [node]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if current.as_pointer() in seen:
+            continue
+        seen.add(current.as_pointer())
+        for output in current.outputs:
+            for link in output.links:
+                if link.to_node.type == "OUTPUT_MATERIAL":
+                    return True
+                pending.append(link.to_node)
     return False
 
 
@@ -1820,7 +1829,8 @@ def is_procedural_material(mat: bpy.types.Material | bpy.types.NodeTree) -> bool
 
     has_blocking_group = False
     for node in node_tree.nodes:
-        if node.type == "GROUP" and estimate_shader_cost(node.node_tree) >= 10000:  # noqa: PLR2004
+        # A group node can have no node tree ('Eket ikea'); it adds no cost.
+        if node.type == "GROUP" and node.node_tree and estimate_shader_cost(node.node_tree) >= 10000:  # noqa: PLR2004
             logger.info("Detected complex node group '%s' in material '%s'", node.name, mat.name)
             has_blocking_group = True
 
@@ -2578,6 +2588,23 @@ def baked_inputs(materials: Iterable[bpy.types.Material], kind: str | None) -> I
             restore()
 
 
+def _mute_visibility_drivers(obj: bpy.types.Object) -> None:
+    """Mute the drivers that hide an object, so unhiding it for the bake sticks.
+
+    Character rigs switch outfits with drivers on hide_viewport/hide_render ('Foxy'):
+    every depsgraph update hid the object again and its bake failed. This file is never saved.
+
+    Args:
+        obj: Object about to be baked.
+    """
+    if obj.animation_data is None:
+        return
+    for fcurve in obj.animation_data.drivers:
+        if fcurve.data_path in {"hide_viewport", "hide_render"} and not fcurve.mute:
+            logger.info("Muting the %s driver of '%s' for baking", fcurve.data_path, obj.name)
+            fcurve.mute = True
+
+
 def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901, PLR0912, PLR0915
     """Bake four texture passes (color, normal, roughness, transmission) for procedural materials.
 
@@ -2616,10 +2643,16 @@ def bake_all_procedural_textures(obj: bpy.types.Object) -> None:  # noqa: C901, 
 
     PROCEDURAL_MATERIALS.extend(procedural_materials)
 
+    _mute_visibility_drivers(obj)
     if obj.hide_render:
         # Cycles bakes nothing for an object hidden from rendering; this file is never saved.
         logger.info("Making '%s' renderable for baking", obj.name)
         obj.hide_render = False
+    if obj.hide_viewport or obj.hide_get():
+        # Edit mode and the bake operator refuse a hidden object ('Carpet', 'Foxy').
+        logger.info("Unhiding '%s' for baking", obj.name)
+        obj.hide_viewport = False
+        obj.hide_set(state=False)
 
     bpy.ops.object.select_all(action="DESELECT")
     obj.select_set(state=True)
