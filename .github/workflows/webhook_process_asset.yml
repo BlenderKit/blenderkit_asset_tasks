@@ -42,7 +42,8 @@ env:
 jobs:
   PROCESS:
     name: Public & Validated -> process (resolutions, GLTF, Godot GLTF, marking, reindex)
-    runs-on: ubuntu-latest
+    # On ubuntu-26.04 runners setup-python's Python cannot load ssl inside this container (pip finds no packages, 7 Nov 2026).
+    runs-on: ubuntu-24.04
     env:
       BLENDERS_PATH: /home/headless/blenders
     if: (github.event.inputs.verification_status == 'validated' || github.event.client_payload.verification_status == 'validated') &&
