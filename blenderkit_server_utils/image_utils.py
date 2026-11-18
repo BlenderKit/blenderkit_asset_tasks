@@ -35,6 +35,7 @@ EXR_MAGIC = b"\x76\x2f\x31\x01"
 # Scanlines per chunk of each OpenEXR compression, by its code in the header.
 EXR_LINES_PER_CHUNK = {0: 1, 1: 1, 2: 1, 3: 16, 4: 32, 5: 16, 6: 32, 7: 32, 8: 32, 9: 256}
 EXR_TILED_OR_MULTIPART = 0x1200
+EXR_CHUNK_HEADER = struct.Struct("<ii")  # scanline chunk: first y, packed data size
 # Blender counts the values pixels.foreach_get() copies with a C int.
 MAX_PYTHON_PIXEL_VALUES = 2**31 - 1
 MAX_THUMBNAIL_SIZE = 2048
@@ -735,11 +736,15 @@ def exr_is_truncated(path: str) -> bool:
     16K textures cut at a round size ('Grass Ground', 'Checkered Pavement Tiles',
     October 2026). Tiled and multi-part files are not checked.
 
+    Some writers leave the offset table zeroed; OpenEXR then rebuilds it by walking
+    the chunks, so such a file is checked the same way ('Layered Cliff Rock',
+    November 2026).
+
     Args:
         path: The texture file.
 
     Returns:
-        True when a chunk the header lists starts at or past the end of the file.
+        True when the file ends inside its offset table or before a chunk it lists.
     """
     size = os.path.getsize(path)
     with open(path, "rb") as file:
@@ -751,8 +756,37 @@ def exr_is_truncated(path: str) -> bool:
         lines_per_chunk = EXR_LINES_PER_CHUNK[attributes["compression"][0]]
         chunks = (y_max - y_min + lines_per_chunk) // lines_per_chunk
         file.seek(table_start)
-        offsets = struct.unpack(f"<{chunks}Q", file.read(8 * chunks).ljust(8 * chunks, b"\0"))
-    return any(offset == 0 or offset >= size for offset in offsets)
+        table = file.read(8 * chunks)
+        if len(table) < 8 * chunks:
+            return True
+        offsets = struct.unpack(f"<{chunks}Q", table)
+        if 0 in offsets:
+            return _exr_chunks_run_past(file, table_start + 8 * chunks, chunks, size)
+    return any(offset >= size for offset in offsets)
+
+
+def _exr_chunks_run_past(file: Any, position: int, chunks: int, size: int) -> bool:
+    """Walk the scanline chunks that follow the offset table, as OpenEXR does for a zeroed one.
+
+    Args:
+        file: The EXR file, opened for binary reading.
+        position: Where the first chunk starts.
+        chunks: How many chunks the data window needs.
+        size: The file size.
+
+    Returns:
+        True when a chunk ends past the end of the file.
+    """
+    for _ in range(chunks):
+        file.seek(position)
+        head = file.read(EXR_CHUNK_HEADER.size)
+        if len(head) < EXR_CHUNK_HEADER.size:
+            return True
+        _y, packed_size = EXR_CHUNK_HEADER.unpack(head)
+        position += EXR_CHUNK_HEADER.size + packed_size
+        if packed_size < 0 or position > size:
+            return True
+    return False
 
 
 def image_file_size(img: Any) -> int:
