@@ -2989,6 +2989,24 @@ def export_formats(json_result_path: str, scene_path: str, target_formats: list[
         sys.exit(101)
 
 
+def bake_objects(objects: list[bpy.types.Object]) -> None:
+    """Bake the procedural textures of every mesh, with subdivision off everywhere first.
+
+    Every bake renders the whole scene: objects still subdivided at their render level
+    took a 531k-face bouquet past the runner's 16 GB on its first bake (Nov 2026).
+
+    Args:
+        objects: The view layer's objects, in preprocessing order.
+    """
+    meshes = [obj for obj in objects if obj.type == "MESH"]
+    for obj in meshes:
+        disable_subsurf_modifiers(obj)
+    for i, obj in enumerate(objects):
+        logger.info("Preprocess object %d/%d: %s", i + 1, len(objects), obj.name)
+        if obj.type == "MESH":
+            bake_all_procedural_textures(obj)
+
+
 def generate_gltf(json_result_path: str, target_formats: list[str]) -> None:
     """Bake the asset once, then export it in every target format (see export_formats).
 
@@ -3034,12 +3052,7 @@ def generate_gltf(json_result_path: str, target_formats: list[str]) -> None:
     objects = list(bpy.context.view_layer.objects)
     count = len(objects)
     logger.info("Number of objects in the scene: %d", count)
-    for i, obj in enumerate(objects):
-        logger.info("Preprocess object %d/%d: %s", i + 1, count, obj.name)
-        if obj.type != "MESH":
-            continue
-        disable_subsurf_modifiers(obj)
-        bake_all_procedural_textures(obj)
+    bake_objects(objects)
 
     # save duplicate of the scene for debugging , with all the baking setups
     if LOCAL_DEBUG:
