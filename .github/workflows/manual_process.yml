@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: '200'
+      generation_timeout_seconds:
+        description: 'Time limit of one resolutions or GLTF Blender run (default: 5400). An asset runs both, so keep (2 x limit + 15 min) x assets under the 6 h job limit'
+        required: false
+        type: string
+        default: '5400'
 
 
 env:
@@ -33,6 +38,7 @@ env:
   MAX_ASSET_COUNT: '${{ inputs.max_asset_count }}'
   ASSET_BASE_ID: '${{ inputs.asset_base_id }}'
   CUSTOM_SEARCH_PARAMS: '${{ inputs.custom_search_params }}'
+  GENERATION_JOB_TIMEOUT_SECONDS: '${{ inputs.generation_timeout_seconds }}'
 
 jobs:
   PROCESS:
